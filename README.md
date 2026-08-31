@@ -7,9 +7,16 @@ la machine à part les requêtes vers les flux eux-mêmes.
 
 <p align="center">
   <img src="docs/magazine.png" width="760"
-       alt="La une : index noir, manchette, une plein cadre, colonnes à filets, mur d'images, aplats typographiques">
-  <br><em>« La une » — la une plein cadre, la rangée de colonnes, le mur d'images,
-  les aplats et les plaques typographiques, puis les dépêches.</em>
+       alt="La une en thème clair : index sombre, manchette, une plein cadre, colonnes à filets, mur d'images, aplats typographiques">
+  <br><em>« La une » en thème clair — la une plein cadre, la rangée de colonnes,
+  le mur d'images, les aplats et les plaques typographiques, puis les dépêches.</em>
+</p>
+
+<p align="center">
+  <img src="docs/sombre.png" width="760"
+       alt="La même page en thème sombre : le papier passe à l'encre, l'index reste sombre">
+  <br><em>La même page en thème sombre. Le papier et l'encre s'échangent ;
+  l'index, lui, était déjà sombre et le reste.</em>
 </p>
 
 <p align="center">
@@ -106,6 +113,14 @@ fond éclairci. L'**accent** est une variable unique — tampon de la une,
 surtitres, filet qui se dessine au survol, pastilles de non-lu, lettrine, jauge
 de lecture. Quatre valeurs au choix dans les réglages : forêt `#10604a` (par
 défaut), vermillon `#e2452a`, Klein `#1b3fd8`, magenta `#d81e73`.
+
+**Deux thèmes**, et la bascule dans les réglages : clair, sombre, ou d'après le
+système. Le sombre échange le papier et l'encre — mais pas tout. L'index reste
+sombre dans les deux : il l'était déjà en clair, c'est sa nature de kiosque.
+Et `--paper` ne s'inverse pas non plus : ce jeton ne veut pas dire « fond de
+page », il veut dire « encre claire posée sur un fond sombre », et il n'a
+aucune raison de foncer parce que la page a foncé. L'avoir inversé une fois
+avait retourné les plaques de la une — titres blancs sur fond devenu blanc.
 
 Chaque source reçoit une **teinte** stable parmi six (plus deux neutres), tirée
 du hachage de son titre. Elle sert à trois endroits : la barre de 3 px dans

@@ -7,14 +7,27 @@ la machine à part les requêtes vers les flux eux-mêmes.
 <p align="center">
   <img src="docs/magazine.png" width="720"
        alt="La vue magazine : une grande une, puis une grille rythmée par des cartes larges">
-  <br><em>La vue magazine.</em>
+  <br><em>La vue magazine. À gauche, les étiquettes et leurs teintes, puis les sources.</em>
 </p>
 
 <p align="center">
   <img src="docs/lecteur.png" width="720"
-       alt="Le lecteur : lettrine, temps de lecture, texte complet récupéré sur la page d'origine">
-  <br><em>Le lecteur. L'étiquette « texte complet » signale un article que le
-  flux ne publiait qu'en résumé.</em>
+       alt="Le lecteur : étiquettes colorées, lettrine, temps de lecture, texte complet">
+  <br><em>Le lecteur. Aeon ne publie qu'un résumé de 27 mots : l'étiquette
+  « texte complet » signale les 4 100 mots récupérés sur la page d'origine.</em>
+</p>
+
+<p align="center">
+  <img src="docs/video.png" width="720"
+       alt="Une vidéo de chaîne YouTube lue dans Bublee, avec le lecteur intégré">
+  <br><em>Une chaîne YouTube arrive comme n'importe quelle source. Le lecteur
+  joue la vidéo sur place, la description garde ses liens.</em>
+</p>
+
+<p align="center">
+  <img src="docs/etiquettes.png" width="720"
+       alt="Le gestionnaire d'étiquettes : renommer, reteindre, supprimer">
+  <br><em>Le gestionnaire d'étiquettes : créer, renommer, reteindre, supprimer.</em>
 </p>
 
 ## Démarrer
@@ -291,6 +304,9 @@ curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA' | jq -r '.
 # les deux à la fois (et non l'une ou l'autre)
 curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA,à%20lire'
 ```
+
+Trois adresses directes, utiles en marque-page : `#/article/482` ouvre un
+article, `#/tags` le gestionnaire d'étiquettes, `#/shortcuts` l'aide-mémoire.
 
 ## Raccourcis clavier
 

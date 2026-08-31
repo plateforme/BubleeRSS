@@ -68,9 +68,11 @@ async function boot() {
   }
   wireEvents();
 
-  // Lien direct vers un article : #/article/482
-  const cible = /^#\/article\/(\d+)$/.exec(location.hash);
-  if (cible) openArticle(Number(cible[1]));
+  // Liens directs : #/article/482, #/tags, #/shortcuts
+  const article = /^#\/article\/(\d+)$/.exec(location.hash);
+  if (article) openArticle(Number(article[1]));
+  else if (location.hash === '#/tags') ouvrirGestionTags();
+  else if (location.hash === '#/shortcuts') openModal('#shortcutsModal');
 }
 
 function absorb(data) {
@@ -547,7 +549,9 @@ async function completerArticle(article, force = false) {
 function renderReader(article) {
   const suivant = articleSuivant();
   // Une vidéo : le lecteur remplace le texte, la miniature ferait doublon.
-  const estVideo = /<iframe[^>]+(youtube|vimeo|dailymotion)/i.test(article.content || '');
+  // On se fie à l'adresse, pas au contenu : un article qui *cite* une vidéo
+  // reste un article, avec son temps de lecture et son image d'ouverture.
+  const estVideo = /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(article.url || '');
 
   $('#readerStar').classList.toggle('on', Boolean(article.starred));
   $('#readerFull').hidden = estVideo || !article.url;

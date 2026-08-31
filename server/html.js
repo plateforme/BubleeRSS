@@ -16,7 +16,7 @@ const ALLOWED_ATTRS = {
   img: ['src', 'srcset', 'sizes', 'alt', 'title', 'width', 'height'],
   source: ['src', 'srcset', 'sizes', 'type', 'media'],
   video: ['src', 'poster', 'controls', 'width', 'height'],
-  audio: ['src', 'controls'],
+  audio: ['src', 'controls', 'preload'],
   iframe: ['src', 'width', 'height', 'allow', 'allowfullscreen', 'title'],
   td: ['colspan', 'rowspan'],
   th: ['colspan', 'rowspan', 'scope'],

@@ -210,6 +210,131 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 .pill.ghost { background: transparent; color: var(--ink-mute); font-weight: 500; }
 .pill.zero { visibility: hidden; }
 
+/* ------------------------------------------------------------ étiquettes */
+
+.rail-tags { padding: 0 12px; display: flex; flex-direction: column; gap: 1px; }
+
+.tag-row {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 6px 10px; border-radius: 7px;
+  text-align: left; color: var(--ink-soft); font-size: 13px;
+  transition: background .14s var(--ease), color .14s var(--ease);
+}
+.tag-row:hover { background: var(--rule-soft); color: var(--ink); }
+.tag-row.active {
+  background: color-mix(in srgb, var(--teinte) 12%, transparent);
+  color: var(--ink); font-weight: 600;
+}
+.tag-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* La teinte porte l'identité de l'étiquette, pas le texte. */
+.tag-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--teinte);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--teinte) 18%, transparent);
+}
+
+/* ------------------------------------------------- gestionnaire d'étiquettes */
+
+.tag-create { display: flex; gap: 8px; margin-bottom: 20px; }
+.tag-create input {
+  flex: 1; padding: 9px 13px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 9px;
+  font-size: 14px;
+}
+.tag-create input:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.tag-manager { display: flex; flex-direction: column; }
+
+.tag-manage { padding: 12px 0; border-bottom: 1px solid var(--rule-soft); }
+.tag-manage:last-child { border-bottom: 0; }
+
+.tag-manage-head { display: flex; align-items: center; gap: 10px; }
+
+.tag-rename {
+  flex: 1; min-width: 0;
+  padding: 5px 9px;
+  background: none; border: 1px solid transparent; border-radius: 7px;
+  font-size: 14px; font-weight: 600; color: var(--ink);
+}
+.tag-rename:hover { border-color: var(--rule); }
+.tag-rename:focus {
+  outline: none; background: var(--paper);
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.tag-usage { flex: none; font-size: 11.5px; color: var(--ink-mute); white-space: nowrap; }
+
+.tag-delete {
+  flex: none; width: 24px; height: 24px; border-radius: 6px;
+  font-size: 16px; line-height: 1; color: var(--ink-mute);
+}
+.tag-delete:hover { background: var(--accent-wash); color: var(--accent); }
+
+.tag-palette { display: flex; gap: 6px; margin: 9px 0 0 9px; }
+
+.tag-swatch {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--teinte);
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px var(--rule);
+  transition: transform .14s var(--ease), box-shadow .14s var(--ease);
+}
+.tag-swatch:hover { transform: scale(1.15); }
+.tag-swatch.on {
+  border-color: var(--surface);
+  box-shadow: 0 0 0 2px var(--teinte);
+}
+
+/* éditeur dans le lecteur */
+.tag-editor {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+  margin: -14px 0 28px;
+}
+
+.tag-chip {
+  display: inline-flex; align-items: center;
+  border: 1px solid color-mix(in srgb, var(--teinte) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--teinte) 9%, transparent);
+  overflow: hidden;
+  transition: border-color .14s var(--ease), background .14s var(--ease);
+}
+.tag-chip:hover {
+  border-color: var(--teinte);
+  background: color-mix(in srgb, var(--teinte) 16%, transparent);
+}
+
+.tag-jump {
+  padding: 3px 4px 3px 11px;
+  font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+  color: color-mix(in srgb, var(--teinte) 72%, var(--ink));
+}
+.tag-jump:hover { color: var(--teinte); }
+
+.tag-off {
+  padding: 3px 9px 4px 5px;
+  font-size: 13px; line-height: 1;
+  color: color-mix(in srgb, var(--teinte) 55%, var(--ink-mute));
+}
+.tag-off:hover { color: var(--teinte); }
+
+.tag-input {
+  width: 118px; padding: 4px 11px;
+  border: 1px dashed var(--rule); border-radius: 999px;
+  background: none;
+  font-family: var(--sans); font-size: 11.5px; color: var(--ink-soft);
+  transition: border-color .14s var(--ease), width .18s var(--ease);
+}
+.tag-input::placeholder { color: var(--ink-mute); }
+.tag-input:focus {
+  outline: none; width: 190px;
+  border-style: solid; border-color: var(--accent);
+  color: var(--ink);
+}
+
 /* sources */
 .rail-section {
   display: flex; align-items: center; justify-content: space-between;
@@ -305,6 +430,30 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
   color: var(--ink-mute);
   border: 1px solid var(--rule);
 }
+
+/* Porte-icône : sert d'ancrage à la pastille des chaînes vidéo. */
+.feed-mark { position: relative; flex: none; display: block; width: 17px; height: 17px; }
+
+/* Une chaîne YouTube ne se lit pas, elle se regarde : la pastille le dit
+   d'un coup d'œil, sans ajouter de texte dans une liste déjà dense. */
+.feed-play {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 11px; height: 11px; border-radius: 3px;
+  background: #d63a2a;
+  border: 1.5px solid var(--paper-deep);
+  box-sizing: content-box;
+}
+.feed-play::after {
+  content: ''; position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+  border-left: 4px solid #fff;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+.feed-row:hover .feed-play, .feed-row.active .feed-play { border-color: var(--rule-soft); }
+.feed-row.active .feed-play { border-color: color-mix(in srgb, var(--accent) 12%, var(--paper-deep)); }
+
+/* Le nom d'une chaîne s'écrit dans la même graisse mais garde son repère. */
+.feed-row.chaine .feed-icon { border-radius: 50%; }
 .feed-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .feed-warn {
@@ -474,8 +623,9 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 }
 .card:hover .card-media img { transform: scale(1.035); }
 
-/* Une vidéo se signale d'un coup d'œil dans la grille. */
-.card-media.video .play {
+/* Une vidéo ou un épisode se signalent d'un coup d'œil dans la grille. */
+.card-media.video .play,
+.card-media.audio .play {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 52px; height: 52px; border-radius: 50%;
   background: rgba(18, 16, 12, .55);
@@ -483,18 +633,22 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
   backdrop-filter: blur(2px);
   transition: background .18s var(--ease), transform .18s var(--ease);
 }
-.card-media.video .play::after {
+.card-media.video .play::after,
+.card-media.audio .play::after {
   content: ''; position: absolute; left: 52%; top: 50%; transform: translate(-50%, -50%);
   border-left: 15px solid #fff;
   border-top: 9px solid transparent;
   border-bottom: 9px solid transparent;
 }
-.card:hover .card-media.video .play {
+.card:hover .card-media.video .play,
+.card:hover .card-media.audio .play {
   background: var(--accent);
   transform: translate(-50%, -50%) scale(1.07);
 }
-.flux.list .card-media.video .play { width: 34px; height: 34px; }
-.flux.list .card-media.video .play::after { border-left-width: 10px; border-top-width: 6px; border-bottom-width: 6px; }
+.flux.list .card-media.video .play,
+.flux.list .card-media.audio .play { width: 34px; height: 34px; }
+.flux.list .card-media.video .play::after,
+.flux.list .card-media.audio .play::after { border-left-width: 10px; border-top-width: 6px; border-bottom-width: 6px; }
 
 /* ------------------------------------------- plaque typographique -------- */
 /* Utilisee quand l'article n'a aucune illustration : plutot qu'un blanc,
@@ -917,6 +1071,13 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
   margin: 1.9em auto; border-radius: 4px;
 }
 .reader-body iframe { width: 100%; aspect-ratio: 16/9; height: auto; border: 0; }
+
+/* Lecteur audio d'un épisode de podcast : pleine largeur, en tête d'article. */
+.reader-body audio {
+  width: 100%; display: block;
+  margin: 0 0 1.9em;
+  border-radius: 999px;
+}
 .reader-body figure { margin: 2em 0; }
 .reader-body figcaption {
   margin-top: 10px;

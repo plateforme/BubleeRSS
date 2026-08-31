@@ -72,3 +72,13 @@ export function debounce(fn, delay = 280) {
 export function pluriel(n, singulier, plurielMot = singulier + 's') {
   return `${n} ${n > 1 ? plurielMot : singulier}`;
 }
+
+/** « 38 min d'écoute », « 1 h 05 d'écoute ». */
+export function duree(secondes) {
+  if (!secondes || secondes < 30) return '';
+  const minutes = Math.round(secondes / 60);
+  if (minutes < 60) return minutes + ' min d’écoute';
+  const h = Math.floor(minutes / 60);
+  const reste = minutes % 60;
+  return reste ? h + ' h ' + String(reste).padStart(2, '0') + ' d’écoute' : h + ' h d’écoute';
+}

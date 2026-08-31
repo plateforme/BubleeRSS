@@ -48,7 +48,9 @@ HOST=0.0.0.0 npm start
   la découverte lit les `<link rel="alternate">` de la page, et à défaut teste
   les chemins classiques (`/feed`, `/rss.xml`, `/atom.xml`…).
 - **Importer / exporter en OPML** — l'export Feedly passe tel quel, dossiers compris.
-- **Chaînes YouTube** agrégées comme n'importe quelle source, lecteur intégré (voir plus bas).
+- **Chaînes YouTube et podcasts** agrégés comme n'importe quelle source, avec
+  leur lecteur intégré (voir plus bas).
+- **Étiquettes** colorées, posées à la main, interrogeables par l'API.
 - **Formats** : RSS 2.0, RSS 1.0 (RDF) et Atom, avec `content:encoded`,
   `media:content`, `dc:creator`, encodages latin-1, ETag / Last-Modified.
 - **Texte complet** des articles que le flux ne publie qu'en résumé (voir plus bas).
@@ -193,6 +195,11 @@ CORS est ouvert (avec le jeton), donc une page web tierce peut appeler l'API.
 | `POST`   | `/api/feeds/repair`       | chercher l'adresse des sources injoignables |
 | `POST`   | `/api/feeds/:id/repair`   | chercher pour une source ; `{ "url": "…" }` adopte une proposition |
 | `POST`   | `/api/articles/images`    | chercher les illustrations manquantes |
+| `GET`    | `/api/tags`               | étiquettes, teintes, nombre d'articles |
+| `POST`   | `/api/tags`               | créer une étiquette `{ "name": "…" }` |
+| `POST`   | `/api/articles/:id/tags`  | `{ "add": [...] }` · `{ "remove": [...] }` · `{ "set": [...] }` |
+| `PATCH`  | `/api/tags/:id`           | renommer (fusionne) ou reteindre `{ name?, color? }` |
+| `DELETE` | `/api/tags/:id`           | supprimer une étiquette |
 | `POST`   | `/api/dedupe`             | rapprocher les doublons (`?rebuild=1`) |
 | `POST`   | `/api/opml/import`        | corps = XML OPML |
 | `GET`    | `/api/opml/export`        | export OPML |
@@ -231,6 +238,60 @@ player YouTube — en `youtube-nocookie.com`, sans quitter Bublee. Les liens et
 les chapitres de la description restent cliquables. Ni temps de lecture ni
 récupération de texte complet sur une vidéo : ça n'aurait pas de sens.
 
+## Podcasts
+
+Un podcast, c'est un flux RSS. Colle son adresse et Bublee en fait des
+articles écoutables : le lecteur audio ouvre le contenu, la durée annoncée
+par le flux (`itunes:duration`) remplace le temps de lecture, et la carte
+porte un bouton de lecture. Rien à récupérer sur la page d'origine : le
+contenu d'un épisode, c'est son audio.
+
+Où trouver l'adresse : la plupart des podcasts publient leur flux RSS sur
+leur propre site. Pour ceux hébergés ailleurs, Apple Podcasts, Podcast Addict
+ou [getrssfeed.com](https://getrssfeed.com) donnent l'adresse à partir du lien
+de l'émission.
+
+**Spotify est un cas à part.** La plateforme ne publie pas de flux RSS pour
+les émissions qu'elle héberge, et ses exclusivités n'existent nulle part
+ailleurs — aucun lecteur tiers ne peut les récupérer. En revanche l'immense
+majorité des podcasts *diffusés sur* Spotify ont un flux public : c'est
+celui-là qu'il faut donner à Bublee.
+
+## Étiquettes
+
+Poser une étiquette sur un article, c'est le retrouver ensuite — dans
+l'interface comme par l'API.
+
+- Dans le lecteur, sous le titre : les étiquettes de l'article, chacune
+  retirable, et un champ pour en ajouter (<kbd>T</kbd> y place le curseur).
+  Plusieurs d'un coup en les séparant par des virgules.
+- Dans la colonne de gauche, la section **Étiquettes** liste les tiennes avec
+  leur nombre d'articles ; un clic filtre. Le crayon ouvre le gestionnaire :
+  renommer, reteindre, supprimer, ou créer une étiquette vide.
+- Chaque étiquette porte une **teinte** parmi huit, attribuée à la création et
+  modifiable. Elle sert de repère dans la liste comme dans le lecteur.
+- Renommer une étiquette avec le nom d'une autre **fusionne** les deux.
+- Les variantes de casse et d'espacement retrouvent l'étiquette existante au
+  lieu d'en créer une jumelle.
+- Comme la lecture et les favoris, une étiquette s'applique au **groupe de
+  doublons** : l'article reste retrouvable quelle que soit la source par
+  laquelle on l'a lu.
+
+Par l'API :
+
+```bash
+# étiqueter
+curl -X POST http://127.0.0.1:4321/api/articles/482/tags \
+  -H 'content-type: application/json' \
+  -d '{"add":["veille IA","à lire"]}'
+
+# tout ce qui porte une étiquette
+curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA' | jq -r '.articles[].title'
+
+# les deux à la fois (et non l'une ou l'autre)
+curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA,à%20lire'
+```
+
 ## Raccourcis clavier
 
 <kbd>?</kbd> à tout moment ouvre l'aide-mémoire, aussi accessible par l'icône
@@ -249,6 +310,7 @@ de clavier en bas de la colonne de gauche.
 | `A` | ajouter une source |
 | `Maj+A` | tout marquer comme lu |
 | `G` | changer de mise en page |
+| `T` | étiqueter l’article ouvert |
 | `/` | rechercher |
 | `,` | réglages |
 | `?` | aide-mémoire |
@@ -293,6 +355,7 @@ Quelques choix à connaître :
 npm test
 ```
 
-36 tests : nettoyage HTML, analyse des trois formats de flux, chaînes
-YouTube, normalisation des clés de comparaison et comportement complet
-de la déduplication — y compris les faux positifs rencontrés sur de vrais flux.
+47 tests : nettoyage HTML, analyse des trois formats de flux, chaînes
+YouTube et podcasts, normalisation des clés de comparaison, étiquettes, et
+comportement complet de la déduplication — y compris les faux positifs
+rencontrés sur de vrais flux.

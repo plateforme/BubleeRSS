@@ -35,6 +35,11 @@ export const api = {
   full:     (id, force = false) => json('POST', `/api/articles/${id}/full${force ? '?force=1' : ''}`),
   patch:    (id, patch) => json('PATCH', '/api/articles/' + id, patch),
   markRead: (payload) => json('POST', '/api/articles/read', payload),
+  tag:      (id, action) => json('POST', `/api/articles/${id}/tags`, action),
+  tags:      () => call('/api/tags'),
+  createTag: (name) => json('POST', '/api/tags', { name }),
+  updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),
+  deleteTag: (id) => json('DELETE', '/api/tags/' + id),
 
   addFeed:     (url, folder, title) => json('POST', '/api/feeds', { url, folder, title }),
   updateFeed:  (id, patch) => json('PATCH', '/api/feeds/' + id, patch),

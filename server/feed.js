@@ -127,6 +127,36 @@ function mediaImage(node) {
   return candidates.find(Boolean) || null;
 }
 
+/** Repere la piece jointe audio d'un episode de podcast. */
+function audioJoint(node) {
+  const estAudio = (type, url) => (type
+    ? /^audio\//i.test(type)
+    : /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac)(\?|#|$)/i.test(String(url || '')));
+
+  for (const enclosure of Array.isArray(node.enclosure) ? node.enclosure : [node.enclosure].filter(Boolean)) {
+    if (!enclosure || typeof enclosure !== 'object') continue;
+    if (estAudio(String(enclosure['@_type'] || ''), enclosure['@_url'])) return String(enclosure['@_url']);
+  }
+
+  for (const entree of Array.isArray(node['media:content']) ? node['media:content'] : []) {
+    if (!entree || typeof entree !== 'object') continue;
+    if (estAudio(String(entree['@_type'] || entree['@_medium'] || ''), entree['@_url'])) return String(entree['@_url']);
+  }
+  return null;
+}
+
+/** « 3600 », « 01:02:03 » ou « 38:12 » — tout finit en secondes. */
+function dureeEnSecondes(brut) {
+  const texte = String(brut || '').trim();
+  if (!texte) return null;
+  if (/^\d+$/.test(texte)) return Number(texte) || null;
+
+  const parts = texte.split(':').map(Number);
+  if (parts.some(Number.isNaN)) return null;
+  const secondes = parts.reduce((total, p) => total * 60 + p, 0);
+  return secondes > 0 ? secondes : null;
+}
+
 function itemGuid(node, link, title, publishedAt) {
   const guid = node.guid;
   if (guid && typeof guid === 'object' && guid['#text']) return String(guid['#text']);
@@ -163,7 +193,13 @@ function normalizeItem(node, feedUrl, siteUrl) {
     ? descriptionVideo
     : pick(node, 'description', 'summary', 'subtitle') || rawContent;
 
-  const content = sanitizeHtml(rawContent, base);
+  // Episode de podcast : le lecteur audio precede le texte de l'episode.
+  const audio = videoId ? null : audioJoint(node);
+  const lecteurAudio = audio
+    ? `<p><audio controls preload="none" src="${absolutize(audio, base) || ''}"></audio></p>`
+    : '';
+
+  const content = sanitizeHtml(lecteurAudio + rawContent, base);
   const plain = toPlainText(rawSummary);
 
   const author = decodeEntities(
@@ -180,6 +216,7 @@ function normalizeItem(node, feedUrl, siteUrl) {
     content,
     image: mediaImage(node) || firstImage(content, base),
     published_at: publishedAt || Date.now(),
+    duration: dureeEnSecondes(pick(node, 'itunes:duration', 'duration')),
     word_count: countWords(toPlainText(content) || plain)
   };
 }

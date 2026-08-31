@@ -41,12 +41,17 @@ const ROUTES = [
   ['POST',   '/api/refresh',             'rafraichir toutes les sources'],
   ['POST',   '/api/feeds/repair',        'retrouver l’adresse des sources injoignables'],
   ['POST',   '/api/feeds/:id/repair',    'reparer une source precise'],
-  ['GET',    '/api/articles',            'articles ; parametres view, feed, folder, q, limit, before'],
+  ['GET',    '/api/articles',            'articles ; parametres view, feed, folder, q, tag, limit, before'],
   ['GET',    '/api/articles/:id',        'un article avec son contenu'],
   ['PATCH',  '/api/articles/:id',        'marquer lu / favori { read?, starred? }'],
   ['POST',   '/api/articles/:id/full',   'recuperer le texte complet (?force=1 pour relancer)'],
   ['POST',   '/api/articles/read',       'marquer lu en masse { ids | feedId | folder | all }'],
   ['POST',   '/api/articles/images',     'chercher les illustrations manquantes'],
+  ['GET',    '/api/tags',                'etiquettes, couleurs et nombre d’articles'],
+  ['POST',   '/api/tags',                'creer une etiquette { name }'],
+  ['POST',   '/api/articles/:id/tags',   'etiqueter { add | remove | set }'],
+  ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
+  ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
   ['POST',   '/api/dedupe',              'rechercher les doublons deja en base'],
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
@@ -91,6 +96,8 @@ app.get('/api/state', (req, res) => {
     feeds: store.listFeeds(),
     folders: store.listFolders(),
     counts: store.counts(),
+    tags: store.listTags(),
+    palette: store.PALETTE_TAGS,
     settings: {
       refreshMinutes: Number(store.getSetting('refresh_minutes', '30')),
       retentionDays: Number(store.getSetting('retention_days', '90')),
@@ -174,9 +181,37 @@ app.get('/api/articles', (req, res) => {
     feedId: req.query.feed,
     folder: req.query.folder,
     q: req.query.q,
+    tag: req.query.tag,
     limit: req.query.limit,
     before: req.query.before
   }));
+});
+
+/* ------------------------------------------------------------ etiquettes */
+
+app.get('/api/tags', (req, res) => res.json({ tags: store.listTags(), palette: store.PALETTE_TAGS }));
+
+app.post('/api/tags', (req, res) => res.status(201).json(store.createTag(req.body?.name)));
+
+// { add: [...] } | { remove: [...] } | { set: [...] } — noms d'étiquettes.
+app.post('/api/articles/:id/tags', (req, res) => {
+  const corps = req.body || {};
+  const liste = (v) => (Array.isArray(v) ? v : v === undefined ? [] : [v]);
+  res.json(store.tagArticle(Number(req.params.id), {
+    add: liste(corps.add),
+    remove: liste(corps.remove),
+    ...(corps.set !== undefined ? { set: liste(corps.set) } : {})
+  }));
+});
+
+// { name } renomme (fusionne si le nom existe deja), { color } reteinte.
+app.patch('/api/tags/:id', (req, res) => {
+  res.json(store.updateTag(Number(req.params.id), req.body || {}));
+});
+
+app.delete('/api/tags/:id', (req, res) => {
+  const ok = store.deleteTag(Number(req.params.id));
+  res.status(ok ? 200 : 404).json({ ok });
 });
 
 app.get('/api/articles/:id', (req, res) => {

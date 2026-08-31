@@ -46,14 +46,18 @@ export async function extraireImageDeLaPage(url) {
   if (type && !/text\/html|application\/xhtml/i.test(type)) return null;
 
   const html = decodeBody(buffer, type);
-  const tete = html.slice(0, html.search(/<\/head>/i) + 1 || 200000);
+  const finTete = html.search(/<\/head>/i);
+  const tete = finTete > 0 ? html.slice(0, finTete) : html;
 
-  const motifs = [
-    /<meta[^>]+(?:property|name)\s*=\s*["'](?:og:image(?::url|:secure_url)?|twitter:image(?::src)?)["'][^>]*>/gi
-  ];
-  for (const motif of motifs) {
+  const motif = /<meta[^>]+(?:property|name)\s*=\s*["'](?:og:image(?::url|:secure_url)?|twitter:image(?::src)?)["'][^>]*>/gi;
+
+  // L'en-tete d'abord, c'est la que la balise se trouve presque toujours.
+  // Puis le document entier : YouTube, par exemple, place ses balises og:
+  // apres </head>, et s'arreter a l'en-tete ne trouverait jamais l'avatar.
+  for (const portee of tete === html ? [html] : [tete, html]) {
+    motif.lastIndex = 0;
     let m;
-    while ((m = motif.exec(tete))) {
+    while ((m = motif.exec(portee))) {
       const contenu = /content\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(m[0]);
       if (!contenu) continue;
       const abs = absolutize(contenu[1].replace(/^["']|["']$/g, ''), res.url || cible.href);

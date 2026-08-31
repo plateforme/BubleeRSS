@@ -15,6 +15,9 @@ export function listFeeds() {
            f.last_fetched_at, f.last_error, f.error_count, f.created_at,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
+           -- Une chaine YouTube se signale dans la liste : ce n'est pas un flux
+           -- de presse, on n'y lit pas, on y regarde.
+           CASE WHEN f.url LIKE '%youtube.com/feeds/videos.xml%' THEN 'youtube' ELSE 'rss' END AS kind,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
@@ -395,6 +398,7 @@ function autresSources(id) {
 const majArticle = db.prepare(`
   UPDATE articles SET title = @title, summary = @summary, content = @content,
     image = COALESCE(@image, image), word_count = @word_count,
+    duration = COALESCE(@duration, duration),
     url_key = @url_key, title_key = @title_key
   WHERE id = @id AND read_at IS NULL AND content <> @content
 `);
@@ -402,10 +406,10 @@ const majArticle = db.prepare(`
 const insertArticle = db.prepare(`
   INSERT INTO articles
     (feed_id, guid, url, title, author, summary, content, image, published_at, fetched_at,
-     word_count, url_key, title_key, dupe_of, read_at, starred)
+     word_count, duration, url_key, title_key, dupe_of, read_at, starred)
   VALUES
     (@feed_id, @guid, @url, @title, @author, @summary, @content, @image, @published_at, @fetched_at,
-     @word_count, @url_key, @title_key, @dupe_of, @read_at, @starred)
+     @word_count, @duration, @url_key, @title_key, @dupe_of, @read_at, @starred)
 `);
 
 const parGuid = db.prepare('SELECT id FROM articles WHERE feed_id = ? AND guid = ?');
@@ -429,6 +433,7 @@ export const saveItems = db.transaction((feedId, items) => {
       content: item.content,
       image: item.image,
       word_count: item.word_count,
+      duration: item.duration ?? null,
       url_key: cleUrl,
       title_key: cleTitre
     };
@@ -487,12 +492,23 @@ export async function refreshFeed(id) {
 
     const { ajoutes, doublons } = saveItems(id, result.parsed.items);
 
+    // L'avatar d'une chaine YouTube vaut mieux que le logo generique du site.
+    // Une seule fois : ensuite la colonne icon est renseignee.
+    // Le logo generique de youtube.com ne distingue pas deux chaines : on le
+    // remplace des qu'on peut par l'avatar de la chaine elle-meme.
+    let avatar = null;
+    const iconeGenerique = !feed.icon || /s2\/favicons/.test(feed.icon);
+    if (iconeGenerique && estYouTube(feed.url) && result.parsed.siteUrl) {
+      avatar = await extraireImageDeLaPage(result.parsed.siteUrl).catch(() => null);
+    }
+
     db.prepare(`
       UPDATE feeds SET
         title = CASE WHEN ? <> '' THEN ? ELSE title END,
         site_url = COALESCE(?, site_url),
         description = COALESCE(NULLIF(?, ''), description),
-        icon = COALESCE(icon, ?),
+        -- l'avatar trouvé gagne ; sinon on garde l'icône en place ; sinon le favicon
+        icon = COALESCE(?, icon, ?),
         etag = ?, last_modified = ?, last_fetched_at = ?,
         last_error = NULL, error_count = 0
       WHERE id = ?
@@ -500,7 +516,7 @@ export async function refreshFeed(id) {
       result.parsed.title, result.parsed.title,
       result.parsed.siteUrl,
       result.parsed.description || '',
-      iconFor(result.parsed.siteUrl || feed.url),
+      avatar, iconFor(result.parsed.siteUrl || feed.url),
       result.etag, result.lastModified, now(), id
     );
 
@@ -584,20 +600,188 @@ export function pruneArticles() {
   `).run(cutoff).changes;
 }
 
+/* ------------------------------------------------------------ etiquettes */
+
+/** Une etiquette se compare sans casse ni espaces superflus. */
+function normaliserTag(nom) {
+  const propre = String(nom || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  return propre || null;
+}
+
+/**
+ * Teintes des etiquettes. Choisies pour tenir dans les deux ambiances et
+ * rester lisibles a la taille d'une pastille.
+ */
+export const PALETTE_TAGS = [
+  '#b23a25', // vermillon
+  '#a8842c', // or
+  '#4a7c59', // vert
+  '#2f6690', // bleu
+  '#7d4a72', // prune
+  '#8a5a3b', // terre
+  '#55606b', // ardoise
+  '#6b7a3a'  // olive
+];
+
+/** La couleur la moins utilisee, pour que deux etiquettes voisines diffèrent. */
+function couleurLibre() {
+  const prises = db.prepare('SELECT color, COUNT(*) n FROM tags WHERE color IS NOT NULL GROUP BY color')
+    .all().reduce((acc, r) => ({ ...acc, [r.color]: r.n }), {});
+  return PALETTE_TAGS.reduce((meilleure, c) => ((prises[c] || 0) < (prises[meilleure] || 0) ? c : meilleure), PALETTE_TAGS[0]);
+}
+
+/** Toutes les etiquettes, avec le nombre d'articles distincts qu'elles portent. */
+export function listTags() {
+  return db.prepare(`
+    SELECT t.id, t.name, t.color, t.created_at,
+           COUNT(DISTINCT COALESCE(a.dupe_of, a.id)) AS count
+    FROM tags t
+    LEFT JOIN article_tags at ON at.tag_id = t.id
+    LEFT JOIN articles a ON a.id = at.article_id
+    GROUP BY t.id
+    ORDER BY count DESC, t.name COLLATE NOCASE
+  `).all();
+}
+
+/** Cree une etiquette vide, depuis le gestionnaire. */
+export function createTag(nom) {
+  const propre = normaliserTag(nom);
+  if (!propre) throw Object.assign(new Error('Nom d’étiquette vide.'), { status: 400 });
+  const connu = db.prepare('SELECT id, name, color FROM tags WHERE name = ?').get(propre);
+  if (connu) return connu;
+
+  const id = Number(db.prepare('INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)')
+    .run(propre, couleurLibre(), now()).lastInsertRowid);
+  return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
+}
+
+function tagsDe(articleId) {
+  return db.prepare(`
+    SELECT t.name FROM tags t
+    JOIN article_tags at ON at.tag_id = t.id
+    WHERE at.article_id = ?
+    ORDER BY t.name COLLATE NOCASE
+  `).all(articleId).map((r) => r.name);
+}
+
+function idDuTag(nom, creer = true) {
+  const propre = normaliserTag(nom);
+  if (!propre) return null;
+  const connu = db.prepare('SELECT id FROM tags WHERE name = ?').get(propre);
+  if (connu) return connu.id;
+  if (!creer) return null;
+  return Number(db.prepare('INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)')
+    .run(propre, couleurLibre(), now()).lastInsertRowid);
+}
+
+/**
+ * Pose ou retire des etiquettes. Comme la lecture et les favoris, elles
+ * s'appliquent au groupe de doublons : la meme histoire reste retrouvable
+ * quelle que soit la source par laquelle on l'a lue.
+ */
+export function tagArticle(id, { add = [], remove = [], set } = {}) {
+  if (!db.prepare('SELECT 1 FROM articles WHERE id = ?').get(id)) {
+    throw Object.assign(new Error('Article introuvable.'), { status: 404 });
+  }
+  const ids = groupe(id);
+  const marque = db.prepare('INSERT INTO article_tags (article_id, tag_id, added_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING');
+  const enleve = db.prepare('DELETE FROM article_tags WHERE article_id = ? AND tag_id = ?');
+
+  db.transaction(() => {
+    if (Array.isArray(set)) {
+      const voulus = set.map((n) => idDuTag(n)).filter(Boolean);
+      for (const article of ids) {
+        db.prepare('DELETE FROM article_tags WHERE article_id = ?').run(article);
+        for (const tag of voulus) marque.run(article, tag, now());
+      }
+      return;
+    }
+    for (const nom of add) {
+      const tag = idDuTag(nom);
+      if (tag) for (const article of ids) marque.run(article, tag, now());
+    }
+    for (const nom of remove) {
+      const tag = idDuTag(nom, false);
+      if (tag) for (const article of ids) enleve.run(article, tag);
+    }
+  })();
+
+  return getArticle(id);
+}
+
+export function updateTag(id, { name, color } = {}) {
+  if (color !== undefined) {
+    const teinte = PALETTE_TAGS.includes(color) ? color : null;
+    db.prepare('UPDATE tags SET color = ? WHERE id = ?').run(teinte, id);
+  }
+  if (name === undefined) return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
+
+  const propre = normaliserTag(name);
+  if (!propre) throw Object.assign(new Error('Nom d’étiquette vide.'), { status: 400 });
+
+  const collision = db.prepare('SELECT id FROM tags WHERE name = ? AND id <> ?').get(propre, id);
+  if (collision) {
+    // Fusion : les articles de l'ancienne rejoignent la nouvelle.
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO article_tags (article_id, tag_id, added_at)
+        SELECT article_id, ?, added_at FROM article_tags WHERE tag_id = ?
+        ON CONFLICT DO NOTHING
+      `).run(collision.id, id);
+      db.prepare('DELETE FROM tags WHERE id = ?').run(id);
+    })();
+    return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(collision.id);
+  }
+
+  db.prepare('UPDATE tags SET name = ? WHERE id = ?').run(propre, id);
+  return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
+}
+
+export function deleteTag(id) {
+  return db.prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0;
+}
+
 /* -------------------------------------------------------------- articles */
 
 const ARTICLE_COLUMNS = `
   a.id, a.feed_id, a.url, a.title, a.author, a.summary, a.image,
-  a.published_at, a.read_at, a.starred, a.word_count, a.dupe_of,
+  a.published_at, a.read_at, a.starred, a.word_count, a.duration, a.dupe_of,
   (a.full_content IS NOT NULL) AS has_full,
+  (SELECT GROUP_CONCAT(t.name, CHAR(31)) FROM article_tags at
+     JOIN tags t ON t.id = at.tag_id WHERE at.article_id = a.id) AS tag_list,
   COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS feed_title,
   f.folder AS feed_folder, f.icon AS feed_icon
 `;
 
+// GROUP_CONCAT assemble les etiquettes en une seule chaine : on separe avec
+// un caractere de controle, qu'un nom d'etiquette ne contiendra jamais.
+const SEPARATEUR_TAGS = String.fromCharCode(31);
+
+/** Redonne les etiquettes sous forme de tableau trie. */
+function avecTags(row) {
+  if (!row) return row;
+  const { tag_list, ...reste } = row;
+  return { ...reste, tags: tag_list ? tag_list.split(SEPARATEUR_TAGS).sort((a, b) => a.localeCompare(b, 'fr')) : [] };
+}
+
 /** view: all | unread | starred ; pagination par curseur (before = "publie,id"). */
-export function queryArticles({ view = 'unread', feedId, folder, q, limit = 30, before } = {}) {
+export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}) {
   const where = [];
   const params = {};
+
+  // `tag` accepte une etiquette, plusieurs separees par une virgule, ou un
+  // tableau. Toutes doivent etre presentes : on cherche a restreindre.
+  const etiquettes = (Array.isArray(tag) ? tag : String(tag ?? '').split(','))
+    .map((t) => String(t).trim())
+    .filter(Boolean);
+
+  etiquettes.forEach((nom, i) => {
+    params['tag' + i] = nom;
+    where.push(`EXISTS (
+      SELECT 1 FROM article_tags at JOIN tags t ON t.id = at.tag_id
+      WHERE at.article_id = a.id AND t.name = @tag${i}
+    )`);
+  });
 
   // Hors d'un flux precis, on n'affiche qu'un exemplaire de chaque histoire.
   if (!feedId) where.push('a.dupe_of IS NULL');
@@ -631,7 +815,7 @@ export function queryArticles({ view = 'unread', feedId, folder, q, limit = 30, 
 
   const last = rows[rows.length - 1];
   return {
-    articles: rows,
+    articles: rows.map(avecTags),
     nextCursor: rows.length === params.limit && last ? last.published_at + ',' + last.id : null
   };
 }
@@ -641,6 +825,8 @@ function estTronque(row) {
   if (row.has_full) return false;
   // Une video est courte par nature : son "texte" est le lecteur.
   if (estYouTube(row.url)) return false;
+  // Un episode de podcast non plus : son contenu, c'est l'audio.
+  if (row.duration || /<audio/i.test(row.content || '')) return false;
   const seuil = Number(getSetting('fulltext_min_words', '250'));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
 }
@@ -654,7 +840,7 @@ export function getArticle(id) {
   `).get(id);
   if (!row) return null;
 
-  const { full_content, ...reste } = row;
+  const { full_content, ...reste } = avecTags(row);
   const tronque = estTronque(row);
   const actif = getSetting('fulltext', 'auto') !== 'off';
 

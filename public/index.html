@@ -48,6 +48,14 @@
     </nav>
 
     <div class="rail-section">
+      <span class="rail-section-title">Étiquettes</span>
+      <button class="icon-btn tiny" id="manageTags" title="Gérer les étiquettes" aria-label="Gérer les étiquettes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/></svg>
+      </button>
+    </div>
+    <div class="rail-tags" id="tagList"></div>
+
+    <div class="rail-section">
       <span class="rail-section-title">Mes sources</span>
       <button class="icon-btn tiny" id="addFeedRail" title="Ajouter un flux" aria-label="Ajouter un flux">+</button>
     </div>
@@ -128,6 +136,7 @@
     </div>
   </header>
   <div class="reader-scroll" id="readerScroll"></div>
+  <datalist id="tagOptions"></datalist>
   <div class="reader-progress" id="readerProgress"></div>
 </article>
 
@@ -290,6 +299,23 @@
       <button type="submit" class="accent-btn">Enregistrer</button>
     </div>
   </form>
+</div>
+
+<div class="modal" id="tagsModal" hidden role="dialog" aria-modal="true" aria-labelledby="tagsModalTitle">
+  <h2 id="tagsModalTitle">Étiquettes</h2>
+  <p class="modal-hint">Renomme, reteins ou supprime. Renommer une étiquette avec
+    le nom d’une autre fusionne les deux.</p>
+
+  <form id="tagCreateForm" class="tag-create">
+    <input type="text" id="newTagName" placeholder="Nouvelle étiquette" maxlength="60" autocomplete="off">
+    <button type="submit" class="accent-btn">Créer</button>
+  </form>
+
+  <div class="tag-manager" id="tagManager"></div>
+
+  <div class="modal-actions">
+    <button type="button" class="ghost-btn" data-close>Fermer</button>
+  </div>
 </div>
 
 <div class="modal wide" id="repairModal" hidden role="dialog" aria-modal="true" aria-labelledby="repairTitle">

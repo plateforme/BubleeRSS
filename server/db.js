@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Etiquettes posees a la main sur les articles, pour les retrouver ensuite
+-- dans l'interface comme dans l'API.
+CREATE TABLE IF NOT EXISTS tags (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS article_tags (
+  article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  added_at   INTEGER NOT NULL,
+  PRIMARY KEY (article_id, tag_id)
+);
 `);
 
 /* -------------------------------------------------------------- migrations */
@@ -72,7 +87,9 @@ export const migrationApplied = [
   addColumn('articles', 'full_content', 'TEXT'),
   addColumn('articles', 'full_fetched_at', 'INTEGER'),
   addColumn('articles', 'full_error', 'TEXT'),
-  addColumn('articles', 'image_checked', 'INTEGER')
+  addColumn('articles', 'image_checked', 'INTEGER'),
+  addColumn('articles', 'duration', 'INTEGER'),
+  addColumn('tags', 'color', 'TEXT')
 ].some(Boolean);
 
 db.exec(`
@@ -83,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_starred   ON articles(starred, published
 CREATE INDEX IF NOT EXISTS idx_articles_urlkey    ON articles(url_key);
 CREATE INDEX IF NOT EXISTS idx_articles_titlekey  ON articles(title_key, published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_dupe      ON articles(dupe_of);
+CREATE INDEX IF NOT EXISTS idx_article_tags_tag   ON article_tags(tag_id);
 `);
 
 /** Renseigne les cles de comparaison sur les articles deja stockes. */

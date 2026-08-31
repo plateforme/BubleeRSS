@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, quand, dateLongue, tempsLecture, relais, hote, debounce, pluriel } from './util.js';
+import { esc, quand, dateLongue, tempsLecture, duree, relais, hote, debounce, pluriel } from './util.js';
 
 const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
@@ -11,6 +11,7 @@ const state = {
   feedId: null,
   folder: null,
   q: '',
+  tag: null,
   layout: 'magazine',    // magazine | list | compact
   articles: [],
   cursor: null,          // curseur de pagination
@@ -21,6 +22,8 @@ const state = {
   feeds: [],
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
+  tags: [],
+  palette: [],
   settings: {}
 };
 
@@ -74,6 +77,8 @@ function absorb(data) {
   state.feeds = data.feeds;
   state.folders = data.folders;
   state.counts = data.counts;
+  state.tags = data.tags || [];
+  state.palette = data.palette || state.palette || [];
   state.settings = data.settings;
   renderRail();
 }
@@ -92,7 +97,7 @@ function renderRail() {
   $('#countStarred').classList.toggle('zero', !state.counts.starred);
 
   $$('.nav-item').forEach((btn) => {
-    btn.classList.toggle('active', !state.feedId && !state.folder && btn.dataset.view === state.view);
+    btn.classList.toggle('active', !state.feedId && !state.folder && !state.tag && btn.dataset.view === state.view);
   });
 
   $('#lastRefresh').textContent = state.counts.lastRefreshAt
@@ -102,7 +107,67 @@ function renderRail() {
   $('#folderOptions').innerHTML = state.folders
     .map((f) => `<option value="${esc(f.name)}"></option>`).join('');
 
+  renderTagList();
   renderFeedList();
+}
+
+/** Couleur d'une étiquette, retrouvée par son nom. */
+function couleurTag(nom) {
+  return state.tags.find((t) => t.name === nom)?.color || 'var(--ink-mute)';
+}
+
+function renderTagList() {
+  $('#tagOptions').innerHTML = state.tags.map((t) => `<option value="${esc(t.name)}"></option>`).join('');
+
+  $('#tagList').innerHTML = state.tags.length
+    ? state.tags.map((t) => `
+      <button class="tag-row${state.tag === t.name ? ' active' : ''}" data-tag="${esc(t.name)}"
+              style="--teinte:${esc(t.color || 'var(--ink-mute)')}">
+        <span class="tag-dot"></span>
+        <span class="tag-label">${esc(t.name)}</span>
+        <span class="feed-count">${t.count || ''}</span>
+      </button>`).join('')
+    : '<p class="field-note" style="padding:2px 10px 6px">Aucune pour l’instant — étiquette un article depuis le lecteur.</p>';
+}
+
+/* -------------------------------------------------- gestion des étiquettes */
+
+function renderTagManager() {
+  const palette = state.palette || [];
+
+  $('#tagManager').innerHTML = state.tags.length
+    ? state.tags.map((t) => `
+      <div class="tag-manage" data-tag-id="${t.id}">
+        <div class="tag-manage-head">
+          <input class="tag-rename" value="${esc(t.name)}" maxlength="60" aria-label="Nom de l’étiquette">
+          <span class="tag-usage">${t.count ? pluriel(t.count, 'article') : 'inutilisée'}</span>
+          <button class="tag-delete" title="Supprimer" aria-label="Supprimer l’étiquette">×</button>
+        </div>
+        <div class="tag-palette">
+          ${palette.map((c) => `
+            <button class="tag-swatch${t.color === c ? ' on' : ''}" data-color="${esc(c)}"
+                    style="--teinte:${esc(c)}" aria-label="Teinte ${esc(c)}"></button>`).join('')}
+        </div>
+      </div>`).join('')
+    : '<p class="field-note">Aucune étiquette. Crée-en une ci-dessus, ou pose-en une depuis le lecteur.</p>';
+}
+
+async function ouvrirGestionTags() {
+  await reloadState();
+  renderTagManager();
+  openModal('#tagsModal');
+}
+
+/** Toute modification d'étiquette repasse par l'état, pour garder tout cohérent. */
+async function majTag(id, patch) {
+  try {
+    await api.updateTag(id, patch);
+    await reloadState();
+    renderTagManager();
+    loadArticles(true);
+  } catch (error) {
+    toast('Étiquette : ' + error.message, 'bad');
+  }
 }
 
 function renderFeedList() {
@@ -116,11 +181,15 @@ function renderFeedList() {
   const monogramme = (titre) => (String(titre).match(/[\p{L}\p{N}]/u)?.[0] || '•').toUpperCase();
 
   const feedRow = (feed) => `
-    <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}"
-            data-feed="${feed.id}" title="${esc(feed.last_error ? feed.title + ' — ' + feed.last_error : feed.title)}">
-      ${feed.icon
-        ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
-        : `<span class="feed-icon mono">${esc(monogramme(feed.title))}</span>`}
+    <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}${feed.kind === 'youtube' ? ' chaine' : ''}"
+            data-feed="${feed.id}"
+            title="${esc((feed.kind === 'youtube' ? 'Chaîne YouTube · ' : '') + (feed.last_error ? feed.title + ' — ' + feed.last_error : feed.title))}">
+      <span class="feed-mark">
+        ${feed.icon
+    ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
+    : `<span class="feed-icon mono">${esc(monogramme(feed.title))}</span>`}
+        ${feed.kind === 'youtube' ? '<span class="feed-play" aria-label="Chaîne YouTube"></span>' : ''}
+      </span>
       <span class="feed-name">${esc(feed.title)}</span>
       ${feed.last_error ? '<span class="feed-warn" aria-label="Source injoignable">!</span>' : ''}
       <span class="feed-count">${feed.unread || ''}</span>
@@ -160,6 +229,7 @@ function titreVue() {
     const feed = state.feeds.find((f) => f.id === state.feedId);
     return feed ? feed.title : 'Source';
   }
+  if (state.tag) return '#' + state.tag;
   if (state.folder) return state.folder;
   return { unread: 'Non lus', all: 'Tout', starred: 'Favoris' }[state.view];
 }
@@ -194,6 +264,7 @@ async function loadArticles(reset = false) {
       feed: state.feedId,
       folder: state.folder,
       q: state.q,
+      tag: state.tag,
       limit: state.layout === 'compact' ? 60 : 30,
       before: state.cursor
     });
@@ -254,14 +325,18 @@ function carte(article, index) {
   if (index === state.pointer) classes.push('cursor');
 
   const estVideo = /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(article.url || '');
+  // Une durée signalée par le flux : c'est un épisode, pas un article.
+  const estAudio = !estVideo && Boolean(article.duration);
+
   const media = article.image
-    ? `<div class="card-media${estVideo ? ' video' : ''}">
+    ? `<div class="card-media${estVideo ? ' video' : estAudio ? ' audio' : ''}">
          <img src="${esc(relais(article.image))}" alt="" loading="lazy">
-         ${estVideo ? '<span class="play" aria-hidden="true"></span>' : ''}
+         ${estVideo || estAudio ? '<span class="play" aria-hidden="true"></span>' : ''}
        </div>`
     : plaque(article);
 
-  const lecture = tempsLecture(article.word_count);
+  // Un épisode de podcast s'écoute : on annonce sa durée, pas un temps de lecture.
+  const lecture = article.duration ? duree(article.duration) : tempsLecture(article.word_count);
 
   return `
     <article class="${classes.join(' ')}" data-id="${article.id}" data-index="${index}">
@@ -368,10 +443,11 @@ function etatVide() {
 
 /* ------------------------------------------------------------------ vues */
 
-function setView({ view, feedId = null, folder = null }) {
+function setView({ view, feedId = null, folder = null, tag = null }) {
   state.view = view ?? state.view;
   state.feedId = feedId;
   state.folder = folder;
+  state.tag = tag;
   closeRail();
   renderRail();
   loadArticles(true);
@@ -418,6 +494,33 @@ async function openArticle(id) {
   }
 }
 
+/** Les étiquettes de l'article, chacune retirable, plus le champ d'ajout. */
+function editeurTags(article) {
+  const chips = (article.tags || []).map((nom) => `
+    <span class="tag-chip" style="--teinte:${esc(couleurTag(nom))}">
+      <button class="tag-jump" data-goto-tag="${esc(nom)}" title="Voir tout ce qui porte cette étiquette">#${esc(nom)}</button>
+      <button class="tag-off" data-untag="${esc(nom)}" title="Retirer" aria-label="Retirer l’étiquette">×</button>
+    </span>`).join('');
+
+  return chips + `
+    <input class="tag-input" id="tagInput" list="tagOptions" autocomplete="off" spellcheck="false"
+           placeholder="+ étiquette" aria-label="Ajouter une étiquette" maxlength="60">`;
+}
+
+/** Pose ou retire une étiquette, puis rafraîchit le lecteur et la colonne. */
+async function etiqueter(id, action) {
+  try {
+    const article = await api.tag(id, action);
+    const local = state.articles.find((a) => a.id === id);
+    if (local) local.tags = article.tags;
+    const zone = $('#tagEditor');
+    if (zone && state.openId === id) zone.innerHTML = editeurTags(article);
+    await reloadState();
+  } catch (error) {
+    toast('Étiquette : ' + error.message, 'bad');
+  }
+}
+
 /** Recupere le texte complet et rejoue le rendu du lecteur. */
 async function completerArticle(article, force = false) {
   const zone = $('#fullState');
@@ -456,7 +559,7 @@ function renderReader(article) {
   if (article.author) meta.push(`<span class="author">${esc(article.author)}</span>`);
   meta.push(esc(dateLongue(article.published_at)));
   // Un temps de lecture n'a pas de sens pour une vidéo.
-  const lecture = estVideo ? '' : tempsLecture(article.word_count);
+  const lecture = estVideo ? '' : (article.duration ? duree(article.duration) : tempsLecture(article.word_count));
   if (lecture) meta.push(esc(lecture));
   if (article.url) meta.push(esc(hote(article.url)));
 
@@ -489,6 +592,7 @@ function renderReader(article) {
         ${meta.join('<span class="sep"></span>')}
         ${article.has_full ? '<span class="tag">texte complet</span>' : ''}
       </div>
+      <div class="tag-editor" id="tagEditor">${editeurTags(article)}</div>
       ${sources}
       ${hero}
       <div class="full-state" id="fullState" hidden></div>
@@ -671,6 +775,7 @@ function onKey(event) {
     if (article?.url) window.open(article.url, '_blank', 'noopener');
     return;
   }
+  if (key === 't' && state.openId) { event.preventDefault(); $('#tagInput')?.focus(); return; }
   if (key === 'f' && state.openId) { event.preventDefault(); completerArticle({ id: state.openId }, true); }
 }
 
@@ -821,7 +926,21 @@ function wireEvents() {
   $('#readerFull').addEventListener('click', () => {
     if (state.openId) completerArticle({ id: state.openId }, true);
   });
+  // --- étiquettes
+  $('#tagList').addEventListener('click', (event) => {
+    const ligne = event.target.closest('[data-tag]');
+    if (!ligne) return;
+    const nom = ligne.dataset.tag;
+    setView({ view: 'all', tag: state.tag === nom ? null : nom });
+  });
+
   $('#readerScroll').addEventListener('click', (event) => {
+    const retire = event.target.closest('[data-untag]');
+    if (retire && state.openId) { etiqueter(state.openId, { remove: [retire.dataset.untag] }); return; }
+
+    const saut = event.target.closest('[data-goto-tag]');
+    if (saut) { closeReader(); setView({ view: 'all', tag: saut.dataset.gotoTag }); return; }
+
     if (event.target.closest('[data-retry]')) {
       if (state.openId) completerArticle({ id: state.openId }, true);
       return;
@@ -829,6 +948,15 @@ function wireEvents() {
     const next = event.target.closest('[data-next]');
     if (next) openArticle(Number(next.dataset.next));
   });
+  // Entrée valide l'étiquette saisie ; les virgules permettent d'en poser plusieurs.
+  $('#readerScroll').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !event.target.matches('#tagInput')) return;
+    event.preventDefault();
+    const noms = event.target.value.split(',').map((n) => n.trim()).filter(Boolean);
+    event.target.value = '';
+    if (noms.length && state.openId) etiqueter(state.openId, { add: noms });
+  });
+
   $('#readerScroll').addEventListener('scroll', () => {
     const el = $('#readerScroll');
     const max = el.scrollHeight - el.clientHeight;
@@ -867,6 +995,58 @@ function wireEvents() {
   $('#repairList').addEventListener('click', (event) => {
     const bouton = event.target.closest('[data-accept]');
     if (bouton) adopterAdresse(Number(bouton.dataset.accept), bouton.dataset.url, bouton);
+  });
+
+  // --- gestion des étiquettes
+  $('#manageTags').addEventListener('click', ouvrirGestionTags);
+
+  $('#tagCreateForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const nom = $('#newTagName').value.trim();
+    if (!nom) return;
+    try {
+      await api.createTag(nom);
+      $('#newTagName').value = '';
+      await reloadState();
+      renderTagManager();
+    } catch (error) {
+      toast('Étiquette : ' + error.message, 'bad');
+    }
+  });
+
+  $('#tagManager').addEventListener('click', async (event) => {
+    const bloc = event.target.closest('[data-tag-id]');
+    if (!bloc) return;
+    const id = Number(bloc.dataset.tagId);
+
+    const teinte = event.target.closest('[data-color]');
+    if (teinte) { majTag(id, { color: teinte.dataset.color }); return; }
+
+    if (event.target.closest('.tag-delete')) {
+      const nom = $('.tag-rename', bloc).value;
+      if (!confirm(`Supprimer l’étiquette « ${nom} » ? Les articles ne sont pas touchés.`)) return;
+      try {
+        await api.deleteTag(id);
+        if (state.tag === nom) setView({ view: 'all' });
+        await reloadState();
+        renderTagManager();
+      } catch (error) {
+        toast('Échec : ' + error.message, 'bad');
+      }
+    }
+  });
+
+  // Le renommage se valide en quittant le champ ou avec Entrée.
+  $('#tagManager').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && event.target.matches('.tag-rename')) { event.preventDefault(); event.target.blur(); }
+  });
+  $('#tagManager').addEventListener('focusout', (event) => {
+    if (!event.target.matches('.tag-rename')) return;
+    const bloc = event.target.closest('[data-tag-id]');
+    const id = Number(bloc.dataset.tagId);
+    const ancien = state.tags.find((t) => t.id === id)?.name;
+    const nouveau = event.target.value.trim();
+    if (nouveau && nouveau !== ancien) majTag(id, { name: nouveau });
   });
 
   $('#dedupeAll').addEventListener('click', async (event) => {

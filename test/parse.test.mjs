@@ -142,3 +142,46 @@ test('parseFeed ramene un <link> qui pointe sur le flux vers le domaine', () => 
   const feed = parseFeed(xml, 'https://journal.test/rss.xml');
   assert.equal(feed.siteUrl, 'https://journal.test/');
 });
+
+/* ------------------------------------------------------------- podcasts --- */
+
+const PODCAST = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Une émission</title>
+    <link>https://radio.test/</link>
+    <item>
+      <title>Épisode sur le temps</title>
+      <link>https://radio.test/e/12</link>
+      <guid>radio-12</guid>
+      <pubDate>Sun, 31 Aug 2026 06:00:00 +0200</pubDate>
+      <description>Ce que raconte l'épisode.</description>
+      <itunes:duration>00:58:01</itunes:duration>
+      <enclosure url="https://radio.test/audio/12.mp3" length="55696000" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>`;
+
+test('parseFeed compose un lecteur audio pour un épisode de podcast', () => {
+  const feed = parseFeed(PODCAST, 'https://radio.test/rss');
+  const episode = feed.items[0];
+
+  assert.equal(episode.title, 'Épisode sur le temps');
+  assert.equal(episode.duration, 3481, '58 min 01 s');
+  assert.ok(episode.content.includes('<audio'));
+  assert.ok(episode.content.includes('https://radio.test/audio/12.mp3'));
+  assert.ok(episode.content.includes('Ce que raconte'), 'le texte de l’épisode suit le lecteur');
+});
+
+test('une pièce jointe audio sans type est reconnue à son extension', () => {
+  const xml = PODCAST.replace(' type="audio/mpeg"', '').replace('12.mp3', '12.m4a');
+  const episode = parseFeed(xml, 'https://radio.test/rss').items[0];
+  assert.ok(episode.content.includes('12.m4a'));
+});
+
+test('une pièce jointe qui n’est ni image ni audio est ignorée', () => {
+  const xml = PODCAST.replace('type="audio/mpeg"', 'type="application/pdf"').replace('12.mp3', '12.pdf');
+  const episode = parseFeed(xml, 'https://radio.test/rss').items[0];
+  assert.ok(!episode.content.includes('<audio'));
+  assert.equal(episode.image, null);
+});

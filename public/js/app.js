@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, quand, dateLongue, tempsLecture, duree, relais, hote, debounce, pluriel } from './util.js';
+import { esc, quand, heure, dateLongue, dateJournal, tempsLecture, duree, relais, hote, debounce, pluriel, nombre } from './util.js';
 
 const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
@@ -12,33 +12,64 @@ const state = {
   folder: null,
   q: '',
   tag: null,
-  layout: 'magazine',    // magazine | list | compact
+  layout: 'magazine',    // magazine (la une) | list (sommaire) | compact (dépêches)
   articles: [],
-  cursor: null,          // curseur de pagination
+  cursor: null,
   loading: false,
   done: false,
-  pointer: -1,           // index selectionne au clavier
+  pointer: -1,
   openId: null,
   feeds: [],
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
   tags: [],
   palette: [],
+  accents: [],
   settings: {}
 };
+
+const CLASSE_LAYOUT = { magazine: 'l-une', list: 'l-sommaire', compact: 'l-depeches' };
+
+/** Palette fermée du kiosque : six teintes, deux neutres. */
+const TEINTES_SOURCE = [
+  '#e2452a', '#1b3fd8', '#f0a91d',
+  '#10604a', '#6a2fd0', '#d81e73',
+  '#a9a69d', '#f6f5f1'
+];
 
 const collapsed = new Set(JSON.parse(localStorage.getItem('bublee.collapsed') || '[]'));
 
 const SUGGESTIONS = [
-  { title: 'Le Monde — Une',   url: 'https://www.lemonde.fr/rss/une.xml',                 folder: 'Actualité' },
-  { title: 'France Info',      url: 'https://www.francetvinfo.fr/titres.rss',             folder: 'Actualité' },
-  { title: 'Radio-Canada',     url: 'https://ici.radio-canada.ca/rss/4159',               folder: 'Actualité' },
-  { title: 'Numerama',         url: 'https://www.numerama.com/feed/',                     folder: 'Tech' },
-  { title: 'Korben',           url: 'https://korben.info/feed',                           folder: 'Tech' },
-  { title: 'Hacker News',      url: 'https://hnrss.org/frontpage',                        folder: 'Tech' },
-  { title: 'Ars Technica',     url: 'https://feeds.arstechnica.com/arstechnica/index',    folder: 'Tech' },
-  { title: 'The Verge',        url: 'https://www.theverge.com/rss/index.xml',             folder: 'Tech' }
+  { title: 'Le Monde — Une', url: 'https://www.lemonde.fr/rss/une.xml', folder: 'Actualité' },
+  { title: 'France Info', url: 'https://www.francetvinfo.fr/titres.rss', folder: 'Actualité' },
+  { title: 'Le Devoir', url: 'https://www.ledevoir.com/rss/manchettes.xml', folder: 'Actualité' },
+  { title: 'Numerama', url: 'https://www.numerama.com/feed/', folder: 'Tech' },
+  { title: 'Next', url: 'https://next.ink/feed/', folder: 'Tech' },
+  { title: 'Hacker News', url: 'https://hnrss.org/frontpage', folder: 'Tech' },
+  { title: 'Aeon', url: 'https://aeon.co/feed.rss', folder: 'Idées' },
+  { title: 'Kurzgesagt', url: 'https://www.youtube.com/@kurzgesagt', folder: 'Vidéo' }
 ];
+
+/* --------------------------------------------------------------- couleurs */
+
+/** Teinte stable par source : une même source garde toujours la sienne. */
+function teinte(texte) {
+  let h = 0;
+  for (const c of String(texte || '')) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return TEINTES_SOURCE[h % TEINTES_SOURCE.length];
+}
+
+/** Encre ou papier sur une teinte, selon sa luminance perceptuelle. */
+function contraste(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const lum = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
+  return lum > 150 ? '#0d0d0c' : '#f6f5f1';
+}
+
+function rgba(hex, alpha) {
+  const n = parseInt(String(hex).slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
 
 /* ----------------------------------------------------------------- toasts */
 
@@ -49,7 +80,7 @@ function toast(message, kind = '') {
   $('#toasts').append(el);
   setTimeout(() => {
     el.classList.add('out');
-    setTimeout(() => el.remove(), 320);
+    setTimeout(() => el.remove(), 300);
   }, kind === 'bad' ? 4600 : 2800);
 }
 
@@ -57,22 +88,25 @@ function toast(message, kind = '') {
 
 async function boot() {
   applyTheme(localStorage.getItem('bublee.theme') || 'auto');
+  $('#indexDate').textContent = dateJournal();
+  $('#mastheadDate').textContent = dateJournal();
+
   try {
     const data = await api.state();
     absorb(data);
-    state.layout = data.settings.layout || 'magazine';
-    applyLayout(state.layout);
+    applyAccent(data.settings.accent);
+    applyLayout(data.settings.layout || 'magazine');
     await loadArticles(true);
   } catch (error) {
     toast('Le serveur ne répond pas : ' + error.message, 'bad');
   }
   wireEvents();
 
-  // Liens directs : #/article/482, #/tags, #/shortcuts
   const article = /^#\/article\/(\d+)$/.exec(location.hash);
   if (article) openArticle(Number(article[1]));
   else if (location.hash === '#/tags') ouvrirGestionTags();
   else if (location.hash === '#/shortcuts') openModal('#shortcutsModal');
+  else if (location.hash === '#/reglages') ouvrirReglages();
 }
 
 function absorb(data) {
@@ -80,96 +114,67 @@ function absorb(data) {
   state.folders = data.folders;
   state.counts = data.counts;
   state.tags = data.tags || [];
-  state.palette = data.palette || state.palette || [];
+  state.palette = data.palette || state.palette;
+  state.accents = data.accents || state.accents;
   state.settings = data.settings;
-  renderRail();
+  renderIndex();
 }
 
 async function reloadState() {
   absorb(await api.state());
 }
 
-/* ------------------------------------------------------------ colonne gauche */
+/* ============================================================== l'index */
 
-function renderRail() {
-  $('#countUnread').textContent = state.counts.unread;
-  $('#countUnread').classList.toggle('zero', !state.counts.unread);
-  $('#countAll').textContent = state.counts.total;
-  $('#countStarred').textContent = state.counts.starred;
-  $('#countStarred').classList.toggle('zero', !state.counts.starred);
+function renderIndex() {
+  $('#countUnread').textContent = nombre(state.counts.unread);
+  $('#countAll').textContent = nombre(state.counts.total);
+  $('#countStarred').textContent = nombre(state.counts.starred);
 
-  $$('.nav-item').forEach((btn) => {
-    btn.classList.toggle('active', !state.feedId && !state.folder && !state.tag && btn.dataset.view === state.view);
-  });
+  const neutre = !state.feedId && !state.folder && !state.tag;
+  $$('.view-row').forEach((b) => b.classList.toggle('active', neutre && b.dataset.view === state.view));
 
-  $('#lastRefresh').textContent = state.counts.lastRefreshAt
-    ? 'Màj ' + quand(state.counts.lastRefreshAt)
-    : '';
+  $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
+  $('#tagCount').textContent = String(state.tags.length).padStart(2, '0');
+  $('#toolbarCount').textContent =
+    `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
 
-  $('#folderOptions').innerHTML = state.folders
-    .map((f) => `<option value="${esc(f.name)}"></option>`).join('');
+  $('#folderOptions').innerHTML = state.folders.map((f) => `<option value="${esc(f.name)}"></option>`).join('');
 
   renderTagList();
   renderFeedList();
 }
 
-/** Couleur d'une étiquette, retrouvée par son nom. */
 function couleurTag(nom) {
-  return state.tags.find((t) => t.name === nom)?.color || 'var(--ink-mute)';
+  return state.tags.find((t) => t.name === nom)?.color || 'var(--accent)';
 }
 
 function renderTagList() {
   $('#tagOptions').innerHTML = state.tags.map((t) => `<option value="${esc(t.name)}"></option>`).join('');
 
-  $('#tagList').innerHTML = state.tags.length
-    ? state.tags.map((t) => `
-      <button class="tag-row${state.tag === t.name ? ' active' : ''}" data-tag="${esc(t.name)}"
-              style="--teinte:${esc(t.color || 'var(--ink-mute)')}">
-        <span class="tag-dot"></span>
-        <span class="tag-label">${esc(t.name)}</span>
-        <span class="feed-count">${t.count || ''}</span>
-      </button>`).join('')
-    : '<p class="field-note" style="padding:2px 10px 6px">Aucune pour l’instant — étiquette un article depuis le lecteur.</p>';
+  $('#tagList').innerHTML = state.tags.map((t) => `
+    <button class="tag-row${state.tag === t.name ? ' active' : ''}" data-tag="${esc(t.name)}"
+            style="--teinte:${esc(t.color || 'var(--accent)')}">
+      <span class="tag-square" aria-hidden="true"></span>
+      <span class="tag-label">${esc(t.name)}</span>
+      <span class="tag-count">${t.count || ''}</span>
+    </button>`).join('');
 }
 
-/* -------------------------------------------------- gestion des étiquettes */
-
-function renderTagManager() {
-  const palette = state.palette || [];
-
-  $('#tagManager').innerHTML = state.tags.length
-    ? state.tags.map((t) => `
-      <div class="tag-manage" data-tag-id="${t.id}">
-        <div class="tag-manage-head">
-          <input class="tag-rename" value="${esc(t.name)}" maxlength="60" aria-label="Nom de l’étiquette">
-          <span class="tag-usage">${t.count ? pluriel(t.count, 'article') : 'inutilisée'}</span>
-          <button class="tag-delete" title="Supprimer" aria-label="Supprimer l’étiquette">×</button>
-        </div>
-        <div class="tag-palette">
-          ${palette.map((c) => `
-            <button class="tag-swatch${t.color === c ? ' on' : ''}" data-color="${esc(c)}"
-                    style="--teinte:${esc(c)}" aria-label="Teinte ${esc(c)}"></button>`).join('')}
-        </div>
-      </div>`).join('')
-    : '<p class="field-note">Aucune étiquette. Crée-en une ci-dessus, ou pose-en une depuis le lecteur.</p>';
-}
-
-async function ouvrirGestionTags() {
-  await reloadState();
-  renderTagManager();
-  openModal('#tagsModal');
-}
-
-/** Toute modification d'étiquette repasse par l'état, pour garder tout cohérent. */
-async function majTag(id, patch) {
-  try {
-    await api.updateTag(id, patch);
-    await reloadState();
-    renderTagManager();
-    loadArticles(true);
-  } catch (error) {
-    toast('Étiquette : ' + error.message, 'bad');
+/** La pastille de type : rien pour un article, une marque pour la vidéo et le son. */
+function pastilleType(kind) {
+  if (kind === 'video') {
+    return `<span class="feed-badge"><svg viewBox="0 0 12 12" aria-hidden="true">
+      <rect width="12" height="12" fill="#d63a2a"/><path d="M4.4 3.2 8.6 6 4.4 8.8Z" fill="#fff"/></svg></span>`;
   }
+  if (kind === 'podcast') {
+    return `<span class="feed-badge"><svg viewBox="0 0 12 12" aria-hidden="true">
+      <rect width="12" height="12" fill="#f0a91d"/>
+      <rect x="2.5" y="4.5" width="1.2" height="3" fill="#0d0d0c"/>
+      <rect x="5.4" y="2.6" width="1.2" height="6.8" fill="#0d0d0c"/>
+      <rect x="8.3" y="4.5" width="1.2" height="3" fill="#0d0d0c"/></svg></span>`;
+  }
+  return '';
 }
 
 function renderFeedList() {
@@ -180,35 +185,34 @@ function renderFeedList() {
     groups.get(key).push(feed);
   }
 
-  const monogramme = (titre) => (String(titre).match(/[\p{L}\p{N}]/u)?.[0] || '•').toUpperCase();
+  const initiale = (t) => (String(t).match(/[\p{L}\p{N}]/u)?.[0] || '•').toUpperCase();
 
-  const feedRow = (feed) => `
-    <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}${feed.kind === 'youtube' ? ' chaine' : ''}"
-            data-feed="${feed.id}"
-            title="${esc((feed.kind === 'youtube' ? 'Chaîne YouTube · ' : '') + (feed.last_error ? feed.title + ' — ' + feed.last_error : feed.title))}">
-      <span class="feed-mark">
-        ${feed.icon
-    ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
-    : `<span class="feed-icon mono">${esc(monogramme(feed.title))}</span>`}
-        ${feed.kind === 'youtube' ? '<span class="feed-play" aria-label="Chaîne YouTube"></span>' : ''}
-      </span>
-      <span class="feed-name">${esc(feed.title)}</span>
-      ${feed.last_error ? '<span class="feed-warn" aria-label="Source injoignable">!</span>' : ''}
-      <span class="feed-count">${feed.unread || ''}</span>
-      <span class="feed-edit" data-edit="${feed.id}" title="Modifier">
-        <svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/></svg>
-      </span>
-    </button>`;
+  const feedRow = (feed) => {
+    const couleur = teinte(feed.title);
+    const marque = feed.icon
+      ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
+      : `<span class="feed-icon mono-mark" style="--teinte:${couleur};--teinte-texte:${contraste(couleur)}">${esc(initiale(feed.title))}</span>`;
 
-  const blocks = [];
-  const loose = groups.get('') || [];
-  if (loose.length) blocks.push(`<div class="folder-body">${loose.map(feedRow).join('')}</div>`);
+    return `
+      <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}"
+              data-feed="${feed.id}" style="--teinte:${couleur}"
+              title="${esc(feed.last_error ? feed.title + ' — ' + feed.last_error : feed.title)}">
+        <span class="feed-bar" aria-hidden="true"></span>
+        <span class="feed-mark">${marque}${pastilleType(feed.kind)}</span>
+        <span class="feed-name">${esc(feed.title)}</span>
+        ${feed.last_error ? '<span class="feed-warn">!</span>' : ''}
+        <span class="feed-count">${feed.unread || ''}</span>
+      </button>`;
+  };
+
+  const blocs = [];
+  const libres = groups.get('') || [];
+  if (libres.length) blocs.push(`<div class="folder-body">${libres.map(feedRow).join('')}</div>`);
 
   for (const [name, feeds] of [...groups].filter(([k]) => k).sort(([a], [b]) => a.localeCompare(b, 'fr'))) {
-    const unread = feeds.reduce((sum, f) => sum + f.unread, 0);
-    const isClosed = collapsed.has(name);
-    blocks.push(`
-      <div class="folder${isClosed ? ' collapsed' : ''}" data-folder="${esc(name)}">
+    const unread = feeds.reduce((s, f) => s + f.unread, 0);
+    blocs.push(`
+      <div class="folder${collapsed.has(name) ? ' collapsed' : ''}" data-folder="${esc(name)}">
         <button class="folder-head${state.folder === name ? ' active' : ''}" data-toggle="${esc(name)}">
           <span class="chev"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>
           <span class="folder-name" data-open-folder="${esc(name)}">${esc(name)}</span>
@@ -219,18 +223,15 @@ function renderFeedList() {
       </div>`);
   }
 
-  $('#feedList').innerHTML = blocks.join('') ||
-    '<p class="field-note" style="padding:8px 10px">Aucune source pour l’instant.</p>';
+  $('#feedList').innerHTML = blocs.join('') ||
+    '<p class="index-section" style="padding-top:8px">Aucune source</p>';
 }
 
 /* ------------------------------------------------------------ chargement */
 
 function titreVue() {
   if (state.q) return `« ${state.q} »`;
-  if (state.feedId) {
-    const feed = state.feeds.find((f) => f.id === state.feedId);
-    return feed ? feed.title : 'Source';
-  }
+  if (state.feedId) return state.feeds.find((f) => f.id === state.feedId)?.title || 'Source';
   if (state.tag) return '#' + state.tag;
   if (state.folder) return state.folder;
   return { unread: 'Non lus', all: 'Tout', starred: 'Favoris' }[state.view];
@@ -238,10 +239,9 @@ function titreVue() {
 
 function sousTitre() {
   const n = state.articles.length;
-  if (state.loading && !n) return 'Chargement…';
+  if (state.loading && !n) return 'Chargement';
   if (!n) return '';
-  const suffixe = state.done ? '' : '+';
-  return pluriel(n, 'article') + suffixe;
+  return nombre(n) + (state.done ? '' : '+') + ' articles';
 }
 
 async function loadArticles(reset = false) {
@@ -267,7 +267,7 @@ async function loadArticles(reset = false) {
       folder: state.folder,
       q: state.q,
       tag: state.tag,
-      limit: state.layout === 'compact' ? 60 : 30,
+      limit: state.layout === 'compact' ? 60 : 34,
       before: state.cursor
     });
     state.articles.push(...data.articles);
@@ -283,87 +283,205 @@ async function loadArticles(reset = false) {
   }
 }
 
-/* -------------------------------------------------------------- rendu flux */
-
 function renderSkeleton() {
-  const bloc = `
-    <article class="card skeleton">
-      <div class="sk media"></div>
-      <div class="sk line short"></div>
-      <div class="sk line title"></div>
-      <div class="sk line"></div>
-      <div class="sk line short"></div>
-    </article>`;
-  $('#flux').innerHTML = bloc.repeat(6);
+  $('#flux').innerHTML = `<div class="sk une"></div>
+    <div class="cols">${'<div class="sk col"></div>'.repeat(4)}</div>`;
   $('#endNote').hidden = true;
 }
 
-/** Teinte stable par source : une même source garde toujours la sienne. */
-function teinte(texte) {
-  let h = 0;
-  for (const c of String(texte || '')) h = (h * 31 + c.codePointAt(0)) >>> 0;
-  return h % 5;
+/* ------------------------------------------------------- briques d'article */
+
+const estVideo = (a) => /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(a.url || '');
+const estAudio = (a) => !estVideo(a) && Boolean(a.duration);
+
+function laDuree(a) {
+  if (a.duration) return duree(a.duration);
+  return tempsLecture(a.word_count);
 }
 
-/**
- * Quand aucune illustration n'existe (l'éditeur n'en fournit pas, ou son
- * site refuse les robots), on compose une plaque typographique : grande
- * initiale de l'article, nom de la source, teinte de la source.
- */
-function plaque(article) {
-  const initiale = (String(article.title).match(/[\p{L}\p{N}]/u)?.[0] || '§').toUpperCase();
+function surtitre(a, { avecDuree = true } = {}) {
+  const bouts = [`<b>${esc(a.feed_title)}</b>`, esc(quand(a.published_at))];
+  const d = avecDuree ? laDuree(a) : '';
+  if (d) bouts.push(esc(d));
+  return bouts.join(' · ');
+}
+
+/** Index de l'article dans la liste courante — sert au curseur clavier. */
+let indexParId = new Map();
+
+function attrs(a) {
+  return `data-id="${a.id}" data-index="${indexParId.get(a.id)}"`;
+}
+
+const classeLue = (a) => (a.read_at ? ' read' : '');
+const curseur = (a) => (indexParId.get(a.id) === state.pointer ? ' cursor' : '');
+
+/* --- les blocs de la mise en page « la une » ----------------------------- */
+
+function blocUne(a) {
+  const couleur = teinte(a.feed_title);
+  const fond = a.image
+    ? `<img src="${esc(relais(a.image))}" alt="" loading="lazy">`
+    : `<div class="plaque-initiale" style="color:${rgba(couleur, .2)}">${esc(initialeDe(a))}</div>`;
+
   return `
-    <div class="card-media plate" data-plate="${teinte(article.feed_title)}" aria-hidden="true">
-      <span class="plate-mark">${esc(initiale)}</span>
-      <span class="plate-source">${esc(article.feed_title)}</span>
+    <div class="bloc une art${classeLue(a)}${curseur(a)}" ${attrs(a)} style="--teinte:${couleur}">
+      ${fond}
+      <div class="une-voile"></div>
+      <div class="une-tampon">La une</div>
+      <button class="une-corps" data-open="${a.id}">
+        <div class="une-sur">${surtitre(a)}</div>
+        <h2 class="une-titre">${esc(a.title)}</h2>
+        ${a.summary ? `<p class="une-chapo">${esc(a.summary)}</p>` : ''}
+      </button>
     </div>`;
 }
 
-function carte(article, index) {
-  const classes = ['card'];
-  if (article.read_at) classes.push('read');
-  if (index === 0) classes.push('hero');
-  else if (index > 3 && (index - 4) % 7 === 0) classes.push('wide');
-  if (index === state.pointer) classes.push('cursor');
-
-  const estVideo = /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(article.url || '');
-  // Une durée signalée par le flux : c'est un épisode, pas un article.
-  const estAudio = !estVideo && Boolean(article.duration);
-
-  const media = article.image
-    ? `<div class="card-media${estVideo ? ' video' : estAudio ? ' audio' : ''}">
-         <img src="${esc(relais(article.image))}" alt="" loading="lazy">
-         ${estVideo || estAudio ? '<span class="play" aria-hidden="true"></span>' : ''}
-       </div>`
-    : plaque(article);
-
-  // Un épisode de podcast s'écoute : on annonce sa durée, pas un temps de lecture.
-  const lecture = article.duration ? duree(article.duration) : tempsLecture(article.word_count);
-
-  return `
-    <article class="${classes.join(' ')}" data-id="${article.id}" data-index="${index}">
-      ${media}
-      <div class="card-body">
-        <div class="card-kicker">
-          <span class="src">${esc(article.feed_title)}</span>
-          <span class="dot"></span>
-          <span class="when">${esc(quand(article.published_at))}</span>
-        </div>
-        <h2 class="card-title">${esc(article.title)}</h2>
-        ${article.summary ? `<p class="card-dek">${esc(article.summary)}</p>` : ''}
-      </div>
-      <div class="card-foot">
-        ${lecture ? `<span>${lecture}</span>` : '<span></span>'}
-        <button class="star${article.starred ? ' on' : ''}" data-star="${article.id}"
-                title="${article.starred ? 'Retirer des favoris' : 'Mettre en favori'}" aria-label="Favori">
-          <svg viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
-        </button>
-      </div>
-    </article>`;
+function blocColonnes(liste) {
+  return `<div class="bloc cols">${liste.map((a) => `
+    <button class="col art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+      <div class="sur">${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
+      <h3 class="col-titre">${esc(a.title)}</h3>
+      <div class="wipe"></div>
+      ${a.summary ? `<p class="chapo">${esc(a.summary)}</p>` : ''}
+      <div class="col-pied">${esc(laDuree(a) || 'à lire')}</div>
+    </button>`).join('')}</div>`;
 }
+
+function blocMur(liste) {
+  return `<div class="bloc wall">${liste.map((a) => {
+    const badge = estVideo(a)
+      ? `<span class="badge video">▶ ${esc(duree(a.duration) || 'vidéo')}</span>`
+      : estAudio(a)
+        ? `<span class="badge audio">◆ ${esc(duree(a.duration))}</span>`
+        : '<span class="badge">Photo</span>';
+    return `
+      <button class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+        <img src="${esc(relais(a.image))}" alt="" loading="lazy">
+        <span class="tuile-voile"></span>
+        ${badge}
+        <span class="tuile-corps">
+          <span class="tuile-sur">${esc(a.feed_title)} · ${esc(quand(a.published_at))}</span>
+          <span class="tuile-titre">${esc(a.title)}</span>
+        </span>
+      </button>`;
+  }).join('')}</div>`;
+}
+
+const initialeDe = (a) => (String(a.title).match(/[\p{L}\p{N}]/u)?.[0] || '§').toUpperCase();
+
+function blocAplats(liste) {
+  if (!liste.length) return '';
+  // L'aplat large va de préférence à un article dont le texte complet est là.
+  const large = liste.find((a) => a.has_full) || liste[0];
+  const plaques = liste.filter((a) => a !== large);
+  const couleur = teinte(large.feed_title);
+
+  const bloc = `
+    <button class="aplat art${classeLue(large)}${curseur(large)}" ${attrs(large)} data-open="${large.id}"
+            style="--teinte:${couleur};color:${contraste(couleur)}">
+      <span class="aplat-initiale">${esc(initialeDe(large))}</span>
+      <span class="sur">${esc(large.feed_title)} · ${esc(quand(large.published_at))}
+        ${large.has_full ? '<span class="aplat-badge">Texte complet</span>' : ''}</span>
+      <span class="aplat-titre">${esc(large.title)}</span>
+      <span class="aplat-pied">
+        ${large.summary ? `<span class="aplat-chapo">${esc(large.summary)}</span>` : '<span></span>'}
+        <span class="aplat-duree">${esc(laDuree(large))}</span>
+      </span>
+    </button>`;
+
+  return `<div class="bloc aplats">${bloc}${plaques.map(blocPlaque).join('')}</div>`;
+}
+
+function blocPlaque(a, i = 0) {
+  const couleur = teinte(a.feed_title);
+  const sombre = i % 2 === 1;
+  return `
+    <button class="plaque art ${sombre ? 'sombre' : 'claire'}${classeLue(a)}${curseur(a)}" ${attrs(a)}
+            data-open="${a.id}" style="--teinte:${couleur};--teinte-douce:${rgba(couleur, .22)}">
+      <span class="plaque-initiale">${esc(initialeDe(a))}</span>
+      <span class="plaque-source">${esc(a.feed_title)}</span>
+      <span class="plaque-corps">
+        <span class="sur">${esc(quand(a.published_at))} · sans illustration</span>
+        <span class="plaque-titre">${esc(a.title)}</span>
+        <span class="wipe"></span>
+        <span class="plaque-pied">${esc(laDuree(a) || 'texte indisponible')}</span>
+      </span>
+    </button>`;
+}
+
+function blocFils(liste) {
+  return `
+    <div class="bloc">
+      <div class="fils-titre">
+        <span>Dépêches</span>
+        <span class="rule"></span>
+        <span class="reste">${nombre(liste.length)} à lire</span>
+      </div>
+      <div class="fils">${liste.map((a) => `
+        <button class="fil art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+          <span class="fil-heure">${esc(heure(a.published_at))}</span>
+          <span class="fil-titre">${esc(a.title)}</span>
+          <span class="fil-source">${esc(a.feed_title)}</span>
+        </button>`).join('')}</div>
+    </div>`;
+}
+
+/**
+ * Découpe la liste en blocs de journal. Les blocs qui ont besoin d'une image
+ * la réclament en priorité, sans jamais bloquer si personne n'en a.
+ */
+function composerUne(articles) {
+  const reste = articles.slice();
+  const blocs = [];
+
+  const prendre = (n, pref) => {
+    const pris = [];
+    if (pref) {
+      for (let i = 0; i < reste.length && pris.length < n; i++) {
+        if (pref(reste[i])) pris.push(...reste.splice(i--, 1));
+      }
+    }
+    while (pris.length < n && reste.length) pris.push(reste.shift());
+    return pris;
+  };
+
+  const avecImage = (a) => Boolean(a.image);
+  const sansImage = (a) => !a.image;
+
+  let premier = true;
+  while (reste.length) {
+    if (premier) {
+      blocs.push({ type: 'une', liste: prendre(1, avecImage) });
+      premier = false;
+    }
+    const avant = reste.length;
+
+    const cols = prendre(4);
+    if (cols.length) blocs.push({ type: 'cols', liste: cols });
+
+    const mur = prendre(3, avecImage).filter(avecImage);
+    if (mur.length === 3) blocs.push({ type: 'wall', liste: mur });
+    else reste.unshift(...mur);
+
+    const aplats = prendre(3, sansImage);
+    if (aplats.length) blocs.push({ type: 'aplats', liste: aplats });
+
+    const fils = prendre(6);
+    if (fils.length) blocs.push({ type: 'fils', liste: fils });
+
+    if (reste.length === avant) break;
+  }
+  return blocs;
+}
+
+/* ------------------------------------------------------------ rendu du flux */
 
 function renderFlux() {
   const flux = $('#flux');
+  flux.className = 'flux ' + CLASSE_LAYOUT[state.layout];
+
+  indexParId = new Map(state.articles.map((a, i) => [a.id, i]));
 
   if (!state.articles.length) {
     flux.innerHTML = etatVide();
@@ -371,76 +489,90 @@ function renderFlux() {
     return;
   }
 
-  flux.innerHTML = state.articles.map(carte).join('');
+  if (state.layout === 'compact') flux.innerHTML = state.articles.map(ligneDepeche).join('');
+  else if (state.layout === 'list') flux.innerHTML = state.articles.map(ligneSommaire).join('');
+  else {
+    flux.innerHTML = composerUne(state.articles).map((b) => {
+      if (b.type === 'une') return b.liste.length ? blocUne(b.liste[0]) : '';
+      if (b.type === 'cols') return blocColonnes(b.liste);
+      if (b.type === 'wall') return blocMur(b.liste);
+      if (b.type === 'aplats') return blocAplats(b.liste);
+      return blocFils(b.liste);
+    }).join('');
+  }
+
   $('#endNote').hidden = !state.done;
 
-  // Une image qui ne charge pas cede la place a la plaque typographique.
-  $$('.card-media img', flux).forEach((img) => {
-    img.addEventListener('error', () => {
-      const carteParente = img.closest('.card');
-      const media = img.closest('.card-media');
-      const article = state.articles.find((a) => a.id === Number(carteParente?.dataset.id));
-      if (!media || !article) return;
-      media.outerHTML = plaque(article);
-    }, { once: true });
+  // Une illustration qui ne charge pas laisse la place à sa teinte.
+  $$('img', flux).forEach((img) => {
+    img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
   });
+}
+
+function ligneSommaire(a, i) {
+  const couleur = teinte(a.feed_title);
+  const vignette = a.image
+    ? `<img src="${esc(relais(a.image))}" alt="" loading="lazy">`
+    : '';
+  return `
+    <button class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+      <span class="som-num">${String(i + 1).padStart(2, '0')}</span>
+      <span>
+        <span class="sur">${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
+        <span class="som-titre">${esc(a.title)}</span>
+        ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
+      </span>
+      <span class="som-thumb" style="--teinte:${couleur}">${vignette}</span>
+    </button>`;
+}
+
+function ligneDepeche(a) {
+  return `
+    <button class="dep art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+      <span class="dep-puce" aria-hidden="true"></span>
+      <span class="dep-heure">${esc(heure(a.published_at))}</span>
+      <span class="dep-titre">${esc(a.title)}</span>
+      <span class="dep-source">${esc(a.feed_title)}</span>
+      <span class="dep-duree">${esc(a.duration ? '◆ ' + Math.round(a.duration / 60) + ' min' : '')}</span>
+    </button>`;
 }
 
 function etatVide() {
   if (state.q) {
-    return `<div class="empty">
-      <h2>Rien pour « ${esc(state.q)} »</h2>
+    return `<div class="empty"><h2>Rien pour « ${esc(state.q)} »</h2>
       <p>Essaie un autre mot, ou élargis la vue à « Tout ».</p>
-      <div class="empty-actions"><button class="ghost-btn" data-clear-search>Effacer la recherche</button></div>
-    </div>`;
+      <div class="empty-actions"><button class="btn" data-clear-search>Effacer</button></div></div>`;
   }
-
   if (!state.feeds.length) {
     return `<div class="empty">
-      <div class="empty-glyph"><svg viewBox="0 0 100 100" fill="currentColor" stroke="none">
-        <circle cx="26" cy="74" r="10"/><path d="M18 44a38 38 0 0 1 38 38H42a24 24 0 0 0-24-24z"/>
-        <path d="M18 16a66 66 0 0 1 66 66H70A52 52 0 0 0 18 30z"/></svg></div>
-      <h2>Ton kiosque est vide</h2>
-      <p>Ajoute une source, ou importe ton export OPML depuis Feedly pour tout récupérer d’un coup.</p>
+      <h2>Le kiosque est vide</h2>
+      <p>Ajoute une source, ou importe ton export OPML pour tout récupérer d’un coup.</p>
       <div class="empty-actions">
-        <button class="accent-btn" data-add-feed>＋ Ajouter une source</button>
-        <button class="ghost-btn" data-import-opml>Importer un OPML</button>
+        <button class="btn solid" data-add-feed>＋ Ajouter une source</button>
+        <button class="btn" data-import-opml>Importer un OPML</button>
       </div>
       <div class="suggestions">
         <h3>Pour commencer</h3>
         <div class="suggestion-grid">
-          ${SUGGESTIONS.map((s, i) => `
-            <button class="suggestion" data-suggest="${i}">
-              <span>${esc(s.title)}</span><span class="plus">＋</span>
-            </button>`).join('')}
+          ${SUGGESTIONS.map((s, i) => `<button class="suggestion" data-suggest="${i}">
+            <span>${esc(s.title)}</span><span class="plus">＋</span></button>`).join('')}
         </div>
-      </div>
-    </div>`;
+      </div></div>`;
   }
-
   if (state.view === 'unread') {
-    return `<div class="empty">
-      <div class="empty-glyph"><svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg></div>
-      <h2>Tout est lu</h2>
+    return `<div class="empty"><h2>Tout est lu</h2>
       <p>Belle discipline. Reviens plus tard, ou relis ce qui est passé.</p>
       <div class="empty-actions">
-        <button class="ghost-btn" data-goto-view="all">Voir tous les articles</button>
-        <button class="ghost-btn" data-refresh>Rafraîchir</button>
-      </div>
-    </div>`;
+        <button class="btn" data-goto-view="all">Voir tout</button>
+        <button class="btn" data-refresh>Rafraîchir</button>
+      </div></div>`;
   }
-
   if (state.view === 'starred') {
-    return `<div class="empty">
-      <div class="empty-glyph"><svg viewBox="0 0 24 24"><path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg></div>
-      <h2>Aucun favori</h2>
-      <p>Appuie sur <kbd>S</kbd> sur un article pour le garder sous la main.</p>
-    </div>`;
+    return `<div class="empty"><h2>Aucun favori</h2>
+      <p>Appuie sur <kbd>S</kbd> sur un article pour le garder sous la main.</p></div>`;
   }
-
   return `<div class="empty"><h2>Rien à afficher</h2>
-    <p>Cette source n’a pas encore d’article. Un rafraîchissement peut aider.</p>
-    <div class="empty-actions"><button class="ghost-btn" data-refresh>Rafraîchir</button></div></div>`;
+    <div class="empty-actions"><button class="btn" data-refresh>Rafraîchir</button></div></div>`;
 }
 
 /* ------------------------------------------------------------------ vues */
@@ -451,14 +583,14 @@ function setView({ view, feedId = null, folder = null, tag = null }) {
   state.folder = folder;
   state.tag = tag;
   closeRail();
-  renderRail();
+  renderIndex();
   loadArticles(true);
 }
 
 function applyLayout(layout) {
   state.layout = layout;
-  $('#flux').className = 'flux ' + layout;
-  $$('.seg button').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+  $('#flux').className = 'flux ' + CLASSE_LAYOUT[layout];
+  $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
 }
 
 function applyTheme(theme) {
@@ -466,20 +598,23 @@ function applyTheme(theme) {
   localStorage.setItem('bublee.theme', theme);
 }
 
+function applyAccent(accent) {
+  if (!accent) return;
+  document.documentElement.style.setProperty('--accent', accent);
+  localStorage.setItem('bublee.accent', accent);
+  state.settings.accent = accent;
+}
+
 /* --------------------------------------------------------------- lecteur */
 
 async function openArticle(id) {
-  const index = state.articles.findIndex((a) => a.id === id);
-  if (index >= 0) setPointer(index, false);
+  const index = indexParId.get(id);
+  if (index !== undefined) setPointer(index, false);
   state.openId = id;
   history.replaceState(null, '', '#/article/' + id);
 
-  $('#readerShade').hidden = false;
   $('#reader').hidden = false;
-  $('#readerScroll').innerHTML = `<div class="reader-loading">
-    <div class="skeleton"><div class="sk line short"></div><div class="sk line title"></div>
-    <div class="sk line title"></div><div class="sk line"></div><div class="sk line"></div>
-    <div class="sk line"></div><div class="sk line short"></div></div></div>`;
+  $('#readerScroll').innerHTML = '';
   document.body.style.overflow = 'hidden';
 
   try {
@@ -487,8 +622,6 @@ async function openArticle(id) {
     if (state.openId !== id) return;
     renderReader(article);
     if (!article.read_at) await marquerLu(id, true);
-
-    // Flux qui ne publient qu'un aperçu : on va chercher la suite chez l'editeur.
     if (article.should_fetch_full) completerArticle(article);
   } catch (error) {
     toast('Article illisible : ' + error.message, 'bad');
@@ -496,41 +629,109 @@ async function openArticle(id) {
   }
 }
 
-/** Les étiquettes de l'article, chacune retirable, plus le champ d'ajout. */
-function editeurTags(article) {
-  const chips = (article.tags || []).map((nom) => `
-    <span class="tag-chip" style="--teinte:${esc(couleurTag(nom))}">
-      <button class="tag-jump" data-goto-tag="${esc(nom)}" title="Voir tout ce qui porte cette étiquette">#${esc(nom)}</button>
-      <button class="tag-off" data-untag="${esc(nom)}" title="Retirer" aria-label="Retirer l’étiquette">×</button>
-    </span>`).join('');
+function renderReader(a) {
+  const suivant = articleSuivant();
+  const video = estVideo(a);
+  const couleur = teinte(a.feed_title);
 
-  return chips + `
-    <input class="tag-input" id="tagInput" list="tagOptions" autocomplete="off" spellcheck="false"
-           placeholder="+ étiquette" aria-label="Ajouter une étiquette" maxlength="60">`;
+  $('#readerStar').classList.toggle('on', Boolean(a.starred));
+  $('#readerFull').hidden = video || !a.url;
+  const lien = $('#readerOpen');
+  lien.href = a.url || '#';
+  lien.hidden = !a.url;
+
+  const d = video ? '' : laDuree(a);
+  $('#readerInfos').textContent = [a.feed_title, d, a.word_count ? nombre(a.word_count) + ' mots' : '']
+    .filter(Boolean).join(' · ');
+
+  const meta = [esc(quand(a.published_at)), a.author ? esc(a.author) : '', a.url ? esc(hote(a.url)) : '']
+    .filter(Boolean).join(' · ');
+
+  const ouverture = a.image && !video
+    ? `<div class="reader-hero">
+         <img src="${esc(relais(a.image))}" alt="">
+         <div class="voile"></div>
+         <div class="reader-hero-corps"><div class="reader-hero-inner">
+           ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
+           <div class="reader-meta">${meta}</div>
+           <h1 class="reader-titre">${esc(a.title)}</h1>
+         </div></div>
+       </div>`
+    : `<div class="reader-hero plaque-hero" style="--teinte:${couleur}">
+         <span class="plaque-initiale">${esc(initialeDe(a))}</span>
+         <div class="reader-hero-corps"><div class="reader-hero-inner">
+           ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
+           <div class="reader-meta">${meta}</div>
+           <h1 class="reader-titre">${esc(a.title)}</h1>
+         </div></div>
+       </div>`;
+
+  const corps = a.content && a.content.length > 40
+    ? a.content
+    : `<p>${esc(a.summary || 'Cet article ne fournit pas de contenu dans son flux.')}</p>`;
+
+  const sources = a.also_in?.length
+    ? `<p class="reader-sources">Aussi publié par ${a.also_in.map((s) => esc(s.feed_title)).join(', ')}</p>`
+    : '';
+
+  $('#readerScroll').innerHTML = `
+    ${ouverture}
+    <div class="reader-inner">
+      <div class="tag-editor" id="tagEditor">${editeurTags(a)}</div>
+      ${sources}
+      <div class="full-state" id="fullState" hidden></div>
+      <div class="reader-body">${corps}</div>
+      <div class="reader-end">
+        ${suivant ? `<button class="btn solid" data-next="${suivant.id}">Suivant →</button>` : ''}
+        ${suivant ? `<span class="next-hint">${esc(suivant.title.slice(0, 60))}</span>` : ''}
+      </div>
+    </div>`;
+
+  $('#readerScroll').scrollTop = 0;
+  $('#readerProgress').style.width = '0%';
+
+  $$('.reader-body img, .reader-hero img').forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    if (src && !src.startsWith('data:') && !src.startsWith('/api/image')) {
+      img.removeAttribute('srcset');
+      img.removeAttribute('sizes');
+      img.src = relais(src);
+    }
+    img.addEventListener('error', () => { img.style.display = 'none'; }, { once: true });
+  });
+
+  const premier = $$('.reader-body p').find((p) => {
+    const t = p.textContent.trim();
+    return t.length > 90 && !p.querySelector('img') && /^[\p{L}\p{N}]/u.test(t);
+  });
+  premier?.classList.add('lettrine');
 }
 
-/** Pose ou retire une étiquette, puis rafraîchit le lecteur et la colonne. */
+function editeurTags(a) {
+  const chips = (a.tags || []).map((nom) => `
+    <span class="tag-chip" style="--teinte:${esc(couleurTag(nom))}">
+      <button class="tag-jump" data-goto-tag="${esc(nom)}">${esc(nom)}</button>
+      <button class="tag-off" data-untag="${esc(nom)}" aria-label="Retirer">✕</button>
+    </span>`).join('');
+  return chips + `<input class="tag-input" id="tagInput" list="tagOptions" autocomplete="off"
+    placeholder="+ étiquette" aria-label="Ajouter une étiquette" maxlength="60">`;
+}
+
 async function etiqueter(id, action) {
   try {
     const article = await api.tag(id, action);
     const local = state.articles.find((a) => a.id === id);
     if (local) local.tags = article.tags;
-    const zone = $('#tagEditor');
-    if (zone && state.openId === id) zone.innerHTML = editeurTags(article);
+    if (state.openId === id) $('#tagEditor').innerHTML = editeurTags(article);
     await reloadState();
   } catch (error) {
     toast('Étiquette : ' + error.message, 'bad');
   }
 }
 
-/** Recupere le texte complet et rejoue le rendu du lecteur. */
 async function completerArticle(article, force = false) {
   const zone = $('#fullState');
-  if (zone) {
-    zone.hidden = false;
-    zone.className = 'full-state';
-    zone.textContent = 'Récupération du texte complet…';
-  }
+  if (zone) { zone.hidden = false; zone.textContent = 'Récupération du texte complet…'; }
   try {
     const complet = await api.full(article.id, force);
     if (state.openId !== article.id) return;
@@ -540,125 +741,30 @@ async function completerArticle(article, force = false) {
     const el = $('#fullState');
     if (!el) return;
     el.hidden = false;
-    el.className = 'full-state bad';
-    el.innerHTML = `Texte complet indisponible — ${esc(error.message)} `
-      + '<button class="link-btn" data-retry>réessayer</button>';
+    el.innerHTML = `Texte complet indisponible — ${esc(error.message)} <button class="link-btn" data-retry>réessayer</button>`;
   }
 }
 
-function renderReader(article) {
-  const suivant = articleSuivant();
-  // Une vidéo : le lecteur remplace le texte, la miniature ferait doublon.
-  // On se fie à l'adresse, pas au contenu : un article qui *cite* une vidéo
-  // reste un article, avec son temps de lecture et son image d'ouverture.
-  const estVideo = /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(article.url || '');
-
-  $('#readerStar').classList.toggle('on', Boolean(article.starred));
-  $('#readerFull').hidden = estVideo || !article.url;
-  const lien = $('#readerOpen');
-  lien.href = article.url || '#';
-  lien.style.visibility = article.url ? '' : 'hidden';
-
-  const meta = [];
-  if (article.author) meta.push(`<span class="author">${esc(article.author)}</span>`);
-  meta.push(esc(dateLongue(article.published_at)));
-  // Un temps de lecture n'a pas de sens pour une vidéo.
-  const lecture = estVideo ? '' : (article.duration ? duree(article.duration) : tempsLecture(article.word_count));
-  if (lecture) meta.push(esc(lecture));
-  if (article.url) meta.push(esc(hote(article.url)));
-
-  const corps = article.content && article.content.length > 40
-    ? article.content
-    : `<p>${esc(article.summary || 'Cet article ne fournit pas de contenu dans son flux.')}</p>
-       ${article.url ? `<p><a href="${esc(article.url)}" target="_blank" rel="noopener">Lire sur le site d’origine ↗</a></p>` : ''}`;
-
-  // Les autres flux qui relaient la meme histoire.
-  const sources = article.also_in?.length
-    ? `<p class="reader-sources">Aussi publié par ${
-      article.also_in.map((s) => `<strong>${esc(s.feed_title)}</strong>`).join(', ')}</p>`
-    : '';
-
-  // On ne repete pas l'image d'ouverture si elle est deja dans le corps.
-  const heroDansCorps = estVideo || (article.image && article.content?.includes(article.image));
-  const hero = article.image && !heroDansCorps
-    ? `<figure class="reader-hero"><img src="${esc(relais(article.image))}" alt=""></figure>`
-    : '';
-
-  $('#readerScroll').innerHTML = `
-    <div class="reader-inner">
-      <div class="reader-kicker">
-        ${article.feed_icon ? `<img src="${esc(article.feed_icon)}" alt="">` : ''}
-        <span>${esc(article.feed_title)}</span>
-        <span class="when">· ${esc(quand(article.published_at))}</span>
-      </div>
-      <h1 class="reader-title">${esc(article.title)}</h1>
-      <div class="reader-byline">
-        ${meta.join('<span class="sep"></span>')}
-        ${article.has_full ? '<span class="tag">texte complet</span>' : ''}
-      </div>
-      <div class="tag-editor" id="tagEditor">${editeurTags(article)}</div>
-      ${sources}
-      ${hero}
-      <div class="full-state" id="fullState" hidden></div>
-      <div class="reader-body">${corps}</div>
-      <div class="reader-end">
-        ${article.url ? `<a class="ghost-btn" href="${esc(article.url)}" target="_blank" rel="noopener">Article original ↗</a>` : ''}
-        ${suivant ? `<button class="accent-btn" data-next="${suivant.id}">Article suivant →</button>` : ''}
-        ${suivant ? `<span class="next-hint">${esc(suivant.title.slice(0, 60))}${suivant.title.length > 60 ? '…' : ''}</span>` : ''}
-      </div>
-    </div>`;
-
-  $('#readerScroll').scrollTop = 0;
-  $('#readerProgress').style.width = '0%';
-
-  // Toutes les images passent par le relais : beaucoup d'hebergeurs refusent
-  // le hotlink, et cela evite d'exposer le lecteur aux traceurs des editeurs.
-  $$('.reader-body img, .reader-hero img').forEach((img) => {
-    const src = img.getAttribute('src') || '';
-    if (src && !src.startsWith('data:') && !src.startsWith('/api/image')) {
-      img.removeAttribute('srcset');
-      img.removeAttribute('sizes');
-      img.src = relais(src);
-    }
-    img.addEventListener('error', () => {
-      const figure = img.closest('.reader-hero');
-      if (figure) figure.remove(); else img.style.display = 'none';
-    }, { once: true });
-  });
-
-  // La lettrine se pose sur le premier vrai paragraphe de texte.
-  // Pas de `>` : Readability enveloppe son extraction dans un conteneur.
-  const premier = $$('.reader-body p').find((p) => {
-    const texte = p.textContent.trim();
-    return texte.length > 90 && !p.querySelector('img') && /^[\p{L}\p{N}]/u.test(texte);
-  });
-  premier?.classList.add('lettrine');
-}
-
 function articleSuivant() {
-  const index = state.articles.findIndex((a) => a.id === state.openId);
-  return index >= 0 ? state.articles[index + 1] : null;
+  const i = state.articles.findIndex((a) => a.id === state.openId);
+  return i >= 0 ? state.articles[i + 1] : null;
 }
 
 function closeReader() {
   state.openId = null;
   history.replaceState(null, '', location.pathname);
   $('#reader').hidden = true;
-  $('#readerShade').hidden = true;
   document.body.style.overflow = '';
 }
 
-/* -------------------------------------------------- lu / non lu / favoris */
+/* ------------------------------------------------ lu / non lu / favoris */
 
 function patchLocal(id, patch) {
-  const article = state.articles.find((a) => a.id === id);
-  if (!article) return;
-  Object.assign(article, patch);
-  const card = $(`.card[data-id="${id}"]`);
-  if (!card) return;
-  card.classList.toggle('read', Boolean(article.read_at));
-  const star = $('.star', card);
-  if (star) star.classList.toggle('on', Boolean(article.starred));
+  const a = state.articles.find((x) => x.id === id);
+  if (!a) return;
+  Object.assign(a, patch);
+  const el = $(`.art[data-id="${id}"]`);
+  if (el) el.classList.toggle('read', Boolean(a.read_at));
 }
 
 async function marquerLu(id, lu) {
@@ -672,14 +778,13 @@ async function marquerLu(id, lu) {
 }
 
 async function basculerFavori(id) {
-  const article = state.articles.find((a) => a.id === id);
-  const valeur = article ? !article.starred : true;
+  const a = state.articles.find((x) => x.id === id);
+  const valeur = a ? !a.starred : true;
   patchLocal(id, { starred: valeur ? 1 : 0 });
   if (state.openId === id) $('#readerStar').classList.toggle('on', valeur);
   try {
     await api.patch(id, { starred: valeur });
-    state.counts.starred += valeur ? 1 : -1;
-    renderRail();
+    await reloadState();
     toast(valeur ? 'Ajouté aux favoris' : 'Retiré des favoris');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
@@ -690,30 +795,24 @@ async function basculerFavori(id) {
 
 function setPointer(index, scroll = true) {
   const borne = Math.max(0, Math.min(index, state.articles.length - 1));
-  $$('.card.cursor').forEach((c) => c.classList.remove('cursor'));
+  $$('.cursor').forEach((c) => c.classList.remove('cursor'));
   state.pointer = borne;
-  const card = $(`.card[data-index="${borne}"]`);
-  if (card) {
-    card.classList.add('cursor');
-    if (scroll) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const el = $(`.art[data-index="${borne}"]`);
+  if (el) {
+    el.classList.add('cursor');
+    if (scroll) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
-  // Precharge la suite quand on approche de la fin.
-  if (borne > state.articles.length - 6) loadArticles();
+  if (borne > state.articles.length - 8) loadArticles();
 }
 
-function articleCourant() {
-  if (state.openId) return state.openId;
-  return state.articles[state.pointer]?.id ?? null;
-}
+const articleCourant = () => state.openId ?? state.articles[state.pointer]?.id ?? null;
 
 function onKey(event) {
-  const tag = event.target.tagName;
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
     if (event.key === 'Escape') event.target.blur();
     return;
   }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
-
   const key = event.key;
 
   if (key === 'Escape') {
@@ -730,19 +829,17 @@ function onKey(event) {
   if (key === '?') { event.preventDefault(); openModal('#shortcutsModal'); return; }
   if (key === ',') { event.preventDefault(); ouvrirReglages(); return; }
 
-  // Bascule d'une mise en page à l'autre.
   if (key === 'g') {
     event.preventDefault();
     const suite = ['magazine', 'list', 'compact'];
-    const suivante = suite[(suite.indexOf(state.layout) + 1) % suite.length];
-    applyLayout(suivante);
+    const next = suite[(suite.indexOf(state.layout) + 1) % suite.length];
+    applyLayout(next);
     renderFlux();
-    api.settings({ layout: suivante }).catch(() => {});
-    toast('Vue ' + { magazine: 'magazine', list: 'liste', compact: 'compacte' }[suivante]);
+    api.settings({ layout: next }).catch(() => {});
+    toast({ magazine: 'La une', list: 'Sommaire', compact: 'Dépêches' }[next]);
     return;
   }
 
-  // Vues principales.
   const vues = { 1: 'unread', 2: 'all', 3: 'starred' };
   if (vues[key] && !state.openId) { event.preventDefault(); setView({ view: vues[key] }); return; }
 
@@ -770,325 +867,212 @@ function onKey(event) {
   if (key === 's') { event.preventDefault(); basculerFavori(id); return; }
   if (key === 'm') {
     event.preventDefault();
-    const article = state.articles.find((a) => a.id === id);
-    marquerLu(id, !article?.read_at);
+    marquerLu(id, !state.articles.find((a) => a.id === id)?.read_at);
     return;
   }
   if (key === 'v') {
-    const article = state.articles.find((a) => a.id === id);
-    if (article?.url) window.open(article.url, '_blank', 'noopener');
+    const a = state.articles.find((x) => x.id === id);
+    if (a?.url) window.open(a.url, '_blank', 'noopener');
     return;
   }
   if (key === 't' && state.openId) { event.preventDefault(); $('#tagInput')?.focus(); return; }
   if (key === 'f' && state.openId) { event.preventDefault(); completerArticle({ id: state.openId }, true); }
 }
 
-/* ------------------------------------------------------------- actions */
+/* --------------------------------------------------------------- actions */
 
 async function rafraichir() {
   const btn = $('#refreshBtn');
-  btn.classList.add('spin');
+  btn.textContent = '…';
   try {
-    const result = await api.refreshAll();
+    const r = await api.refreshAll();
     await reloadState();
-    if (result.added) {
-      toast(`${pluriel(result.added, 'nouvel article', 'nouveaux articles')}`);
-      await loadArticles(true);
-    } else {
-      toast('Rien de neuf');
-    }
-    if (result.errors?.length) {
-      toast(`${pluriel(result.errors.length, 'source injoignable')}`, 'bad');
-    }
+    if (r.added) { toast(`${nombre(r.added)} nouveaux articles`); await loadArticles(true); }
+    else toast('Rien de neuf');
+    if (r.errors?.length) toast(`${r.errors.length} sources injoignables`, 'bad');
   } catch (error) {
     toast('Rafraîchissement impossible : ' + error.message, 'bad');
   } finally {
-    btn.classList.remove('spin');
+    btn.textContent = 'Rafraîchir';
   }
 }
 
 async function toutMarquerLu() {
-  const payload = state.feedId ? { feedId: state.feedId }
-    : state.folder ? { folder: state.folder }
-      : { all: true };
+  const payload = state.feedId ? { feedId: state.feedId } : state.folder ? { folder: state.folder } : { all: true };
   try {
-    const result = await api.markRead(payload);
+    const r = await api.markRead(payload);
     await reloadState();
-    toast(result.changed ? `${pluriel(result.changed, 'article')} marqué${result.changed > 1 ? 's' : ''} comme lu${result.changed > 1 ? 's' : ''}` : 'Déjà tout lu');
+    toast(r.changed ? `${nombre(r.changed)} articles marqués lus` : 'Déjà tout lu');
     await loadArticles(true);
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
 }
 
-/* ------------------------------------------------------------- fenetres */
+/* -------------------------------------------------------------- fenêtres */
 
 function openModal(sel) {
   closeModals();
   $('#modalShade').hidden = false;
   $(sel).hidden = false;
 }
-
 function closeModals() {
   $('#modalShade').hidden = true;
   $$('.modal').forEach((m) => (m.hidden = true));
 }
-
 function closeRail() { $('#app').classList.remove('rail-on'); }
 
-/* -------------------------------------------------------------- branchements */
+/* ---------------------------------------------------- gestion étiquettes */
 
-function wireEvents() {
-  // --- vues
-  $$('.nav-item').forEach((btn) =>
-    btn.addEventListener('click', () => setView({ view: btn.dataset.view })));
-
-  // --- sources
-  $('#feedList').addEventListener('click', (event) => {
-    const edit = event.target.closest('[data-edit]');
-    if (edit) {
-      event.stopPropagation();
-      ouvrirEditionFlux(Number(edit.dataset.edit));
-      return;
-    }
-    // Le nom ouvre le dossier ; le chevron (et le reste de l'en-tete) le replie.
-    const openFolder = event.target.closest('[data-open-folder]');
-    if (openFolder) {
-      setView({ view: state.view, folder: openFolder.dataset.openFolder });
-      return;
-    }
-    const toggle = event.target.closest('[data-toggle]');
-    if (toggle) {
-      const name = toggle.dataset.toggle;
-      collapsed.has(name) ? collapsed.delete(name) : collapsed.add(name);
-      localStorage.setItem('bublee.collapsed', JSON.stringify([...collapsed]));
-      renderFeedList();
-      return;
-    }
-    const row = event.target.closest('[data-feed]');
-    if (row) setView({ view: state.view === 'starred' ? 'all' : state.view, feedId: Number(row.dataset.feed) });
-  });
-
-  // --- mise en page
-  $$('.seg button').forEach((btn) => btn.addEventListener('click', () => {
-    applyLayout(btn.dataset.layout);
-    renderFlux();
-    api.settings({ layout: btn.dataset.layout }).catch(() => {});
-  }));
-
-  // --- flux d'articles
-  $('#flux').addEventListener('click', (event) => {
-    const star = event.target.closest('[data-star]');
-    if (star) { event.stopPropagation(); basculerFavori(Number(star.dataset.star)); return; }
-
-    const card = event.target.closest('.card');
-    if (card && !card.classList.contains('skeleton')) { openArticle(Number(card.dataset.id)); return; }
-
-    const suggest = event.target.closest('[data-suggest]');
-    if (suggest) { ajouterSuggestion(Number(suggest.dataset.suggest), suggest); return; }
-
-    if (event.target.closest('[data-add-feed]')) { openModal('#feedModal'); $('#feedUrl').focus(); return; }
-    if (event.target.closest('[data-import-opml]')) { $('#opmlFile').click(); return; }
-    if (event.target.closest('[data-refresh]')) { rafraichir(); return; }
-    if (event.target.closest('[data-clear-search]')) { $('#search').value = ''; state.q = ''; loadArticles(true); return; }
-    const goto = event.target.closest('[data-goto-view]');
-    if (goto) setView({ view: goto.dataset.gotoView });
-  });
-
-  // --- defilement infini
-  new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !state.loading && !state.done && state.articles.length) loadArticles();
-  }, { root: $('#scroller'), rootMargin: '600px' }).observe($('#sentinel'));
-
-  // --- recherche
-  const chercher = debounce(() => {
-    state.q = $('#search').value.trim();
-    if (state.q) { state.feedId = null; state.folder = null; state.view = 'all'; renderRail(); }
-    loadArticles(true);
-  }, 300);
-  $('#search').addEventListener('input', chercher);
-
-  // --- barre du haut
-  $('#refreshBtn').addEventListener('click', rafraichir);
-  $('#markAllRead').addEventListener('click', toutMarquerLu);
-  $('#addFeedBtn').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
-  $('#addFeedRail').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
-  $('#railOpen').addEventListener('click', () => $('#app').classList.add('rail-on'));
-  $('#railClose').addEventListener('click', closeRail);
-
-  // --- lecteur
-  $('#readerClose').addEventListener('click', closeReader);
-  $('#readerShade').addEventListener('click', closeReader);
-  $('#readerStar').addEventListener('click', () => state.openId && basculerFavori(state.openId));
-  $('#readerUnread').addEventListener('click', async () => {
-    if (!state.openId) return;
-    const id = state.openId;
-    closeReader();
-    await marquerLu(id, false);
-    toast('Marqué comme non lu');
-  });
-  $('#readerFull').addEventListener('click', () => {
-    if (state.openId) completerArticle({ id: state.openId }, true);
-  });
-  // --- étiquettes
-  $('#tagList').addEventListener('click', (event) => {
-    const ligne = event.target.closest('[data-tag]');
-    if (!ligne) return;
-    const nom = ligne.dataset.tag;
-    setView({ view: 'all', tag: state.tag === nom ? null : nom });
-  });
-
-  $('#readerScroll').addEventListener('click', (event) => {
-    const retire = event.target.closest('[data-untag]');
-    if (retire && state.openId) { etiqueter(state.openId, { remove: [retire.dataset.untag] }); return; }
-
-    const saut = event.target.closest('[data-goto-tag]');
-    if (saut) { closeReader(); setView({ view: 'all', tag: saut.dataset.gotoTag }); return; }
-
-    if (event.target.closest('[data-retry]')) {
-      if (state.openId) completerArticle({ id: state.openId }, true);
-      return;
-    }
-    const next = event.target.closest('[data-next]');
-    if (next) openArticle(Number(next.dataset.next));
-  });
-  // Entrée valide l'étiquette saisie ; les virgules permettent d'en poser plusieurs.
-  $('#readerScroll').addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' || !event.target.matches('#tagInput')) return;
-    event.preventDefault();
-    const noms = event.target.value.split(',').map((n) => n.trim()).filter(Boolean);
-    event.target.value = '';
-    if (noms.length && state.openId) etiqueter(state.openId, { add: noms });
-  });
-
-  $('#readerScroll').addEventListener('scroll', () => {
-    const el = $('#readerScroll');
-    const max = el.scrollHeight - el.clientHeight;
-    $('#readerProgress').style.width = (max > 0 ? (el.scrollTop / max) * 100 : 0) + '%';
-  });
-
-  // --- fenetres
-  $('#modalShade').addEventListener('click', closeModals);
-  $$('[data-close]').forEach((btn) => btn.addEventListener('click', closeModals));
-  $('#openSettings').addEventListener('click', ouvrirReglages);
-  $('#shortcutsBtn').addEventListener('click', () => openModal('#shortcutsModal'));
-  $('#openShortcuts').addEventListener('click', () => openModal('#shortcutsModal'));
-
-  $('#feedForm').addEventListener('submit', ajouterFlux);
-  $('#importOpml').addEventListener('click', () => $('#opmlFile').click());
-  $('#opmlFile').addEventListener('change', importerOpml);
-  $('#settingsForm').addEventListener('submit', enregistrerReglages);
-  $('#feedEditForm').addEventListener('submit', enregistrerFlux);
-  $('#deleteFeed').addEventListener('click', supprimerFlux);
-
-  $('#repairAll').addEventListener('click', reparerTout);
-  $('#repairFeed').addEventListener('click', async (event) => {
-    const id = Number($('#editFeedId').value);
-    event.target.disabled = true;
-    event.target.textContent = 'Recherche…';
-    try {
-      afficherRapport(await api.repairFeed(id));
-      await reloadState();
-    } catch (error) {
-      toast('Réparation impossible : ' + error.message, 'bad');
-    } finally {
-      event.target.disabled = false;
-      event.target.textContent = 'Réparer';
-    }
-  });
-  $('#repairList').addEventListener('click', (event) => {
-    const bouton = event.target.closest('[data-accept]');
-    if (bouton) adopterAdresse(Number(bouton.dataset.accept), bouton.dataset.url, bouton);
-  });
-
-  // --- gestion des étiquettes
-  $('#manageTags').addEventListener('click', ouvrirGestionTags);
-
-  $('#tagCreateForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const nom = $('#newTagName').value.trim();
-    if (!nom) return;
-    try {
-      await api.createTag(nom);
-      $('#newTagName').value = '';
-      await reloadState();
-      renderTagManager();
-    } catch (error) {
-      toast('Étiquette : ' + error.message, 'bad');
-    }
-  });
-
-  $('#tagManager').addEventListener('click', async (event) => {
-    const bloc = event.target.closest('[data-tag-id]');
-    if (!bloc) return;
-    const id = Number(bloc.dataset.tagId);
-
-    const teinte = event.target.closest('[data-color]');
-    if (teinte) { majTag(id, { color: teinte.dataset.color }); return; }
-
-    if (event.target.closest('.tag-delete')) {
-      const nom = $('.tag-rename', bloc).value;
-      if (!confirm(`Supprimer l’étiquette « ${nom} » ? Les articles ne sont pas touchés.`)) return;
-      try {
-        await api.deleteTag(id);
-        if (state.tag === nom) setView({ view: 'all' });
-        await reloadState();
-        renderTagManager();
-      } catch (error) {
-        toast('Échec : ' + error.message, 'bad');
-      }
-    }
-  });
-
-  // Le renommage se valide en quittant le champ ou avec Entrée.
-  $('#tagManager').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && event.target.matches('.tag-rename')) { event.preventDefault(); event.target.blur(); }
-  });
-  $('#tagManager').addEventListener('focusout', (event) => {
-    if (!event.target.matches('.tag-rename')) return;
-    const bloc = event.target.closest('[data-tag-id]');
-    const id = Number(bloc.dataset.tagId);
-    const ancien = state.tags.find((t) => t.id === id)?.name;
-    const nouveau = event.target.value.trim();
-    if (nouveau && nouveau !== ancien) majTag(id, { name: nouveau });
-  });
-
-  $('#dedupeAll').addEventListener('click', async (event) => {
-    event.target.disabled = true;
-    try {
-      const resultat = await api.dedupe(true);
-      await reloadState();
-      toast(resultat.linked
-        ? `${pluriel(resultat.linked, 'doublon')} regroupé${resultat.linked > 1 ? 's' : ''}`
-        : 'Aucun doublon trouvé');
-      loadArticles(true);
-    } catch (error) {
-      toast('Échec : ' + error.message, 'bad');
-    } finally {
-      event.target.disabled = false;
-    }
-  });
-
-  document.addEventListener('keydown', onKey);
+function renderTagManager() {
+  const palette = state.palette || [];
+  $('#tagManager').innerHTML = state.tags.length
+    ? state.tags.map((t) => `
+      <div class="tag-manage" data-tag-id="${t.id}">
+        <div class="tag-manage-head">
+          <input class="tag-rename" value="${esc(t.name)}" maxlength="60" aria-label="Nom">
+          <span class="tag-usage">${t.count ? nombre(t.count) + ' art.' : 'inutilisée'}</span>
+          <button class="tag-delete" aria-label="Supprimer">✕</button>
+        </div>
+        <div class="tag-palette">
+          ${palette.map((c) => `<button class="tag-swatch${t.color === c ? ' on' : ''}" data-color="${esc(c)}"
+            style="--teinte:${esc(c)}" aria-label="Teinte"></button>`).join('')}
+        </div>
+      </div>`).join('')
+    : '<p class="field-note">Aucune étiquette. Crée-en une, ou pose-en une depuis le lecteur.</p>';
 }
 
-/* ------------------------------------------------------------ ajout de flux */
+async function ouvrirGestionTags() {
+  await reloadState();
+  renderTagManager();
+  openModal('#tagsModal');
+}
+
+async function majTag(id, patch) {
+  try {
+    await api.updateTag(id, patch);
+    await reloadState();
+    renderTagManager();
+    loadArticles(true);
+  } catch (error) {
+    toast('Étiquette : ' + error.message, 'bad');
+  }
+}
+
+/* ------------------------------------------------ réparation des sources */
+
+const LIBELLES = {
+  repare: ['ok', 'réparée'], propose: ['nok', 'à confirmer'],
+  doublon: ['nok', 'déjà présente'], introuvable: ['nok', 'introuvable'], echec: ['nok', 'échec']
+};
+
+function afficherRapport(rapport) {
+  const resultats = rapport.results || [rapport];
+  const auto = resultats.filter((r) => r.status === 'repare').length;
+  const props = resultats.filter((r) => r.status === 'propose').length;
+
+  $('#repairSummary').textContent = auto || props
+    ? `${auto} réparées automatiquement · ${props} propositions à confirmer. Une proposition n’est appliquée que si tu l’adoptes.`
+    : 'Aucune adresse de remplacement trouvée.';
+
+  const ordre = { propose: 0, repare: 1, doublon: 2, introuvable: 3, echec: 4 };
+  $('#repairList').innerHTML = resultats.slice().sort((a, b) => (ordre[a.status] ?? 9) - (ordre[b.status] ?? 9))
+    .map((r) => {
+      const [ton, libelle] = LIBELLES[r.status] || LIBELLES.echec;
+      const detail = r.status === 'repare'
+        ? `Nouvelle adresse : <b>${esc(r.toTitle || '')}</b><br><span class="repair-url">${esc(r.to)}</span>`
+        : r.status === 'propose'
+          ? r.candidates.map((c) => `<div class="repair-cand">
+              <button class="btn" data-accept="${r.feedId}" data-url="${esc(c.url)}">Adopter</button>
+              <span><b>${esc(c.title || 'sans titre')}</b> · ${c.confiance}% de ressemblance
+              <br><span class="repair-url">${esc(c.url)}</span></span></div>`).join('')
+          : `<span class="repair-url">${esc(r.from || '')}</span>`;
+      return `<div class="repair-row" data-feed-row="${r.feedId}">
+        <div><div class="repair-name">${esc(r.title || 'Source')}</div>
+        <div class="repair-detail">${detail}</div></div>
+        <span class="repair-tag ${ton}">${libelle}</span></div>`;
+    }).join('');
+
+  openModal('#repairModal');
+}
+
+async function adopterAdresse(feedId, url, bouton) {
+  bouton.disabled = true;
+  bouton.textContent = '…';
+  try {
+    const r = await api.repairFeed(feedId, url);
+    await reloadState();
+    const ligne = $(`[data-feed-row="${feedId}"]`);
+    if (ligne) {
+      $('.repair-detail', ligne).innerHTML = `Nouvelle adresse : <b>${esc(r.feed.title)}</b>`;
+      $('.repair-tag', ligne).className = 'repair-tag ok';
+      $('.repair-tag', ligne).textContent = 'réparée';
+    }
+    toast(`${esc(r.feed.title)} · ${nombre(r.added || 0)} articles`);
+    loadArticles(true);
+  } catch (error) {
+    bouton.disabled = false;
+    bouton.textContent = 'Adopter';
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* -------------------------------------------------------------- réglages */
+
+function renderAccents() {
+  $('#accentChoices').innerHTML = (state.accents || []).map((a) => `
+    <button type="button" class="accent-swatch${state.settings.accent === a.valeur ? ' on' : ''}"
+            data-accent="${esc(a.valeur)}" style="--teinte:${esc(a.valeur)}"
+            title="${esc(a.nom)}" aria-label="${esc(a.nom)}"></button>`).join('');
+}
+
+function ouvrirReglages() {
+  $('#setTheme').value = localStorage.getItem('bublee.theme') || 'auto';
+  $('#setRefresh').value = String(state.settings.refreshMinutes ?? 30);
+  $('#setRetention').value = String(state.settings.retentionDays ?? 90);
+  $('#setFulltext').value = state.settings.fulltext ?? 'auto';
+  renderAccents();
+  openModal('#settingsModal');
+}
+
+async function enregistrerReglages(event) {
+  event.preventDefault();
+  const theme = $('#setTheme').value;
+  applyTheme(theme);
+  try {
+    await api.settings({
+      theme,
+      accent: state.settings.accent,
+      refreshMinutes: Number($('#setRefresh').value),
+      retentionDays: Number($('#setRetention').value),
+      fulltext: $('#setFulltext').value
+    });
+    state.settings.refreshMinutes = Number($('#setRefresh').value);
+    state.settings.retentionDays = Number($('#setRetention').value);
+    state.settings.fulltext = $('#setFulltext').value;
+    closeModals();
+    toast('Réglages enregistrés');
+  } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* --------------------------------------------------------- ajout de flux */
 
 async function ajouterFlux(event) {
   event.preventDefault();
   const btn = $('#feedSubmit');
   const url = $('#feedUrl').value.trim();
   if (!url) return;
-
   btn.disabled = true;
   btn.textContent = 'Recherche…';
   try {
-    const result = await api.addFeed(url, $('#feedFolder').value.trim());
+    const r = await api.addFeed(url, $('#feedFolder').value.trim());
     await reloadState();
     closeModals();
     $('#feedForm').reset();
-    toast(`« ${result.feed.title || url} » ajouté · ${pluriel(result.added || 0, 'article')}`);
-    setView({ view: 'unread', feedId: result.feed.id });
+    toast(`${r.feed.title} · ${nombre(r.added || 0)} articles`);
+    setView({ view: 'unread', feedId: r.feed.id });
   } catch (error) {
     toast(error.message, 'bad');
     if (error.status === 409 && error.payload?.feedId) {
@@ -1102,18 +1086,15 @@ async function ajouterFlux(event) {
 }
 
 async function ajouterSuggestion(index, element) {
-  const suggestion = SUGGESTIONS[index];
+  const s = SUGGESTIONS[index];
   element.classList.add('done');
-  element.querySelector('.plus').textContent = '…';
   try {
-    await api.addFeed(suggestion.url, suggestion.folder);
+    await api.addFeed(s.url, s.folder);
     await reloadState();
-    element.querySelector('.plus').textContent = '✓';
-    toast(`« ${suggestion.title} » ajouté`);
+    toast(`${s.title} ajouté`);
     loadArticles(true);
   } catch (error) {
     element.classList.remove('done');
-    element.querySelector('.plus').textContent = '＋';
     toast(error.message, 'bad');
   }
 }
@@ -1123,18 +1104,17 @@ async function importerOpml(event) {
   if (!file) return;
   event.target.value = '';
   try {
-    const xml = await file.text();
-    const result = await api.importOpml(xml);
+    const r = await api.importOpml(await file.text());
     await reloadState();
     closeModals();
-    toast(`${pluriel(result.added, 'source ajoutée', 'sources ajoutées')}${result.skipped ? ` · ${result.skipped} ignorée${result.skipped > 1 ? 's' : ''}` : ''} — téléchargement en cours…`);
+    toast(`${r.added} sources ajoutées — téléchargement en cours`);
     setTimeout(() => reloadState().then(() => loadArticles(true)), 8000);
   } catch (error) {
     toast('Import impossible : ' + error.message, 'bad');
   }
 }
 
-/* --------------------------------------------------------- edition d'un flux */
+/* --------------------------------------------------------- édition d'un flux */
 
 function ouvrirEditionFlux(id) {
   const feed = state.feeds.find((f) => f.id === id);
@@ -1152,18 +1132,15 @@ function ouvrirEditionFlux(id) {
 async function enregistrerFlux(event) {
   event.preventDefault();
   const id = Number($('#editFeedId').value);
+  const feed = state.feeds.find((f) => f.id === id);
+  const url = $('#editFeedUrl').value.trim();
   try {
-    const feed = state.feeds.find((f) => f.id === id);
-    const url = $('#editFeedUrl').value.trim();
-
     await api.updateFeed(id, {
       custom_title: $('#editFeedTitle').value.trim(),
       folder: $('#editFeedFolder').value.trim(),
       ...(url && url !== feed?.url ? { url } : {})
     });
-    // Adresse changée à la main : on va voir tout de suite si elle répond.
     if (url && url !== feed?.url) await api.refreshFeed(id);
-
     await reloadState();
     closeModals();
     loadArticles(true);
@@ -1181,136 +1158,205 @@ async function supprimerFlux() {
     await api.deleteFeed(id);
     await reloadState();
     closeModals();
-    if (state.feedId === id) setView({ view: state.view });
-    else loadArticles(true);
+    if (state.feedId === id) setView({ view: state.view }); else loadArticles(true);
     toast('Source supprimée');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
 }
 
-/* --------------------------------------------- reparation des sources */
+/* ---------------------------------------------------------- branchements */
 
-const LIBELLES = {
-  repare: ['ok', 'réparée'],
-  propose: ['nok', 'à confirmer'],
-  doublon: ['nok', 'déjà présente'],
-  introuvable: ['nok', 'introuvable'],
-  echec: ['nok', 'échec']
-};
+function wireEvents() {
+  $$('.view-row').forEach((b) => b.addEventListener('click', () => setView({ view: b.dataset.view })));
+  $$('.tab').forEach((b) => b.addEventListener('click', () => {
+    applyLayout(b.dataset.layout);
+    renderFlux();
+    api.settings({ layout: b.dataset.layout }).catch(() => {});
+  }));
 
-function ligneReparation(r) {
-  const [ton, libelle] = LIBELLES[r.status] || LIBELLES.echec;
+  $('#tagList').addEventListener('click', (e) => {
+    const l = e.target.closest('[data-tag]');
+    if (l) setView({ view: 'all', tag: state.tag === l.dataset.tag ? null : l.dataset.tag });
+  });
 
-  const detail = r.status === 'repare'
-    ? `Nouvelle adresse : <b>${esc(r.toTitle || '')}</b><br><span class="repair-url">${esc(r.to)}</span>`
-    : r.status === 'propose'
-      ? r.candidates.map((c) => `
-          <div class="repair-cand">
-            <button class="ghost-btn" data-accept="${r.feedId}" data-url="${esc(c.url)}">Adopter</button>
-            <span><b>${esc(c.title || 'sans titre')}</b> · ${c.confiance}% de ressemblance
-              <br><span class="repair-url">${esc(c.url)}</span></span>
-          </div>`).join('')
-      : `<span class="repair-url">${esc(r.from || '')}</span>`;
-
-  return `
-    <div class="repair-row" data-feed-row="${r.feedId}">
-      <div>
-        <div class="repair-name">${esc(r.title || 'Source ' + r.feedId)}</div>
-        <div class="repair-detail">${detail}</div>
-      </div>
-      <span class="repair-tag ${ton}">${libelle}</span>
-    </div>`;
-}
-
-function afficherRapport(rapport) {
-  const resultats = rapport.results || [rapport];
-  const auto = resultats.filter((r) => r.status === 'repare').length;
-  const props = resultats.filter((r) => r.status === 'propose').length;
-
-  $('#repairSummary').innerHTML = auto || props
-    ? `${auto ? pluriel(auto, 'source réparée', 'sources réparées') + ' automatiquement' : 'Aucune réparation automatique'}`
-      + `${props ? ` · ${pluriel(props, 'proposition')} à confirmer` : ''}.`
-      + ' Une proposition n’est appliquée que si tu l’adoptes : le flux trouvé peut être'
-      + ' celui du site entier plutôt que la rubrique d’origine.'
-    : 'Aucune adresse de remplacement trouvée pour ces sources.';
-
-  // Les cas actionnables d'abord.
-  const ordre = { propose: 0, repare: 1, doublon: 2, introuvable: 3, echec: 4 };
-  $('#repairList').innerHTML = resultats
-    .slice()
-    .sort((a, b) => (ordre[a.status] ?? 9) - (ordre[b.status] ?? 9))
-    .map(ligneReparation).join('');
-
-  openModal('#repairModal');
-}
-
-async function reparerTout() {
-  const btn = $('#repairAll');
-  btn.disabled = true;
-  btn.textContent = 'Recherche en cours…';
-  try {
-    afficherRapport(await api.repairAll());
-    await reloadState();
-  } catch (error) {
-    toast('Réparation impossible : ' + error.message, 'bad');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Réparer les sources injoignables';
-  }
-}
-
-async function adopterAdresse(feedId, url, bouton) {
-  bouton.disabled = true;
-  bouton.textContent = 'Adoption…';
-  try {
-    const resultat = await api.repairFeed(feedId, url);
-    await reloadState();
-    const ligne = $(`[data-feed-row="${feedId}"]`);
-    if (ligne) {
-      $('.repair-detail', ligne).innerHTML =
-        `Nouvelle adresse : <b>${esc(resultat.feed.title)}</b><br><span class="repair-url">${esc(url)}</span>`;
-      $('.repair-tag', ligne).className = 'repair-tag ok';
-      $('.repair-tag', ligne).textContent = 'réparée';
+  $('#feedList').addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open-folder]');
+    if (open) { setView({ view: state.view, folder: open.dataset.openFolder }); return; }
+    const toggle = e.target.closest('[data-toggle]');
+    if (toggle) {
+      const n = toggle.dataset.toggle;
+      collapsed.has(n) ? collapsed.delete(n) : collapsed.add(n);
+      localStorage.setItem('bublee.collapsed', JSON.stringify([...collapsed]));
+      renderFeedList();
+      return;
     }
-    toast(`« ${resultat.feed.title} » · ${pluriel(resultat.added || 0, 'article')}`);
-    if (state.feedId === feedId || !state.feedId) loadArticles(true);
-  } catch (error) {
-    bouton.disabled = false;
-    bouton.textContent = 'Adopter';
-    toast('Échec : ' + error.message, 'bad');
-  }
-}
+    const row = e.target.closest('[data-feed]');
+    if (row) setView({ view: state.view === 'starred' ? 'all' : state.view, feedId: Number(row.dataset.feed) });
+  });
+  $('#feedList').addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('[data-feed]');
+    if (!row) return;
+    e.preventDefault();
+    ouvrirEditionFlux(Number(row.dataset.feed));
+  });
 
-/* -------------------------------------------------------------- reglages */
+  $('#flux').addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open]');
+    if (open) { openArticle(Number(open.dataset.open)); return; }
+    const suggest = e.target.closest('[data-suggest]');
+    if (suggest) { ajouterSuggestion(Number(suggest.dataset.suggest), suggest); return; }
+    if (e.target.closest('[data-add-feed]')) { openModal('#feedModal'); $('#feedUrl').focus(); return; }
+    if (e.target.closest('[data-import-opml]')) { $('#opmlFile').click(); return; }
+    if (e.target.closest('[data-refresh]')) { rafraichir(); return; }
+    if (e.target.closest('[data-clear-search]')) { $('#search').value = ''; state.q = ''; loadArticles(true); return; }
+    const goto = e.target.closest('[data-goto-view]');
+    if (goto) setView({ view: goto.dataset.gotoView });
+  });
 
-function ouvrirReglages() {
-  $('#setTheme').value = localStorage.getItem('bublee.theme') || 'auto';
-  $('#setRefresh').value = String(state.settings.refreshMinutes ?? 30);
-  $('#setRetention').value = String(state.settings.retentionDays ?? 90);
-  $('#setFulltext').value = state.settings.fulltext ?? 'auto';
-  openModal('#settingsModal');
-}
+  new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !state.loading && !state.done && state.articles.length) loadArticles();
+  }, { root: $('#scroller'), rootMargin: '700px' }).observe($('#sentinel'));
 
-async function enregistrerReglages(event) {
-  event.preventDefault();
-  const theme = $('#setTheme').value;
-  applyTheme(theme);
-  try {
-    await api.settings({
-      theme,
-      refreshMinutes: Number($('#setRefresh').value),
-      retentionDays: Number($('#setRetention').value),
-      fulltext: $('#setFulltext').value
-    });
-    state.settings.refreshMinutes = Number($('#setRefresh').value);
-    state.settings.retentionDays = Number($('#setRetention').value);
-    state.settings.fulltext = $('#setFulltext').value;
-    closeModals();
-    toast('Réglages enregistrés');
-  } catch (error) {
-    toast('Échec : ' + error.message, 'bad');
-  }
+  const chercher = debounce(() => {
+    state.q = $('#search').value.trim();
+    if (state.q) { state.feedId = null; state.folder = null; state.tag = null; state.view = 'all'; renderIndex(); }
+    loadArticles(true);
+  }, 300);
+  $('#search').addEventListener('input', chercher);
+
+  $('#refreshBtn').addEventListener('click', rafraichir);
+  $('#markAllRead').addEventListener('click', toutMarquerLu);
+  $('#addFeedBtn').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
+  $('#addFeedRail').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
+  $('#railOpen').addEventListener('click', () => $('#app').classList.add('rail-on'));
+  $('#railClose').addEventListener('click', closeRail);
+
+  $('#readerClose').addEventListener('click', closeReader);
+  $('#readerStar').addEventListener('click', () => state.openId && basculerFavori(state.openId));
+  $('#readerTag').addEventListener('click', () => $('#tagInput')?.focus());
+  $('#readerFull').addEventListener('click', () => state.openId && completerArticle({ id: state.openId }, true));
+  $('#readerUnread').addEventListener('click', async () => {
+    if (!state.openId) return;
+    const id = state.openId;
+    closeReader();
+    await marquerLu(id, false);
+    toast('Marqué non lu');
+  });
+
+  $('#readerScroll').addEventListener('click', (e) => {
+    const off = e.target.closest('[data-untag]');
+    if (off && state.openId) { etiqueter(state.openId, { remove: [off.dataset.untag] }); return; }
+    const jump = e.target.closest('[data-goto-tag]');
+    if (jump) { closeReader(); setView({ view: 'all', tag: jump.dataset.gotoTag }); return; }
+    if (e.target.closest('[data-retry]') && state.openId) { completerArticle({ id: state.openId }, true); return; }
+    const next = e.target.closest('[data-next]');
+    if (next) openArticle(Number(next.dataset.next));
+  });
+  $('#readerScroll').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !e.target.matches('#tagInput')) return;
+    e.preventDefault();
+    const noms = e.target.value.split(',').map((n) => n.trim()).filter(Boolean);
+    e.target.value = '';
+    if (noms.length && state.openId) etiqueter(state.openId, { add: noms });
+  });
+  $('#readerScroll').addEventListener('scroll', () => {
+    const el = $('#readerScroll');
+    const max = el.scrollHeight - el.clientHeight;
+    $('#readerProgress').style.width = (max > 0 ? (el.scrollTop / max) * 100 : 0) + '%';
+  });
+
+  $('#modalShade').addEventListener('click', closeModals);
+  $$('[data-close]').forEach((b) => b.addEventListener('click', closeModals));
+  $('#openSettings').addEventListener('click', ouvrirReglages);
+  $('#shortcutsBtn').addEventListener('click', () => openModal('#shortcutsModal'));
+  $('#openShortcuts').addEventListener('click', () => openModal('#shortcutsModal'));
+
+  $('#accentChoices').addEventListener('click', (e) => {
+    const s = e.target.closest('[data-accent]');
+    if (!s) return;
+    applyAccent(s.dataset.accent);
+    renderAccents();
+  });
+
+  $('#feedForm').addEventListener('submit', ajouterFlux);
+  $('#importOpml').addEventListener('click', () => $('#opmlFile').click());
+  $('#opmlFile').addEventListener('change', importerOpml);
+  $('#settingsForm').addEventListener('submit', enregistrerReglages);
+  $('#feedEditForm').addEventListener('submit', enregistrerFlux);
+  $('#deleteFeed').addEventListener('click', supprimerFlux);
+
+  $('#manageTags').addEventListener('click', ouvrirGestionTags);
+  $('#tagCreateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nom = $('#newTagName').value.trim();
+    if (!nom) return;
+    try {
+      await api.createTag(nom);
+      $('#newTagName').value = '';
+      await reloadState();
+      renderTagManager();
+    } catch (error) { toast('Étiquette : ' + error.message, 'bad'); }
+  });
+  $('#tagManager').addEventListener('click', async (e) => {
+    const bloc = e.target.closest('[data-tag-id]');
+    if (!bloc) return;
+    const id = Number(bloc.dataset.tagId);
+    const teinteBtn = e.target.closest('[data-color]');
+    if (teinteBtn) { majTag(id, { color: teinteBtn.dataset.color }); return; }
+    if (e.target.closest('.tag-delete')) {
+      const nom = $('.tag-rename', bloc).value;
+      if (!confirm(`Supprimer l’étiquette « ${nom} » ?`)) return;
+      try {
+        await api.deleteTag(id);
+        if (state.tag === nom) setView({ view: 'all' });
+        await reloadState();
+        renderTagManager();
+      } catch (error) { toast('Échec : ' + error.message, 'bad'); }
+    }
+  });
+  $('#tagManager').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('.tag-rename')) { e.preventDefault(); e.target.blur(); }
+  });
+  $('#tagManager').addEventListener('focusout', (e) => {
+    if (!e.target.matches('.tag-rename')) return;
+    const id = Number(e.target.closest('[data-tag-id]').dataset.tagId);
+    const ancien = state.tags.find((t) => t.id === id)?.name;
+    const nouveau = e.target.value.trim();
+    if (nouveau && nouveau !== ancien) majTag(id, { name: nouveau });
+  });
+
+  $('#repairAll').addEventListener('click', async () => {
+    const btn = $('#repairAll');
+    btn.disabled = true;
+    btn.textContent = 'Recherche…';
+    try { afficherRapport(await api.repairAll()); await reloadState(); }
+    catch (error) { toast('Réparation impossible : ' + error.message, 'bad'); }
+    finally { btn.disabled = false; btn.textContent = 'Réparer les sources'; }
+  });
+  $('#repairFeed').addEventListener('click', async (e) => {
+    const id = Number($('#editFeedId').value);
+    e.target.disabled = true;
+    try { afficherRapport(await api.repairFeed(id)); await reloadState(); }
+    catch (error) { toast('Réparation impossible : ' + error.message, 'bad'); }
+    finally { e.target.disabled = false; }
+  });
+  $('#repairList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-accept]');
+    if (b) adopterAdresse(Number(b.dataset.accept), b.dataset.url, b);
+  });
+  $('#dedupeAll').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      const r = await api.dedupe(true);
+      await reloadState();
+      toast(r.linked ? `${r.linked} doublons regroupés` : 'Aucun doublon');
+      loadArticles(true);
+    } catch (error) { toast('Échec : ' + error.message, 'bad'); }
+    finally { e.target.disabled = false; }
+  });
+
+  document.addEventListener('keydown', onKey);
 }
 
 boot();

@@ -5,16 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bublee</title>
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23c0392b'/><g fill='white'><circle cx='30' cy='70' r='9'/><path d='M22 46a32 32 0 0 1 32 32h-13a19 19 0 0 0-19-19z'/><path d='M22 22a56 56 0 0 1 56 56H65A43 43 0 0 0 22 35z'/></g></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%2310604a'/><text x='50' y='74' font-family='Georgia,serif' font-size='72' fill='%23f6f5f1' text-anchor='middle'>B</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <script>
-  // Applique le theme avant le premier rendu pour eviter le flash blanc.
+  // Thème et accent avant le premier rendu, pour éviter le flash.
   try {
-    const saved = localStorage.getItem('bublee.theme') || 'auto';
-    document.documentElement.dataset.theme = saved;
+    document.documentElement.dataset.theme = localStorage.getItem('bublee.theme') || 'auto';
+    const accent = localStorage.getItem('bublee.accent');
+    if (accent) document.documentElement.style.setProperty('--accent', accent);
   } catch (e) {}
 </script>
 </head>
@@ -24,130 +25,129 @@
 
 <div class="app" id="app">
 
-  <!-- ------------------------------------------------------- colonne gauche -->
-  <aside class="rail" id="rail">
-    <header class="rail-head">
+  <!-- ============================================================ l'index -->
+  <aside class="index" id="rail">
+    <header class="index-head">
       <div class="wordmark">
-        <span class="wordmark-glyph" aria-hidden="true">
-          <svg viewBox="0 0 100 100"><circle cx="26" cy="74" r="10"/><path d="M18 44a38 38 0 0 1 38 38H42a24 24 0 0 0-24-24z"/><path d="M18 16a66 66 0 0 1 66 66H70A52 52 0 0 0 18 30z"/></svg>
-        </span>
-        <span class="wordmark-text">Bub<em>lee</em></span>
+        <span class="wordmark-text">Bublee</span>
+        <span class="wordmark-square" aria-hidden="true"></span>
+        <button class="index-close" id="railClose" aria-label="Fermer l’index">✕</button>
       </div>
-      <button class="icon-btn rail-close" id="railClose" title="Fermer le menu" aria-label="Fermer le menu">&#10005;</button>
+      <p class="index-date" id="indexDate"></p>
     </header>
 
-    <div class="rail-search">
+    <div class="index-search">
       <svg class="search-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input type="search" id="search" placeholder="Rechercher…" autocomplete="off" aria-label="Rechercher dans les articles">
+      <input type="search" id="search" placeholder="Rechercher" autocomplete="off" aria-label="Rechercher dans les articles">
     </div>
 
-    <nav class="rail-nav" aria-label="Vues">
-      <button class="nav-item" data-view="unread"><span class="nav-label">Non lus</span><span class="pill" id="countUnread">0</span></button>
-      <button class="nav-item" data-view="all"><span class="nav-label">Tout</span><span class="pill ghost" id="countAll">0</span></button>
-      <button class="nav-item" data-view="starred"><span class="nav-label">Favoris</span><span class="pill ghost" id="countStarred">0</span></button>
+    <nav class="index-views" aria-label="Vues">
+      <button class="view-row" data-view="unread">
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">Non lus</span>
+        <span class="view-count" id="countUnread">0</span>
+      </button>
+      <button class="view-row" data-view="all">
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">Tout</span>
+        <span class="view-count" id="countAll">0</span>
+      </button>
+      <button class="view-row" data-view="starred">
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">Favoris</span>
+        <span class="view-count" id="countStarred">0</span>
+      </button>
     </nav>
 
-    <div class="rail-section">
-      <span class="rail-section-title">Étiquettes</span>
-      <button class="icon-btn tiny" id="manageTags" title="Gérer les étiquettes" aria-label="Gérer les étiquettes">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/></svg>
+    <div class="index-section">
+      <span>Étiquettes</span>
+      <span class="count" id="tagCount">00</span>
+      <span class="grow"></span>
+      <button id="manageTags" title="Gérer les étiquettes" aria-label="Gérer les étiquettes">
+        <svg class="pencil" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/></svg>
       </button>
     </div>
-    <div class="rail-tags" id="tagList"></div>
+    <div class="index-tags" id="tagList"></div>
 
-    <div class="rail-section">
-      <span class="rail-section-title">Mes sources</span>
-      <button class="icon-btn tiny" id="addFeedRail" title="Ajouter un flux" aria-label="Ajouter un flux">+</button>
+    <div class="index-section">
+      <span>Le kiosque</span>
+      <span class="grow"></span>
+      <button id="addFeedRail" title="Ajouter une source" aria-label="Ajouter une source">+</button>
     </div>
+    <div class="index-feeds" id="feedList"></div>
 
-    <div class="rail-feeds" id="feedList"></div>
-
-    <footer class="rail-foot">
-      <button class="ghost-btn" id="openSettings">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>
-        Réglages
+    <footer class="index-foot">
+      <button id="openSettings">Réglages</button>
+      <span class="grow"></span>
+      <button id="shortcutsBtn" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier">
+        <svg class="keys" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M6.5 14h11"/></svg>
       </button>
-      <button class="icon-btn tiny" id="shortcutsBtn" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M6.5 14h11"/></svg>
-      </button>
-      <span class="rail-stamp" id="lastRefresh"></span>
+      <span id="lastRefresh"></span>
     </footer>
   </aside>
 
-  <!-- ---------------------------------------------------------- colonne droite -->
+  <!-- ============================================================== scène -->
   <main class="stage">
-    <header class="topbar">
-      <button class="icon-btn rail-open" id="railOpen" aria-label="Ouvrir le menu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-      </button>
+    <header class="toolbar">
+      <button class="index-open" id="railOpen" aria-label="Ouvrir l’index">☰</button>
 
-      <div class="topbar-title">
-        <h1 id="stageTitle">Non lus</h1>
-        <p id="stageSub"></p>
+      <div class="tabs" role="group" aria-label="Mise en page">
+        <button class="tab" data-layout="magazine">La une</button>
+        <button class="tab" data-layout="list">Sommaire</button>
+        <button class="tab" data-layout="compact">Dépêches</button>
       </div>
 
-      <div class="topbar-actions">
-        <div class="seg" role="group" aria-label="Mise en page">
-          <button data-layout="magazine" title="Magazine" aria-label="Vue magazine">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="10" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="3" rx="1"/><rect x="3" y="15" width="18" height="6" rx="1"/></svg>
-          </button>
-          <button data-layout="list" title="Liste" aria-label="Vue liste">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
-          </button>
-          <button data-layout="compact" title="Compact" aria-label="Vue compacte">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-          </button>
-        </div>
-
-        <button class="ghost-btn" id="markAllRead" title="Tout marquer comme lu (Maj+A)">Tout lire</button>
-        <button class="icon-btn" id="refreshBtn" title="Rafraîchir (R)" aria-label="Rafraîchir">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v4.5h-4.5"/></svg>
-        </button>
-        <button class="accent-btn" id="addFeedBtn">＋ Flux</button>
-      </div>
+      <span class="grow"></span>
+      <span class="toolbar-count" id="toolbarCount"></span>
+      <button class="btn solid" id="markAllRead" title="Tout marquer comme lu (Maj+A)">Tout lire</button>
+      <button class="btn" id="refreshBtn" title="Rafraîchir (R)">Rafraîchir</button>
+      <button class="btn" id="addFeedBtn">＋ Source</button>
     </header>
 
     <div class="scroller" id="scroller">
+      <header class="masthead">
+        <h1 id="stageTitle">Non lus</h1>
+        <div class="masthead-side">
+          <div class="masthead-rule"></div>
+          <div class="masthead-meta">
+            <span id="mastheadDate"></span>
+            <span id="stageSub"></span>
+          </div>
+        </div>
+      </header>
+
       <section class="flux" id="flux" tabindex="-1"></section>
       <div class="sentinel" id="sentinel"></div>
-      <div class="end-note" id="endNote" hidden>— fin —</div>
+      <div class="end-note" id="endNote" hidden>— fin de l’édition —</div>
     </div>
   </main>
 </div>
 
-<!-- ------------------------------------------------------------------ lecteur -->
-<div class="reader-shade" id="readerShade" hidden></div>
+<!-- ============================================================== lecteur -->
 <article class="reader" id="reader" hidden aria-modal="true" role="dialog" aria-label="Lecture">
+  <div class="reader-progress" id="readerProgress"></div>
   <header class="reader-bar">
-    <button class="icon-btn" id="readerClose" title="Fermer (Échap)" aria-label="Fermer">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-    </button>
-    <div class="reader-bar-actions">
-      <button class="icon-btn" id="readerStar" title="Favori (S)" aria-label="Favori">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
-      </button>
-      <button class="icon-btn" id="readerFull" title="Récupérer le texte complet (F)" aria-label="Récupérer le texte complet">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h11M4 20h7"/><path d="M17 17.5h5M19.5 15v5"/></svg>
-      </button>
-      <button class="icon-btn" id="readerUnread" title="Marquer non lu (M)" aria-label="Marquer non lu">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>
-      </button>
-      <a class="ghost-btn" id="readerOpen" href="#" target="_blank" rel="noopener noreferrer">Article original ↗</a>
-    </div>
+    <button id="readerClose" title="Fermer (Échap)">✕ Fermer</button>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="infos" id="readerInfos"></span>
+    <span class="grow"></span>
+    <button id="readerTag" title="Étiqueter (T)">Étiqueter</button>
+    <button id="readerFull" title="Texte complet (F)">Texte complet</button>
+    <button id="readerUnread" title="Marquer non lu (M)">Non lu</button>
+    <button id="readerStar" title="Favori (S)">Favori</button>
+    <a class="original" id="readerOpen" href="#" target="_blank" rel="noopener noreferrer">Original ↗</a>
   </header>
   <div class="reader-scroll" id="readerScroll"></div>
   <datalist id="tagOptions"></datalist>
-  <div class="reader-progress" id="readerProgress"></div>
 </article>
 
-<!-- ------------------------------------------------------------------ fenetres -->
+<!-- ============================================================= fenêtres -->
 <div class="modal-shade" id="modalShade" hidden></div>
 
 <div class="modal" id="feedModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedModalTitle">
   <h2 id="feedModalTitle">Ajouter une source</h2>
-  <p class="modal-hint">Colle l’adresse d’un flux RSS/Atom, ou simplement celle du site : Bublee
-    cherchera le flux. Une chaîne YouTube fonctionne aussi — pseudo, adresse de chaîne,
-    liste de lecture ou même lien d’une vidéo.</p>
+  <p class="modal-hint">L’adresse d’un flux RSS/Atom, ou simplement celle du site :
+    Bublee cherchera le flux. Une chaîne YouTube et un podcast fonctionnent aussi.</p>
   <form id="feedForm">
     <label class="field">
       <span>Adresse</span>
@@ -159,14 +159,14 @@
       <datalist id="folderOptions"></datalist>
     </label>
     <div class="modal-actions">
-      <button type="button" class="ghost-btn" data-close>Annuler</button>
-      <button type="submit" class="accent-btn" id="feedSubmit">Ajouter</button>
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn solid" id="feedSubmit">Ajouter</button>
     </div>
   </form>
   <div class="modal-sep"><span>ou</span></div>
   <div class="modal-io">
-    <button class="ghost-btn" id="importOpml">Importer un OPML (Feedly…)</button>
-    <a class="ghost-btn" href="/api/opml/export">Exporter mes flux</a>
+    <button class="btn" id="importOpml">Importer un OPML</button>
+    <a class="btn" href="/api/opml/export">Exporter</a>
     <input type="file" id="opmlFile" accept=".opml,.xml,text/xml,application/xml" hidden>
   </div>
 </div>
@@ -174,11 +174,16 @@
 <div class="modal" id="settingsModal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <h2 id="settingsTitle">Réglages</h2>
   <form id="settingsForm">
+    <div class="field">
+      <span>Couleur d’accent</span>
+      <div class="accent-choices" id="accentChoices"></div>
+      <small class="field-note">Sert au tampon de la une, aux surtitres, à la lettrine et à la jauge de lecture.</small>
+    </div>
     <label class="field">
       <span>Thème</span>
       <select id="setTheme">
         <option value="auto">Automatique (système)</option>
-        <option value="light">Clair — papier</option>
+        <option value="light">Clair — kiosque</option>
         <option value="dark">Sombre — encre</option>
       </select>
     </label>
@@ -198,7 +203,6 @@
         <option value="auto">Récupérer automatiquement</option>
         <option value="off">Ne pas récupérer</option>
       </select>
-      <small class="field-note">Quand un flux ne publie qu’un résumé, la page d’origine est lue et le texte est conservé.</small>
     </label>
     <label class="field">
       <span>Conserver les articles lus</span>
@@ -211,58 +215,57 @@
       <small class="field-note">Les non-lus et les favoris ne sont jamais supprimés.</small>
     </label>
     <div class="modal-actions">
-      <button type="button" class="ghost-btn" data-close>Fermer</button>
-      <button type="submit" class="accent-btn">Enregistrer</button>
+      <button type="button" class="btn" data-close>Fermer</button>
+      <button type="submit" class="btn solid">Enregistrer</button>
     </div>
   </form>
+
   <div class="modal-sep"><span>entretien</span></div>
   <div class="modal-io">
-    <button class="ghost-btn" id="repairAll">Réparer les sources injoignables</button>
-    <button class="ghost-btn" id="dedupeAll">Rechercher les doublons</button>
+    <button class="btn" id="repairAll">Réparer les sources</button>
+    <button class="btn" id="dedupeAll">Chercher les doublons</button>
   </div>
 
   <div class="modal-sep"><span>raccourcis</span></div>
   <div class="modal-io">
-    <button class="ghost-btn" id="openShortcuts">Voir tous les raccourcis <kbd>?</kbd></button>
+    <button class="btn" id="openShortcuts">Tous les raccourcis</button>
   </div>
 </div>
 
 <div class="modal wide" id="shortcutsModal" hidden role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
   <h2 id="shortcutsTitle">Raccourcis clavier</h2>
-  <p class="modal-hint">Bublee se pilote sans souris. Appuie sur <kbd>?</kbd> à tout moment pour revenir ici.</p>
+  <p class="modal-hint">Bublee se pilote sans souris. <kbd>?</kbd> revient ici à tout moment.</p>
 
   <div class="keys">
     <section>
       <h3>Naviguer</h3>
       <dl>
-        <dt><kbd>J</kbd> <kbd>↓</kbd></dt><dd>article suivant</dd>
-        <dt><kbd>K</kbd> <kbd>↑</kbd></dt><dd>article précédent</dd>
-        <dt><kbd>1</kbd></dt><dd>vue Non lus</dd>
-        <dt><kbd>2</kbd></dt><dd>vue Tout</dd>
-        <dt><kbd>3</kbd></dt><dd>vue Favoris</dd>
+        <dt><kbd>J</kbd> <kbd>↓</kbd></dt><dd>suivant</dd>
+        <dt><kbd>K</kbd> <kbd>↑</kbd></dt><dd>précédent</dd>
+        <dt><kbd>1</kbd></dt><dd>non lus</dd>
+        <dt><kbd>2</kbd></dt><dd>tout</dd>
+        <dt><kbd>3</kbd></dt><dd>favoris</dd>
         <dt><kbd>/</kbd></dt><dd>rechercher</dd>
       </dl>
     </section>
-
     <section>
       <h3>Lire</h3>
       <dl>
-        <dt><kbd>Entrée</kbd> <kbd>O</kbd></dt><dd>ouvrir l’article</dd>
-        <dt><kbd>M</kbd></dt><dd>marquer lu / non lu</dd>
-        <dt><kbd>S</kbd></dt><dd>mettre en favori</dd>
-        <dt><kbd>V</kbd></dt><dd>ouvrir l’article original</dd>
-        <dt><kbd>F</kbd></dt><dd>récupérer le texte complet</dd>
-        <dt><kbd>Échap</kbd></dt><dd>fermer</dd>
+        <dt><kbd>Entrée</kbd></dt><dd>ouvrir</dd>
+        <dt><kbd>M</kbd></dt><dd>lu / non lu</dd>
+        <dt><kbd>S</kbd></dt><dd>favori</dd>
+        <dt><kbd>T</kbd></dt><dd>étiqueter</dd>
+        <dt><kbd>V</kbd></dt><dd>original</dd>
+        <dt><kbd>F</kbd></dt><dd>texte complet</dd>
       </dl>
     </section>
-
     <section>
       <h3>Organiser</h3>
       <dl>
-        <dt><kbd>R</kbd></dt><dd>rafraîchir les sources</dd>
-        <dt><kbd>A</kbd></dt><dd>ajouter une source</dd>
-        <dt><kbd>Maj</kbd> <kbd>A</kbd></dt><dd>tout marquer comme lu</dd>
-        <dt><kbd>G</kbd></dt><dd>changer de mise en page</dd>
+        <dt><kbd>R</kbd></dt><dd>rafraîchir</dd>
+        <dt><kbd>A</kbd></dt><dd>ajouter</dd>
+        <dt><kbd>Maj</kbd><kbd>A</kbd></dt><dd>tout lire</dd>
+        <dt><kbd>G</kbd></dt><dd>mise en page</dd>
         <dt><kbd>,</kbd></dt><dd>réglages</dd>
         <dt><kbd>?</kbd></dt><dd>cet écran</dd>
       </dl>
@@ -270,7 +273,7 @@
   </div>
 
   <div class="modal-actions">
-    <button type="button" class="accent-btn" data-close>Compris</button>
+    <button type="button" class="btn solid" data-close>Compris</button>
   </div>
 </div>
 
@@ -292,29 +295,26 @@
     </label>
     <p class="field-note" id="editFeedError"></p>
     <div class="modal-actions spread">
-      <button type="button" class="danger-btn" id="deleteFeed">Supprimer</button>
-      <button type="button" class="ghost-btn" id="repairFeed" hidden>Réparer</button>
+      <button type="button" class="btn" id="deleteFeed">Supprimer</button>
+      <button type="button" class="btn" id="repairFeed" hidden>Réparer</button>
       <span class="grow"></span>
-      <button type="button" class="ghost-btn" data-close>Annuler</button>
-      <button type="submit" class="accent-btn">Enregistrer</button>
+      <button type="button" class="btn" data-close>Annuler</button>
+      <button type="submit" class="btn solid">Enregistrer</button>
     </div>
   </form>
 </div>
 
 <div class="modal" id="tagsModal" hidden role="dialog" aria-modal="true" aria-labelledby="tagsModalTitle">
   <h2 id="tagsModalTitle">Étiquettes</h2>
-  <p class="modal-hint">Renomme, reteins ou supprime. Renommer une étiquette avec
-    le nom d’une autre fusionne les deux.</p>
-
+  <p class="modal-hint">Renomme, reteins ou supprime. Renommer une étiquette avec le nom
+    d’une autre fusionne les deux.</p>
   <form id="tagCreateForm" class="tag-create">
     <input type="text" id="newTagName" placeholder="Nouvelle étiquette" maxlength="60" autocomplete="off">
-    <button type="submit" class="accent-btn">Créer</button>
+    <button type="submit" class="btn solid">Créer</button>
   </form>
-
   <div class="tag-manager" id="tagManager"></div>
-
   <div class="modal-actions">
-    <button type="button" class="ghost-btn" data-close>Fermer</button>
+    <button type="button" class="btn" data-close>Fermer</button>
   </div>
 </div>
 
@@ -323,7 +323,7 @@
   <p class="modal-hint" id="repairSummary"></p>
   <div class="repair-list" id="repairList"></div>
   <div class="modal-actions">
-    <button type="button" class="ghost-btn" data-close>Fermer</button>
+    <button type="button" class="btn" data-close>Fermer</button>
   </div>
 </div>
 

@@ -82,3 +82,24 @@ export function duree(secondes) {
   const reste = minutes % 60;
   return reste ? h + ' h ' + String(reste).padStart(2, '0') + ' d’écoute' : h + ' h d’écoute';
 }
+
+/** « 14:32 » — l'heure seule, pour les dépêches. */
+export function heure(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/** « SAM. 31 AOÛT 2026 » — la date de l'édition. */
+export function dateJournal(ms = Date.now()) {
+  const d = new Date(ms);
+  const jours = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+  const mois = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  return `${jours[d.getDay()]} ${d.getDate()} ${mois[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Espace fine insécable pour les milliers : 2 478. */
+export function nombre(n) {
+  return String(n ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f');
+}

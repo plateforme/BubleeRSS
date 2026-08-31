@@ -15,9 +15,13 @@ export function listFeeds() {
            f.last_fetched_at, f.last_error, f.error_count, f.created_at,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
-           -- Une chaine YouTube se signale dans la liste : ce n'est pas un flux
-           -- de presse, on n'y lit pas, on y regarde.
-           CASE WHEN f.url LIKE '%youtube.com/feeds/videos.xml%' THEN 'youtube' ELSE 'rss' END AS kind,
+           -- Le type de source porte sa propre marque dans l'index : on ne lit
+           -- pas une chaine comme on lit un journal, on ne l'ecoute pas non plus.
+           CASE
+             WHEN f.url LIKE '%youtube.com/feeds/videos.xml%' THEN 'video'
+             WHEN EXISTS (SELECT 1 FROM articles a WHERE a.feed_id = f.id AND a.duration IS NOT NULL) THEN 'podcast'
+             ELSE 'article'
+           END AS kind,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
@@ -612,6 +616,14 @@ function normaliserTag(nom) {
  * Teintes des etiquettes. Choisies pour tenir dans les deux ambiances et
  * rester lisibles a la taille d'une pastille.
  */
+/** Accents proposes dans les reglages. Le vert foret est la valeur par defaut. */
+export const PALETTE_ACCENT = [
+  { nom: 'Forêt',    valeur: '#10604a' },
+  { nom: 'Vermillon', valeur: '#e2452a' },
+  { nom: 'Klein',     valeur: '#1b3fd8' },
+  { nom: 'Magenta',   valeur: '#d81e73' }
+];
+
 export const PALETTE_TAGS = [
   '#b23a25', // vermillon
   '#a8842c', // or

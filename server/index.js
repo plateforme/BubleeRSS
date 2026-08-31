@@ -98,10 +98,12 @@ app.get('/api/state', (req, res) => {
     counts: store.counts(),
     tags: store.listTags(),
     palette: store.PALETTE_TAGS,
+    accents: store.PALETTE_ACCENT,
     settings: {
       refreshMinutes: Number(store.getSetting('refresh_minutes', '30')),
       retentionDays: Number(store.getSetting('retention_days', '90')),
       theme: store.getSetting('theme', 'auto'),
+      accent: store.getSetting('accent', store.PALETTE_ACCENT[0].valeur),
       layout: store.getSetting('layout', 'magazine'),
       fulltext: store.getSetting('fulltext', 'auto'),
       fulltextMinWords: Number(store.getSetting('fulltext_min_words', '250'))
@@ -114,6 +116,7 @@ app.put('/api/settings', (req, res) => {
     refreshMinutes: 'refresh_minutes',
     retentionDays: 'retention_days',
     theme: 'theme',
+    accent: 'accent',
     layout: 'layout',
     fulltext: 'fulltext',
     fulltextMinWords: 'fulltext_min_words'

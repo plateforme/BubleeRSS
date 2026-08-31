@@ -1,33 +1,34 @@
 # Bublee
 
-Un lecteur RSS maison, pensé comme un magazine : grande une, colonnes,
-titres en serif, lecture au calme. Tout tourne en local, rien ne sort de
+Un lecteur RSS maison, composé comme une première page de journal : index noir,
+manchette en serif, grille à filets, angles droits, aucune ombre. Tout ce qui
+n'est pas éditorial est en mono capitales. Tout tourne en local, rien ne sort de
 la machine à part les requêtes vers les flux eux-mêmes.
 
 <p align="center">
-  <img src="docs/magazine.png" width="720"
-       alt="La vue magazine : une grande une, puis une grille rythmée par des cartes larges">
-  <br><em>La vue magazine. À gauche, les étiquettes et leurs teintes, puis les sources.</em>
+  <img src="docs/magazine.png" width="760"
+       alt="La une : index noir, manchette, une plein cadre, colonnes à filets, mur d'images, aplats typographiques">
+  <br><em>« La une » — la une plein cadre, la rangée de colonnes, le mur d'images,
+  les aplats et les plaques typographiques, puis les dépêches.</em>
 </p>
 
 <p align="center">
-  <img src="docs/lecteur.png" width="720"
-       alt="Le lecteur : étiquettes colorées, lettrine, temps de lecture, texte complet">
-  <br><em>Le lecteur. Aeon ne publie qu'un résumé de 27 mots : l'étiquette
-  « texte complet » signale les 4 100 mots récupérés sur la page d'origine.</em>
+  <img src="docs/lecteur.png" width="760"
+       alt="Le lecteur plein écran : bandeau d'ouverture, étiquettes colorées, lettrine">
+  <br><em>Le lecteur, plein écran. Aeon ne publie qu'un résumé de 27 mots :
+  l'étiquette « texte complet » signale les 4 100 mots lus sur la page d'origine.</em>
 </p>
 
 <p align="center">
-  <img src="docs/video.png" width="720"
-       alt="Une vidéo de chaîne YouTube lue dans Bublee, avec le lecteur intégré">
-  <br><em>Une chaîne YouTube arrive comme n'importe quelle source. Le lecteur
-  joue la vidéo sur place, la description garde ses liens.</em>
+  <img src="docs/video.png" width="760"
+       alt="Une vidéo de chaîne YouTube, lecteur intégré">
+  <br><em>Une chaîne YouTube arrive comme n'importe quelle source, avec son lecteur.</em>
 </p>
 
 <p align="center">
-  <img src="docs/etiquettes.png" width="720"
-       alt="Le gestionnaire d'étiquettes : renommer, reteindre, supprimer">
-  <br><em>Le gestionnaire d'étiquettes : créer, renommer, reteindre, supprimer.</em>
+  <img src="docs/reglages.png" width="760"
+       alt="Les réglages : choix de la couleur d'accent parmi quatre">
+  <br><em>La couleur d'accent se choisit dans les réglages : forêt, vermillon, Klein, magenta.</em>
 </p>
 
 ## Démarrer
@@ -73,7 +74,40 @@ HOST=0.0.0.0 npm start
   barre de progression, enchaînement vers l'article suivant.
 - **Non lus / favoris / recherche**, dossiers, compteurs, rafraîchissement
   automatique, purge des vieux articles lus (jamais les non-lus ni les favoris).
-- **Thème clair « papier » et sombre « encre »**, ou automatique.
+- **Thème clair « kiosque » et sombre « encre »**, ou automatique, et **couleur d’accent** au choix.
+
+## Le dessin
+
+Trois familles, et une règle : **aucun texte d'interface n'est en sans-serif.**
+
+| Rôle | Famille |
+|---|---|
+| Manchettes, titres, monogrammes, lettrine | **Instrument Serif** |
+| Corps de texte, chapôs, titres de dépêches | **Newsreader** |
+| Méta, surtitres, boutons, compteurs, heures | **IBM Plex Mono**, capitales |
+
+`border-radius: 0` partout, aucune ombre, aucun flou : la hiérarchie tient aux
+filets et aux aplats. L'**accent** est une variable unique — tampon de la une,
+surtitres, filet qui se dessine au survol, pastilles de non-lu, lettrine, jauge
+de lecture. Quatre valeurs au choix dans les réglages : forêt `#10604a` (par
+défaut), vermillon `#e2452a`, Klein `#1b3fd8`, magenta `#d81e73`.
+
+Chaque source reçoit une **teinte** stable parmi six (plus deux neutres), tirée
+du hachage de son titre. Elle sert à trois endroits : la barre de 3 px dans
+l'index, le monogramme quand il n'y a pas de favicon, et le fond des plaques.
+
+Trois mises en page, indépendantes de la vue :
+
+- **La une** — une plein cadre, rangée de quatre colonnes séparées par des filets
+  verticaux, mur d'images, aplats de couleur et plaques typographiques, dépêches
+  en fin de page. Le rythme se répète à mesure qu'on descend.
+- **Sommaire** — entrées numérotées, vignette de 150 × 104.
+- **Dépêches** — lignes denses ; le survol inverse la ligne en encre, c'est le
+  seul renversement de la page et il sert de curseur.
+
+Dans l'index, la **pastille de type** distingue les sources : rien pour un
+article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
+de niveau pour un podcast.
 
 ## Texte complet
 
@@ -305,8 +339,9 @@ curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA' | jq -r '.
 curl -s 'http://127.0.0.1:4321/api/articles?view=all&tag=veille%20IA,à%20lire'
 ```
 
-Trois adresses directes, utiles en marque-page : `#/article/482` ouvre un
-article, `#/tags` le gestionnaire d'étiquettes, `#/shortcuts` l'aide-mémoire.
+Quatre adresses directes, utiles en marque-page : `#/article/482` ouvre un
+article, `#/tags` le gestionnaire d'étiquettes, `#/reglages` les préférences,
+`#/shortcuts` l'aide-mémoire.
 
 ## Raccourcis clavier
 

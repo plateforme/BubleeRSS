@@ -328,15 +328,24 @@ récupération de texte complet sur une vidéo : ça n'aurait pas de sens.
 ## Partager
 
 Le second pictogramme du coin d'une carte ouvre les destinations : **courriel**,
-**WhatsApp**, **Telegram**, **copier le lien** — et, sur les navigateurs qui la
-portent, la **feuille de partage du système**, qui donne accès à tout ce qui est
-installé sur la machine. <kbd>P</kbd> fait la même chose sur l'article au
-curseur, ou sur celui qu'on est en train de lire.
+**WhatsApp**, **Signal**, **Telegram**, **copier le lien** — et, sur les
+navigateurs qui la portent, la **feuille de partage du système**, qui donne
+accès à tout ce qui est installé sur la machine. Chaque ligne porte son propre
+pictogramme : à la lecture rapide, c'est lui qu'on vise, pas le mot.
+<kbd>P</kbd> fait la même chose sur l'article au curseur, ou sur celui qu'on est
+en train de lire. Sous le titre, dans le lecteur, la même paire de pictogrammes
+ferme la ligne des étiquettes.
 
 Rien n'est envoyé par Bublee : chaque destination ouvre sa propre fenêtre de
 rédaction, pré-remplie du titre et du lien. C'est toi qui postes. La ligne
 « Partager… » n'apparaît que si le navigateur porte vraiment l'API — pas de
 bouton qui ne ferait rien.
+
+Signal fait exception : il n'a pas d'adresse web de partage, on passe donc par
+le protocole `sgnl://` que l'application installe. S'il n'est enregistré nulle
+part, le navigateur ne signale rien — Bublee guette la perte de focus, qui
+signe la prise en charge, et prévient si elle ne vient pas. La feuille du
+système reste le chemin le plus sûr vers Signal quand elle est disponible.
 
 ## Podcasts
 

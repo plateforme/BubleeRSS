@@ -878,6 +878,9 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   padding: 18px 0; border-bottom: 1px solid var(--rule-list);
 }
+/* Les actions ferment la ligne, à droite : les étiquettes posées se lisent en
+   premier, ce sont elles qui portent l'information. */
+.tag-editor .actions-icones { margin-left: auto; }
 .tag-chip {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 4px 9px;
@@ -927,20 +930,23 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .dep.survol .dep-heure, .dep.survol .dep-source, .dep.survol .dep-duree { color: var(--bone); }
 .fil.survol { background: var(--bone-2); }
 
-/* Deux pictogrammes côte à côte, séparés d'un filet — comme partout ailleurs
-   dans la page. Le libellé écrit prenait la largeur d'un titre de dépêche. */
-.art-actions { position: absolute; z-index: 6; display: flex; }
-.art-actions button {
+/* La paire de pictogrammes : deux carrés d'encre séparés d'un filet, comme
+   partout ailleurs dans la page. Le libellé écrit prenait la largeur d'un titre
+   de dépêche. Même paire au coin des cartes et sous le titre dans le lecteur —
+   c'est la même action, elle doit se présenter pareil. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.actions-icones { display: flex; flex: none; }
+.actions-icones button {
   display: grid; place-items: center; width: 28px; height: 26px;
   background: var(--ink-deep); color: #f6f5f1;
   transition: background .18s var(--ease);
 }
-.art-actions button + button { box-shadow: -1px 0 0 rgba(246, 245, 241, .22); }
-.art-actions svg { width: 14px; height: 14px; stroke-width: 1.6; }
-/* Les trois nœuds du glyphe de partage sont pleins : à 14 px, des anneaux se
-   refermeraient en taches et on ne lirait plus la figure. */
-.glyphe-partage circle { fill: currentColor; stroke: none; }
-.art-actions button:hover { background: var(--accent); }
+.actions-icones button + button { box-shadow: -1px 0 0 rgba(246, 245, 241, .22); }
+.actions-icones svg { width: 14px; height: 14px; stroke-width: 1.6; }
+.actions-icones button:hover { background: var(--accent); }
+
+.art-actions { position: absolute; z-index: 6; }
 /* Une dépêche survolée s'inverse en encre : les boutons s'inversent à leur tour,
    sinon ils disparaîtraient dans la ligne. */
 .art-actions.sur-depeche button { background: var(--paper); color: var(--ink-deep); }
@@ -970,6 +976,10 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 }
 .tagpop-row:hover { background: var(--bone-2); }
 .tagpop-row.on { color: var(--ink); }
+/* Un pictogramme devant chaque destination : à la lecture rapide, c'est lui
+   qu'on vise, pas le mot. */
+.tagpop-glyphe { width: 13px; height: 13px; flex: none; stroke-width: 1.6; color: var(--mute); }
+.tagpop-row:hover .tagpop-glyphe { color: var(--accent); }
 .tagpop-nom { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagpop-coche { flex: none; color: var(--accent); }
 .tagpop-vide { margin: 0; padding: 14px 13px; font-family: var(--body); font-size: 13px; color: var(--mute); }

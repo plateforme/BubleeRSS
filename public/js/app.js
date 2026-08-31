@@ -19,6 +19,7 @@ const state = {
   done: false,
   pointer: -1,
   openId: null,
+  ouvert: null,          // l'article affiche dans le lecteur, liste ou non
   feeds: [],
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
@@ -652,6 +653,7 @@ async function openArticle(id) {
 }
 
 function renderReader(a) {
+  state.ouvert = a;
   const suivant = articleSuivant();
   const video = estVideo(a);
   const couleur = teinte(a.feed_title);
@@ -735,8 +737,15 @@ function editeurTags(a) {
       <button class="tag-jump" data-goto-tag="${esc(nom)}">${esc(nom)}</button>
       <button class="tag-off" data-untag="${esc(nom)}" aria-label="Retirer">✕</button>
     </span>`).join('');
-  return chips + `<input class="tag-input" id="tagInput" list="tagOptions" autocomplete="off"
-    placeholder="+ étiquette" aria-label="Ajouter une étiquette" maxlength="60">`;
+  return chips + `
+    <span class="actions-icones">
+      <button type="button" id="readerTagBtn" title="Étiqueter (T)" aria-label="Étiqueter">
+        <svg aria-hidden="true"><use href="#g-etiquette"/></svg>
+      </button>
+      <button type="button" id="readerShareBtn" title="Partager (P)" aria-label="Partager">
+        <svg aria-hidden="true"><use href="#g-partage"/></svg>
+      </button>
+    </span>`;
 }
 
 async function etiqueter(id, action) {
@@ -744,6 +753,7 @@ async function etiqueter(id, action) {
     const article = await api.tag(id, action);
     const local = state.articles.find((a) => a.id === id);
     if (local) local.tags = article.tags;
+    if (state.ouvert?.id === id) state.ouvert.tags = article.tags;
     if (state.openId === id) $('#tagEditor').innerHTML = editeurTags(article);
     await reloadState();
     majPuces(article);
@@ -794,8 +804,12 @@ function survolCarte(carte) {
   zone.style.left = Math.round(r.right - s.left - zone.offsetWidth - 8) + 'px';
 }
 
+/** Un article ouvert par lien profond n'est pas dans la liste courante. */
+const articleParId = (id) => state.articles.find((a) => a.id === id)
+  || (state.ouvert?.id === id ? state.ouvert : null);
+
 function renderPopTags() {
-  const a = state.articles.find((x) => x.id === popId);
+  const a = articleParId(popId);
   if (!a) return;
   const posees = new Set(a.tags || []);
 
@@ -812,7 +826,7 @@ function renderPopTags() {
 }
 
 function ouvrirPopTags(id, ancre) {
-  if (!state.articles.some((a) => a.id === id)) return;
+  if (!articleParId(id)) return;
   fermerPartage();
   popId = id;
   const pop = $('#tagPop');
@@ -847,7 +861,7 @@ function poserContre(pop, ancre) {
 }
 
 function ouvrirPartage(id, ancre) {
-  const a = state.articles.find((x) => x.id === id);
+  const a = articleParId(id);
   if (!a || !a.url) { toast('Cet article n’a pas de lien à partager.', 'bad'); return; }
   fermerPopTags();
   partageId = id;
@@ -871,11 +885,31 @@ function fermerPartage() {
 }
 
 /**
+ * Ouvre un protocole applicatif (sgnl://). S'il n'est enregistré nulle part, le
+ * navigateur ne signale rien : on guette la perte de focus, qui signe la prise
+ * en charge par une application, et on prévient si elle ne vient pas.
+ */
+function ouvrirProtocole(href, secours) {
+  let pris = false;
+  const marquer = () => { pris = true; };
+  addEventListener('blur', marquer, { once: true });
+  addEventListener('pagehide', marquer, { once: true });
+  document.addEventListener('visibilitychange', marquer, { once: true });
+  location.href = href;
+  setTimeout(() => {
+    removeEventListener('blur', marquer);
+    removeEventListener('pagehide', marquer);
+    document.removeEventListener('visibilitychange', marquer);
+    if (!pris) toast(secours, 'bad');
+  }, 1600);
+}
+
+/**
  * Ouvre le canal choisi avec l'article pré-rempli. Rien n'est envoyé d'ici :
  * chaque destination ouvre sa propre fenêtre de rédaction, c'est toi qui postes.
  */
 async function partager(canal) {
-  const a = state.articles.find((x) => x.id === partageId);
+  const a = articleParId(partageId);
   if (!a) return;
   const titre = a.title;
   const lien = a.url;
@@ -911,6 +945,13 @@ async function partager(canal) {
     telegram: () => window.open(
       `https://t.me/share/url?url=${encodeURIComponent(lien)}&text=${encodeURIComponent(titre)}`,
       '_blank', 'noopener'
+    ),
+    // Signal n'a pas d'adresse web de partage : on passe par le protocole que
+    // l'application installe. S'il n'est enregistré nulle part, rien ne se
+    // passerait en silence — d'où le garde-fou.
+    signal: () => ouvrirProtocole(
+      'sgnl://send?text=' + encodeURIComponent(texte),
+      'Signal n’a pas répondu — l’application n’est peut-être pas installée. Essaie « Partager… » ou copie le lien.'
     )
   };
   destinations[canal]?.();
@@ -956,7 +997,10 @@ function articleSuivant() {
 }
 
 function closeReader() {
+  fermerPopTags();
+  fermerPartage();
   state.openId = null;
+  state.ouvert = null;
   history.replaceState(null, '', location.pathname);
   $('#reader').hidden = true;
   $('#readerShade').hidden = true;
@@ -1088,7 +1132,7 @@ function onKey(event) {
   // `T` étiquette : le champ du lecteur s'il est ouvert, sinon l'article au curseur.
   if (key === 't') {
     event.preventDefault();
-    if (state.openId) $('#tagInput')?.focus(); else popSurCurseur();
+    if (state.openId) ouvrirPopTags(state.openId, $('#readerTag')); else popSurCurseur();
     return;
   }
   if (key === 'f' && state.openId) { event.preventDefault(); completerArticle({ id: state.openId }, true); }
@@ -1491,8 +1535,7 @@ function wireEvents() {
     const ligne = e.target.closest('[data-pop-tag]');
     if (!ligne || popId === null) return;
     const nom = ligne.dataset.popTag;
-    const a = state.articles.find((x) => x.id === popId);
-    const posee = (a?.tags || []).includes(nom);
+    const posee = (articleParId(popId)?.tags || []).includes(nom);
     etiqueter(popId, posee ? { remove: [nom] } : { add: [nom] });
   });
 
@@ -1548,7 +1591,7 @@ function wireEvents() {
   // Cliquer la liste, à côté du panneau, referme la lecture.
   $('#readerShade').addEventListener('click', closeReader);
   $('#readerStar').addEventListener('click', () => state.openId && basculerFavori(state.openId));
-  $('#readerTag').addEventListener('click', () => $('#tagInput')?.focus());
+  $('#readerTag').addEventListener('click', (e) => ouvrirPopTags(state.openId, e.currentTarget));
   $('#readerFull').addEventListener('click', () => state.openId && completerArticle({ id: state.openId }, true));
   $('#readerUnread').addEventListener('click', async () => {
     if (!state.openId) return;
@@ -1559,6 +1602,8 @@ function wireEvents() {
   });
 
   $('#readerScroll').addEventListener('click', (e) => {
+    if (e.target.closest('#readerTagBtn')) { ouvrirPopTags(state.openId, e.target.closest('#readerTagBtn')); return; }
+    if (e.target.closest('#readerShareBtn')) { ouvrirPartage(state.openId, e.target.closest('#readerShareBtn')); return; }
     const off = e.target.closest('[data-untag]');
     if (off && state.openId) { etiqueter(state.openId, { remove: [off.dataset.untag] }); return; }
     const jump = e.target.closest('[data-goto-tag]');
@@ -1567,14 +1612,10 @@ function wireEvents() {
     const next = e.target.closest('[data-next]');
     if (next) openArticle(Number(next.dataset.next));
   });
-  $('#readerScroll').addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || !e.target.matches('#tagInput')) return;
-    e.preventDefault();
-    const noms = e.target.value.split(',').map((n) => n.trim()).filter(Boolean);
-    e.target.value = '';
-    if (noms.length && state.openId) etiqueter(state.openId, { add: noms });
-  });
   $('#readerScroll').addEventListener('scroll', () => {
+    // Un popover ancré à la ligne d'étiquettes ne doit pas rester en l'air.
+    fermerPopTags();
+    fermerPartage();
     const el = $('#readerScroll');
     const max = el.scrollHeight - el.clientHeight;
     $('#readerProgress').style.width = (max > 0 ? (el.scrollTop / max) * 100 : 0) + '%';

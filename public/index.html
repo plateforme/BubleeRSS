@@ -25,6 +25,45 @@
 
 <a class="skip-link" href="#flux">Aller au contenu</a>
 
+<!-- Les deux pictogrammes d'action, définis une fois : ils servent au coin des
+     cartes et sous le titre dans le lecteur, et doivent rester identiques. -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="g-etiquette" viewBox="0 0 24 24">
+    <path d="M3 3h8.2l9.3 9.3a1.6 1.6 0 0 1 0 2.3l-6 6a1.6 1.6 0 0 1-2.3 0L3 11.2Z"/>
+    <path d="M7.4 7.4h.01"/>
+  </symbol>
+  <symbol id="g-partage" viewBox="0 0 24 24">
+    <path d="m8.4 10.7 7.2-4.2M8.4 13.3l7.2 4.2"/>
+    <!-- Nœuds pleins : en anneaux, ils se refermeraient en taches à 14 px. -->
+    <circle cx="18" cy="5.2" r="2.8" fill="currentColor" stroke="none"/>
+    <circle cx="6" cy="12" r="2.8" fill="currentColor" stroke="none"/>
+    <circle cx="18" cy="18.8" r="2.8" fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Les destinations de partage. Des figures génériques plutôt que les
+       marques : les libellés nomment déjà le service, et un logo redessiné de
+       mémoire est toujours un à-peu-près. -->
+  <symbol id="g-apps" viewBox="0 0 24 24">
+    <rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/>
+    <rect x="3.5" y="13.5" width="7" height="7"/><rect x="13.5" y="13.5" width="7" height="7"/>
+  </symbol>
+  <symbol id="g-courriel" viewBox="0 0 24 24">
+    <rect x="2.5" y="5" width="19" height="14"/><path d="m2.5 6.4 9.5 7 9.5-7"/>
+  </symbol>
+  <symbol id="g-bulle" viewBox="0 0 24 24">
+    <path d="M3 4.5h18V16h-9l-5 4v-4H3Z"/>
+  </symbol>
+  <symbol id="g-bouclier" viewBox="0 0 24 24">
+    <path d="M12 2.6 20 5.6v6.5L12 21 4 12.1V5.6Z"/>
+  </symbol>
+  <symbol id="g-avion" viewBox="0 0 24 24">
+    <path d="M21.5 2.5 2.5 11l8.2 2.8L13.5 21.5Z"/><path d="M21.5 2.5 10.7 13.8"/>
+  </symbol>
+  <symbol id="g-copier" viewBox="0 0 24 24">
+    <rect x="9" y="9" width="11.5" height="11.5"/><path d="M15 9V3.5H3.5V15H9"/>
+  </symbol>
+</svg>
+
 <div class="app" id="app">
 
   <!-- ============================================================ l'index -->
@@ -134,18 +173,12 @@
 
       <!-- Flotte au coin de la carte survolée : une carte est déjà un <button>,
            on ne peut pas en imbriquer un second dedans. -->
-      <div class="art-actions" id="artActions" hidden>
+      <div class="art-actions actions-icones" id="artActions" hidden>
         <button type="button" id="artTagBtn" title="Étiqueter sans ouvrir (T)" aria-label="Étiqueter">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3 3h8.2l9.3 9.3a1.6 1.6 0 0 1 0 2.3l-6 6a1.6 1.6 0 0 1-2.3 0L3 11.2Z"/>
-            <path d="M7.4 7.4h.01"/>
-          </svg>
+          <svg aria-hidden="true"><use href="#g-etiquette"/></svg>
         </button>
         <button type="button" id="artShareBtn" title="Partager (P)" aria-label="Partager">
-          <svg class="glyphe-partage" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m8.4 10.7 7.2-4.2M8.4 13.3l7.2 4.2"/>
-            <circle cx="18" cy="5.2" r="2.8"/><circle cx="6" cy="12" r="2.8"/><circle cx="18" cy="18.8" r="2.8"/>
-          </svg>
+          <svg aria-hidden="true"><use href="#g-partage"/></svg>
         </button>
       </div>
     </div>
@@ -183,14 +216,22 @@
   <p class="tagpop-titre" id="sharePopTitre"></p>
   <div class="tagpop-list">
     <button type="button" class="tagpop-row" data-partage="systeme" hidden>
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-apps"/></svg>
       <span class="tagpop-nom">Partager…</span></button>
     <button type="button" class="tagpop-row" data-partage="mail">
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-courriel"/></svg>
       <span class="tagpop-nom">Courriel</span></button>
     <button type="button" class="tagpop-row" data-partage="whatsapp">
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-bulle"/></svg>
       <span class="tagpop-nom">WhatsApp</span></button>
+    <button type="button" class="tagpop-row" data-partage="signal">
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-bouclier"/></svg>
+      <span class="tagpop-nom">Signal</span></button>
     <button type="button" class="tagpop-row" data-partage="telegram">
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-avion"/></svg>
       <span class="tagpop-nom">Telegram</span></button>
     <button type="button" class="tagpop-row" data-partage="copier">
+      <svg class="tagpop-glyphe" aria-hidden="true"><use href="#g-copier"/></svg>
       <span class="tagpop-nom">Copier le lien</span></button>
   </div>
 </div>

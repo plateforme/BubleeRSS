@@ -876,6 +876,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   transition: color .2s ease;
 }
 .reader-bar button:hover, .reader-bar a:hover { color: var(--accent); }
+#readerClose { display: inline-flex; align-items: baseline; gap: 7px; }
 .reader-bar .sep { width: 1px; height: 20px; background: var(--dark-rule); flex: none; }
 .reader-bar .infos { min-width: 0; color: var(--on-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-bar .grow { flex: 1; }
@@ -1285,7 +1286,17 @@ kbd {
      titre juste en dessous répète ; « Texte complet », qui se récupère de toute
      façon tout seul à l'ouverture ; et « Non lu », qui ne sert qu'à revenir en
      arrière. Restent fermer, étiqueter, mettre en favori et ouvrir l'original. */
-  .reader-bar { padding: 0 14px; gap: 12px; }
+  .reader-bar { padding: 0 10px 0 4px; gap: 12px; }
+
+  /* Au doigt, une croix de 9,5 px ne se vise pas. Elle grossit et prend une
+     cible carrée d'environ 44 px — la taille sous laquelle on rate. Le mot
+     « Fermer » part : la croix seule se comprend, et la place profite au reste. */
+  #readerClose {
+    width: 44px; height: 44px; flex: none;
+    display: grid; place-items: center; gap: 0;
+  }
+  #readerClose .croix { font-size: 19px; line-height: 1; }
+  #readerClose .mot { display: none; }
   .reader-bar .sep,
   .reader-bar .infos,
   #readerFull,

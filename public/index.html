@@ -238,7 +238,9 @@
 <article class="reader" id="reader" hidden aria-modal="true" role="dialog" aria-label="Lecture">
   <div class="reader-progress" id="readerProgress"></div>
   <header class="reader-bar">
-    <button id="readerClose" title="Fermer (Échap)">✕ Fermer</button>
+    <button id="readerClose" title="Fermer (Échap)" aria-label="Fermer la lecture">
+      <span class="croix" aria-hidden="true">✕</span><span class="mot">Fermer</span>
+    </button>
     <span class="sep" aria-hidden="true"></span>
     <span class="infos" id="readerInfos"></span>
     <span class="grow"></span>

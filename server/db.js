@@ -145,6 +145,31 @@ CREATE INDEX IF NOT EXISTS idx_tags_user          ON tags(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
 `);
 
+/* Les reglages d'une base existante n'ont que (key, value) : le CREATE TABLE
+   IF NOT EXISTS plus haut ne les a pas touches. Il faut donc reecrire la table
+   pour lui donner son proprietaire. Tout ce qui existait va au service
+   (user_id = 0) ; `adopterOrphelins` deplacera ensuite vers le premier compte
+   ce qui est personnel. */
+{
+  const colonnes = db.prepare('PRAGMA table_info(settings)').all();
+  if (colonnes.length && !colonnes.some((c) => c.name === 'user_id')) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE settings_nouveau (
+        user_id INTEGER NOT NULL DEFAULT 0,
+        key     TEXT NOT NULL,
+        value   TEXT NOT NULL,
+        PRIMARY KEY (user_id, key)
+      );
+      INSERT INTO settings_nouveau (user_id, key, value) SELECT 0, key, value FROM settings;
+      DROP TABLE settings;
+      ALTER TABLE settings_nouveau RENAME TO settings;
+      COMMIT;
+    `);
+    console.log('[bublee] reglages : passes par compte.');
+  }
+}
+
 /* Meme raison pour l'adresse d'un flux : deux personnes ont le droit de suivre
    Le Monde. L'unicite globale d'origine devient une unicite par compte. */
 {

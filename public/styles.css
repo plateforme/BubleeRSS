@@ -1327,3 +1327,55 @@ kbd {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================== la porte */
+
+/* L'ecran de connexion. Meme vocabulaire que le reste : filets, angles droits,
+   mono en capitales pour tout ce qui n'est pas editorial. */
+.porte {
+  position: fixed; inset: 0; z-index: 90;
+  display: grid; place-items: center;
+  background: var(--index-bg);
+  animation: ed-fade .2s var(--ease);
+}
+.porte-carte {
+  width: min(420px, calc(100vw - 40px));
+  padding: 34px 32px 28px;
+  background: var(--bone);
+  border: 1px solid var(--ink);
+}
+.porte-marque { display: flex; align-items: center; gap: 12px; color: var(--ink); }
+.porte-marque .logo-mark { width: 34px; height: 22.7px; flex: none; }
+.porte-marque .logo-mot { font-family: var(--display); font-size: 33px; line-height: .86; letter-spacing: -.025em; }
+.porte-intro {
+  margin: 16px 0 22px;
+  font-family: var(--body); font-size: 14.5px; line-height: 1.5; color: var(--mute);
+}
+.porte-erreur { color: #d63a2a; }
+.porte .modal-actions { margin-top: 22px; }
+.porte .btn.solid { width: 100%; justify-content: center; }
+
+/* --------------------------------------------------------- les comptes */
+
+.comptes-liste { display: flex; flex-direction: column; }
+.compte-ligne {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--rule-list);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em;
+}
+.compte-ligne.suspendu { opacity: .5; }
+.compte-qui { flex: 1; min-width: 0; }
+.compte-qui b { display: block; font-weight: 500; color: var(--ink); }
+.compte-qui span { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.compte-chiffres { flex: none; color: var(--mute); text-align: right; }
+.compte-ligne select { padding: 3px 6px; font-size: 9.5px; }
+.compte-ligne .lien-danger { flex: none; color: #d63a2a; font-family: var(--mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+.compte-moi { color: var(--accent); }
+
+.compte-neuf { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.compte-neuf input, .compte-neuf select {
+  padding: 8px 10px; border: 1px solid var(--rule-list); background: none; color: var(--ink);
+  font-family: var(--mono); font-size: 10px;
+}
+.compte-neuf input:first-child { grid-column: 1 / -1; }
+.compte-neuf .btn { grid-column: 1 / -1; }

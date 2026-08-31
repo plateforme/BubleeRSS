@@ -7,9 +7,38 @@ import { estYouTube } from './youtube.js';
 
 const now = () => Date.now();
 
+/**
+ * Tout ce qui suit est cloisonne par compte. Un flux appartient a quelqu'un, et
+ * ses articles en descendent par cascade : c'est ce qui rend l'isolation
+ * structurelle plutot que dependante d'un WHERE qu'on aurait pu oublier.
+ *
+ * Les fonctions publiques prennent donc le compte en premier argument. Celles
+ * qui n'en prennent pas sont les taches du service — rafraichissement, purge —
+ * qui traversent legitimement tous les comptes.
+ */
+function exigeCompte(u) {
+  const id = Number(u);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw Object.assign(new Error('Compte manquant : opération refusée.'), { status: 401 });
+  }
+  return id;
+}
+
+/** Le flux, s'il appartient bien a ce compte. */
+function fluxDuCompte(id, u) {
+  return db.prepare('SELECT * FROM feeds WHERE id = ? AND user_id = ?').get(Number(id), exigeCompte(u));
+}
+
+/** L'article, s'il descend d'un flux de ce compte. */
+function articleDuCompte(id, u) {
+  return db.prepare(
+    'SELECT a.id FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE a.id = ? AND f.user_id = ?'
+  ).get(Number(id), exigeCompte(u));
+}
+
 /* ------------------------------------------------------------------ flux */
 
-export function listFeeds() {
+export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
            f.last_fetched_at, f.last_error, f.error_count, f.created_at,
@@ -25,12 +54,13 @@ export function listFeeds() {
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
+    WHERE f.user_id = ?
     ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, title COLLATE NOCASE
-  `).all();
+  `).all(exigeCompte(u));
 }
 
-export function getFeed(id) {
-  return db.prepare('SELECT * FROM feeds WHERE id = ?').get(id);
+export function getFeed(id, u) {
+  return fluxDuCompte(id, u);
 }
 
 function iconFor(siteUrl) {
@@ -43,34 +73,35 @@ function iconFor(siteUrl) {
 }
 
 /** Ajoute un flux depuis une URL (page d'accueil acceptee : on cherche le flux). */
-export async function addFeed(input, folder = '', title = '') {
+export async function addFeed(u, input, folder = '', title = '') {
+  const compte = exigeCompte(u);
   const candidates = await discoverFeeds(input);
   if (!candidates.length) {
     throw Object.assign(new Error('Aucun flux RSS ou Atom trouve a cette adresse.'), { status: 422 });
   }
 
   const chosen = candidates[0];
-  const existing = db.prepare('SELECT id FROM feeds WHERE url = ?').get(chosen.url);
+  const existing = db.prepare('SELECT id FROM feeds WHERE url = ? AND user_id = ?').get(chosen.url, compte);
   if (existing) {
     throw Object.assign(new Error('Ce flux est deja dans ta bibliotheque.'), { status: 409, feedId: existing.id });
   }
 
   const info = db.prepare(`
-    INSERT INTO feeds (url, title, custom_title, folder, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(chosen.url, chosen.title || '', title || null, folder || '', now());
+    INSERT INTO feeds (url, title, custom_title, folder, created_at, user_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(chosen.url, chosen.title || '', title || null, folder || '', now(), compte);
 
   const feedId = Number(info.lastInsertRowid);
   const result = await refreshFeed(feedId);
-  return { feed: getFeed(feedId), ...result, alternatives: candidates.slice(1) };
+  return { feed: getFeed(feedId, compte), ...result, alternatives: candidates.slice(1) };
 }
 
 /** Suivi : on lit tout. Survol : hors des non-lus, mais consultable. Muet :
     archive seulement, on n'y va que par la source, l'etiquette ou la recherche. */
 export const PRIORITES = new Set(['suivi', 'survol', 'muet']);
 
-export function updateFeed(id, patch) {
-  const feed = getFeed(id);
+export function updateFeed(id, patch, u) {
+  const feed = fluxDuCompte(id, u);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
 
   const fields = [];
@@ -89,15 +120,16 @@ export function updateFeed(id, patch) {
     }
   }
   if (!fields.length) return feed;
-  values.push(id);
-  db.prepare('UPDATE feeds SET ' + fields.join(', ') + ' WHERE id = ?').run(...values);
-  return getFeed(id);
+  values.push(id, feed.user_id);
+  db.prepare('UPDATE feeds SET ' + fields.join(', ') + ' WHERE id = ? AND user_id = ?').run(...values);
+  return fluxDuCompte(id, feed.user_id);
 }
 
-export function deleteFeed(id) {
-  const supprime = db.prepare('DELETE FROM feeds WHERE id = ?').run(id).changes > 0;
+export function deleteFeed(id, u) {
+  const compte = exigeCompte(u);
+  const supprime = db.prepare('DELETE FROM feeds WHERE id = ? AND user_id = ?').run(Number(id), compte).changes > 0;
   // Les doublons orphelins redeviennent des articles a part entiere.
-  if (supprime) reconcilierDoublons();
+  if (supprime) reconcilierDoublons(compte);
   return supprime;
 }
 
@@ -155,8 +187,8 @@ function appliquerAdresse(id, url, { figerNom = false } = {}) {
  * proposer : remplacer en silence « Best New Tracks » par le flux general
  * de Pitchfork serait pire que de laisser la source cassee.
  */
-export async function reparerFlux(id) {
-  const feed = getFeed(id);
+export async function reparerFlux(id, u) {
+  const feed = fluxDuCompte(id, u);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
 
   const base = { feedId: id, title: feed.title, from: feed.url };
@@ -179,7 +211,8 @@ export async function reparerFlux(id) {
   const propositions = [];
 
   for (const candidat of candidats) {
-    if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ?').get(candidat.url, id)) {
+    if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ? AND user_id = ?')
+        .get(candidat.url, id, feed.user_id)) {
       propositions.push({ url: candidat.url, title: candidat.title, deja: true });
       continue;
     }
@@ -214,10 +247,11 @@ export async function reparerFlux(id) {
 }
 
 /** Applique une proposition validee par l'utilisateur. */
-export async function accepterReparation(id, url) {
-  const feed = getFeed(id);
+export async function accepterReparation(id, url, u) {
+  const compte = exigeCompte(u);
+  const feed = fluxDuCompte(id, compte);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
-  if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ?').get(url, id)) {
+  if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ? AND user_id = ?').get(url, id, compte)) {
     throw Object.assign(new Error('Ce flux est déjà dans ta bibliothèque.'), { status: 409 });
   }
 
@@ -228,13 +262,15 @@ export async function accepterReparation(id, url) {
     appliquerAdresse(id, ancienne);
     throw Object.assign(new Error(refresh.error), { status: 502 });
   }
-  dedupeExistants();
-  return { feed: getFeed(id), added: refresh.added };
+  dedupeExistants(compte);
+  return { feed: fluxDuCompte(id, compte), added: refresh.added };
 }
 
 /** Passe en revue toutes les sources en erreur. */
-export async function reparerSourcesCassees(concurrency = 5) {
-  const ids = db.prepare('SELECT id FROM feeds WHERE last_error IS NOT NULL ORDER BY id').all().map((r) => r.id);
+export async function reparerSourcesCassees(u, concurrency = 5) {
+  const compte = exigeCompte(u);
+  const ids = db.prepare('SELECT id FROM feeds WHERE last_error IS NOT NULL AND user_id = ? ORDER BY id')
+    .all(compte).map((r) => r.id);
   const resultats = [];
   let curseur = 0;
 
@@ -242,7 +278,7 @@ export async function reparerSourcesCassees(concurrency = 5) {
     while (curseur < ids.length) {
       const id = ids[curseur++];
       try {
-        resultats.push(await reparerFlux(id));
+        resultats.push(await reparerFlux(id, compte));
       } catch (error) {
         resultats.push({ feedId: id, status: 'echec', error: String(error.message) });
       }
@@ -251,7 +287,7 @@ export async function reparerSourcesCassees(concurrency = 5) {
 
   await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
   if (resultats.some((r) => r.status === 'repare')) {
-    dedupeExistants();
+    dedupeExistants(compte);
     setSetting('last_refresh_at', now());
   }
 
@@ -263,25 +299,30 @@ export async function reparerSourcesCassees(concurrency = 5) {
   };
 }
 
-export function listFolders() {
+export function listFolders(u) {
   return db.prepare(`
     SELECT folder AS name, COUNT(*) AS feeds
-    FROM feeds WHERE folder <> '' GROUP BY folder ORDER BY folder COLLATE NOCASE
-  `).all();
+    FROM feeds WHERE folder <> '' AND user_id = ? GROUP BY folder ORDER BY folder COLLATE NOCASE
+  `).all(exigeCompte(u));
 }
 
 /* ------------------------------------------------------------ doublons */
 
+/* Ces deux recherches sont bornees au compte : sans ca, l'article d'une
+   personne pourrait etre rattache comme doublon a celui d'une autre, et l'etat
+   de lecture se propagerait d'un compte a l'autre. */
 const chercheParUrl = db.prepare(`
-  SELECT id, feed_id, read_at, starred, title_key FROM articles
-  WHERE url_key = ? AND dupe_of IS NULL
-  ORDER BY id LIMIT 1
+  SELECT a.id, a.feed_id, a.read_at, a.starred, a.title_key
+  FROM articles a JOIN feeds f ON f.id = a.feed_id
+  WHERE a.url_key = ? AND a.dupe_of IS NULL AND f.user_id = ?
+  ORDER BY a.id LIMIT 1
 `);
 
 const chercheParTitre = db.prepare(`
-  SELECT id, feed_id, read_at, starred, title_key FROM articles
-  WHERE title_key = ? AND dupe_of IS NULL AND ABS(published_at - ?) <= ?
-  ORDER BY id LIMIT 1
+  SELECT a.id, a.feed_id, a.read_at, a.starred, a.title_key
+  FROM articles a JOIN feeds f ON f.id = a.feed_id
+  WHERE a.title_key = ? AND a.dupe_of IS NULL AND ABS(a.published_at - ?) <= ? AND f.user_id = ?
+  ORDER BY a.id LIMIT 1
 `);
 
 /**
@@ -289,13 +330,13 @@ const chercheParTitre = db.prepare(`
  * L'adresse normalisee prime ; le titre ne sert de secours que s'il est
  * assez long et que les deux publications sont proches dans le temps.
  */
-function trouverOriginal(cleUrl, cleTitre, publieLe) {
+function trouverOriginal(cleUrl, cleTitre, publieLe, compte) {
   if (cleUrl) {
-    const parUrl = chercheParUrl.get(cleUrl);
+    const parUrl = chercheParUrl.get(cleUrl, compte);
     if (parUrl) return parUrl;
   }
   if (cleTitre && cleTitre.length >= TITRE_FIABLE) {
-    return chercheParTitre.get(cleTitre, publieLe, FENETRE_TITRE_MS) || null;
+    return chercheParTitre.get(cleTitre, publieLe, FENETRE_TITRE_MS, compte) || null;
   }
   return null;
 }
@@ -304,18 +345,27 @@ function trouverOriginal(cleUrl, cleTitre, publieLe) {
  * Aligne l'etat « lu » a l'interieur de chaque groupe de doublons, dans les
  * deux sens : lire une copie suffit a marquer toute l'histoire comme lue.
  */
-export function reconcilierDoublons() {
+/* La deduplication se fait a l'interieur d'un compte : deux personnes qui
+   suivent Le Monde ont chacune leur exemplaire de la meme depeche, et ce ne
+   sont pas des doublons l'un de l'autre. */
+const ARTICLES_DU_COMPTE =
+  '(SELECT a2.id FROM articles a2 JOIN feeds f2 ON f2.id = a2.feed_id WHERE f2.user_id = ?)';
+
+export function reconcilierDoublons(u) {
+  const compte = exigeCompte(u);
   const stamp = now();
   db.prepare(`
     UPDATE articles SET read_at = ?
     WHERE read_at IS NULL
+      AND id IN ${ARTICLES_DU_COMPTE}
       AND id IN (SELECT dupe_of FROM articles WHERE dupe_of IS NOT NULL AND read_at IS NOT NULL)
-  `).run(stamp);
+  `).run(stamp, compte);
   db.prepare(`
     UPDATE articles SET read_at = ?
     WHERE read_at IS NULL
+      AND id IN ${ARTICLES_DU_COMPTE}
       AND dupe_of IN (SELECT id FROM articles WHERE read_at IS NOT NULL)
-  `).run(stamp);
+  `).run(stamp, compte);
 }
 
 /**
@@ -324,11 +374,13 @@ export function reconcilierDoublons() {
  * sources sont deja en base, personne ne les a encore comparees.
  * Le plus ancien identifiant gagne et devient l'exemplaire de reference.
  */
-export function dedupeExistants() {
+export function dedupeExistants(u) {
+  const compte = exigeCompte(u);
   const lignes = db.prepare(`
-    SELECT id, feed_id, url_key, title_key, published_at
-    FROM articles WHERE dupe_of IS NULL ORDER BY id
-  `).all();
+    SELECT a.id, a.feed_id, a.url_key, a.title_key, a.published_at
+    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE a.dupe_of IS NULL AND f.user_id = ? ORDER BY a.id
+  `).all(compte);
 
   const parUrl = new Map();
   const parTitre = new Map();
@@ -368,7 +420,7 @@ export function dedupeExistants() {
   if (aRattacher.length) {
     const maj = db.prepare('UPDATE articles SET dupe_of = ? WHERE id = ?');
     db.transaction(() => { for (const [original, copie] of aRattacher) maj.run(original, copie); })();
-    reconcilierDoublons();
+    reconcilierDoublons(compte);
   }
 
   return aRattacher.length;
@@ -378,17 +430,22 @@ export function dedupeExistants() {
  * Recalcule les cles de comparaison de toute la base et refait le
  * rapprochement a zero. A lancer quand les regles de detection changent.
  */
-export function recalculerDoublons() {
-  const lignes = db.prepare('SELECT id, url, title FROM articles').all();
+export function recalculerDoublons(u) {
+  const compte = exigeCompte(u);
+  const lignes = db.prepare(
+    'SELECT a.id, a.url, a.title FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE f.user_id = ?'
+  ).all(compte);
   const maj = db.prepare('UPDATE articles SET url_key = ?, title_key = ?, dupe_of = NULL WHERE id = ?');
   db.transaction(() => {
     for (const ligne of lignes) maj.run(urlKey(ligne.url), titleKey(ligne.title), ligne.id);
   })();
-  return dedupeExistants();
+  return dedupeExistants(compte);
 }
 
 /** Le canonique et toutes ses copies. */
 function groupe(id) {
+  // Les doublons sont deja calcules a l'interieur d'un compte : le groupe ne
+  // peut donc pas traverser une frontiere de compte.
   return db.prepare(`
     SELECT a.id FROM articles a, (SELECT COALESCE(dupe_of, id) AS racine FROM articles WHERE id = ?) g
     WHERE a.id = g.racine OR a.dupe_of = g.racine
@@ -433,7 +490,10 @@ const parGuid = db.prepare('SELECT id FROM articles WHERE feed_id = ? AND guid =
  * Enregistre les entrees d'un flux en ecartant les doublons.
  * Retourne { ajoutes, doublons }. Exporte pour les tests.
  */
-export const saveItems = db.transaction((feedId, items) => {
+/* `proprietaire` : le compte auquel appartient le flux. Il borne la recherche
+   de doublons — sans lui, l'article d'une personne pourrait etre rattache a
+   celui d'une autre. */
+export const saveItems = db.transaction((feedId, items, proprietaire) => {
   let ajoutes = 0;
   let doublons = 0;
 
@@ -460,7 +520,7 @@ export const saveItems = db.transaction((feedId, items) => {
       continue;
     }
 
-    let original = trouverOriginal(cleUrl, cleTitre, item.published_at);
+    let original = trouverOriginal(cleUrl, cleTitre, item.published_at, proprietaire);
 
     // 2. Meme flux, guid different : republication seulement si le titre concorde.
     //    Sinon c'est un lien generique partage par plusieurs entrees du flux
@@ -492,8 +552,10 @@ export const saveItems = db.transaction((feedId, items) => {
   return { ajoutes, doublons };
 });
 
+/* Tache du service : elle rafraichit un flux quel que soit son proprietaire,
+   et lit celui-ci dans la ligne plutot que de l'exiger de l'appelant. */
 export async function refreshFeed(id) {
-  const feed = getFeed(id);
+  const feed = db.prepare('SELECT * FROM feeds WHERE id = ?').get(Number(id));
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
 
   try {
@@ -505,7 +567,7 @@ export async function refreshFeed(id) {
       return { feedId: id, added: 0, duplicates: 0, notModified: true };
     }
 
-    const { ajoutes, doublons } = saveItems(id, result.parsed.items);
+    const { ajoutes, doublons } = saveItems(id, result.parsed.items, feed.user_id);
 
     // L'avatar d'une chaine YouTube vaut mieux que le logo generique du site.
     // Une seule fois : ensuite la colonne icon est renseignee.
@@ -558,7 +620,7 @@ export async function refreshAll(concurrency = 6) {
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
-  reconcilierDoublons();
+  for (const { id } of db.prepare('SELECT id FROM users').all()) reconcilierDoublons(id);
   setSetting('last_refresh_at', now());
   pruneArticles();
 
@@ -576,12 +638,12 @@ export async function refreshAll(concurrency = 6) {
  * par petits paquets pour ne pas marteler les sites. Chaque article n'est
  * essaye qu'une fois.
  */
-export async function completerImages({ limite = 40, concurrency = 4 } = {}) {
+export async function completerImages({ limite = 40, concurrency = 4 } = {}, u) {
   const lignes = db.prepare(`
-    SELECT id, url FROM articles
-    WHERE image IS NULL AND image_checked IS NULL AND url LIKE 'http%'
-    ORDER BY published_at DESC LIMIT ?
-  `).all(limite);
+    SELECT a.id, a.url FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE a.image IS NULL AND a.image_checked IS NULL AND a.url LIKE 'http%' AND f.user_id = ?
+    ORDER BY a.published_at DESC LIMIT ?
+  `).all(exigeCompte(u), limite);
   if (!lignes.length) return { checked: 0, found: 0 };
 
   const marque = db.prepare('UPDATE articles SET image = ?, image_checked = ? WHERE id = ?');
@@ -605,14 +667,23 @@ export async function completerImages({ limite = 40, concurrency = 4 } = {}) {
 }
 
 /** Supprime les articles lus et anciens ; garde toujours les non-lus et les favoris. */
+/**
+ * Tache du service : elle traverse les comptes, mais la duree de retention est
+ * propre a chacun — on purge donc compte par compte, avec son reglage a lui.
+ */
 export function pruneArticles() {
-  const days = Number(getSetting('retention_days', '90'));
-  if (!Number.isFinite(days) || days <= 0) return 0;
-  const cutoff = now() - days * 24 * 3600 * 1000;
-  return db.prepare(`
-    DELETE FROM articles
-    WHERE starred = 0 AND read_at IS NOT NULL AND published_at < ?
-  `).run(cutoff).changes;
+  const comptes = db.prepare('SELECT id FROM users').all().map((r) => r.id);
+  let supprimes = 0;
+  for (const compte of comptes) {
+    const jours = Number(getSetting('retention_days', '90', compte));
+    if (!Number.isFinite(jours) || jours <= 0) continue;
+    supprimes += db.prepare(`
+      DELETE FROM articles
+      WHERE starred = 0 AND read_at IS NOT NULL AND published_at < ?
+        AND feed_id IN (SELECT id FROM feeds WHERE user_id = ?)
+    `).run(now() - jours * 24 * 3600 * 1000, compte).changes;
+  }
+  return supprimes;
 }
 
 /* ------------------------------------------------------------ etiquettes */
@@ -647,34 +718,37 @@ export const PALETTE_TAGS = [
 ];
 
 /** La couleur la moins utilisee, pour que deux etiquettes voisines diffèrent. */
-function couleurLibre() {
-  const prises = db.prepare('SELECT color, COUNT(*) n FROM tags WHERE color IS NOT NULL GROUP BY color')
-    .all().reduce((acc, r) => ({ ...acc, [r.color]: r.n }), {});
+function couleurLibre(u) {
+  const prises = db.prepare(
+    'SELECT color, COUNT(*) n FROM tags WHERE color IS NOT NULL AND user_id = ? GROUP BY color'
+  ).all(u).reduce((acc, r) => ({ ...acc, [r.color]: r.n }), {});
   return PALETTE_TAGS.reduce((meilleure, c) => ((prises[c] || 0) < (prises[meilleure] || 0) ? c : meilleure), PALETTE_TAGS[0]);
 }
 
 /** Toutes les etiquettes, avec le nombre d'articles distincts qu'elles portent. */
-export function listTags() {
+export function listTags(u) {
   return db.prepare(`
     SELECT t.id, t.name, t.color, t.created_at,
            COUNT(DISTINCT COALESCE(a.dupe_of, a.id)) AS count
     FROM tags t
     LEFT JOIN article_tags at ON at.tag_id = t.id
     LEFT JOIN articles a ON a.id = at.article_id
+    WHERE t.user_id = ?
     GROUP BY t.id
     ORDER BY count DESC, t.name COLLATE NOCASE
-  `).all();
+  `).all(exigeCompte(u));
 }
 
 /** Cree une etiquette vide, depuis le gestionnaire. */
-export function createTag(nom) {
+export function createTag(nom, u) {
+  const compte = exigeCompte(u);
   const propre = normaliserTag(nom);
   if (!propre) throw Object.assign(new Error('Nom d’étiquette vide.'), { status: 400 });
-  const connu = db.prepare('SELECT id, name, color FROM tags WHERE name = ?').get(propre);
+  const connu = db.prepare('SELECT id, name, color FROM tags WHERE name = ? AND user_id = ?').get(propre, compte);
   if (connu) return connu;
 
-  const id = Number(db.prepare('INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)')
-    .run(propre, couleurLibre(), now()).lastInsertRowid);
+  const id = Number(db.prepare('INSERT INTO tags (name, color, created_at, user_id) VALUES (?, ?, ?, ?)')
+    .run(propre, couleurLibre(compte), now(), compte).lastInsertRowid);
   return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
 }
 
@@ -687,14 +761,14 @@ function tagsDe(articleId) {
   `).all(articleId).map((r) => r.name);
 }
 
-function idDuTag(nom, creer = true) {
+function idDuTag(nom, u, creer = true) {
   const propre = normaliserTag(nom);
   if (!propre) return null;
-  const connu = db.prepare('SELECT id FROM tags WHERE name = ?').get(propre);
+  const connu = db.prepare('SELECT id FROM tags WHERE name = ? AND user_id = ?').get(propre, u);
   if (connu) return connu.id;
   if (!creer) return null;
-  return Number(db.prepare('INSERT INTO tags (name, color, created_at) VALUES (?, ?, ?)')
-    .run(propre, couleurLibre(), now()).lastInsertRowid);
+  return Number(db.prepare('INSERT INTO tags (name, color, created_at, user_id) VALUES (?, ?, ?, ?)')
+    .run(propre, couleurLibre(u), now(), u).lastInsertRowid);
 }
 
 /**
@@ -702,8 +776,9 @@ function idDuTag(nom, creer = true) {
  * s'appliquent au groupe de doublons : la meme histoire reste retrouvable
  * quelle que soit la source par laquelle on l'a lue.
  */
-export function tagArticle(id, { add = [], remove = [], set } = {}) {
-  if (!db.prepare('SELECT 1 FROM articles WHERE id = ?').get(id)) {
+export function tagArticle(id, { add = [], remove = [], set } = {}, u) {
+  const compte = exigeCompte(u);
+  if (!articleDuCompte(id, compte)) {
     throw Object.assign(new Error('Article introuvable.'), { status: 404 });
   }
   const ids = groupe(id);
@@ -712,7 +787,7 @@ export function tagArticle(id, { add = [], remove = [], set } = {}) {
 
   db.transaction(() => {
     if (Array.isArray(set)) {
-      const voulus = set.map((n) => idDuTag(n)).filter(Boolean);
+      const voulus = set.map((n) => idDuTag(n, compte)).filter(Boolean);
       for (const article of ids) {
         db.prepare('DELETE FROM article_tags WHERE article_id = ?').run(article);
         for (const tag of voulus) marque.run(article, tag, now());
@@ -720,19 +795,23 @@ export function tagArticle(id, { add = [], remove = [], set } = {}) {
       return;
     }
     for (const nom of add) {
-      const tag = idDuTag(nom);
+      const tag = idDuTag(nom, compte);
       if (tag) for (const article of ids) marque.run(article, tag, now());
     }
     for (const nom of remove) {
-      const tag = idDuTag(nom, false);
+      const tag = idDuTag(nom, compte, false);
       if (tag) for (const article of ids) enleve.run(article, tag);
     }
   })();
 
-  return getArticle(id);
+  return getArticle(id, compte);
 }
 
-export function updateTag(id, { name, color } = {}) {
+export function updateTag(id, { name, color } = {}, u) {
+  const compte = exigeCompte(u);
+  if (!db.prepare('SELECT 1 FROM tags WHERE id = ? AND user_id = ?').get(Number(id), compte)) {
+    throw Object.assign(new Error('Étiquette introuvable.'), { status: 404 });
+  }
   if (color !== undefined) {
     const teinte = PALETTE_TAGS.includes(color) ? color : null;
     db.prepare('UPDATE tags SET color = ? WHERE id = ?').run(teinte, id);
@@ -742,7 +821,8 @@ export function updateTag(id, { name, color } = {}) {
   const propre = normaliserTag(name);
   if (!propre) throw Object.assign(new Error('Nom d’étiquette vide.'), { status: 400 });
 
-  const collision = db.prepare('SELECT id FROM tags WHERE name = ? AND id <> ?').get(propre, id);
+  const collision = db.prepare('SELECT id FROM tags WHERE name = ? AND id <> ? AND user_id = ?')
+    .get(propre, id, compte);
   if (collision) {
     // Fusion : les articles de l'ancienne rejoignent la nouvelle.
     db.transaction(() => {
@@ -760,8 +840,8 @@ export function updateTag(id, { name, color } = {}) {
   return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
 }
 
-export function deleteTag(id) {
-  return db.prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0;
+export function deleteTag(id, u) {
+  return db.prepare('DELETE FROM tags WHERE id = ? AND user_id = ?').run(Number(id), exigeCompte(u)).changes > 0;
 }
 
 /* -------------------------------------------------------------- articles */
@@ -802,9 +882,10 @@ export function expressionFts(q) {
   return mots.map((m, i) => (i === mots.length - 1 ? `"${m}"*` : `"${m}"`)).join(' AND ');
 }
 
-export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}) {
-  const where = [];
-  const params = {};
+export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}, u) {
+  // Le cloisonnement passe avant tout le reste : aucune vue ne peut le lever.
+  const where = ['f.user_id = @compte'];
+  const params = { compte: exigeCompte(u) };
 
   // `tag` accepte une etiquette, plusieurs separees par une virgule, ou un
   // tableau. Toutes doivent etre presentes : on cherche a restreindre.
@@ -816,7 +897,7 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
     params['tag' + i] = nom;
     where.push(`EXISTS (
       SELECT 1 FROM article_tags at JOIN tags t ON t.id = at.tag_id
-      WHERE at.article_id = a.id AND t.name = @tag${i}
+      WHERE at.article_id = a.id AND t.name = @tag${i} AND t.user_id = @compte
     )`);
   });
 
@@ -875,13 +956,13 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
 }
 
 /** Un article est juge tronque quand le flux n'en livre qu'un aperçu. */
-function estTronque(row) {
+function estTronque(row, u) {
   if (row.has_full) return false;
   // Une video est courte par nature : son "texte" est le lecteur.
   if (estYouTube(row.url)) return false;
   // Un episode de podcast non plus : son contenu, c'est l'audio.
   if (row.duration || /<audio/i.test(row.content || '')) return false;
-  const seuil = Number(getSetting('fulltext_min_words', '250'));
+  const seuil = Number(getSetting('fulltext_min_words', '250', u));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
 }
 
@@ -894,28 +975,31 @@ const COULEURS_VALIDES = /^#[0-9a-f]{6},#[0-9a-f]{6}$/i;
  * puis servies a tout le monde ensuite. Comme elles viennent du client, le
  * format est verifie avant d'entrer en base.
  */
-export function enregistrerCouleurImage(id, couleurs) {
+export function enregistrerCouleurImage(id, couleurs, u) {
+  const compte = exigeCompte(u);
   const valeur = String(couleurs || '').toLowerCase();
   if (!COULEURS_VALIDES.test(valeur)) {
     throw Object.assign(new Error('Couleurs attendues au format « #rrggbb,#rrggbb ».'), { status: 400 });
   }
+  if (!articleDuCompte(id, compte)) return { ok: false, image_color: valeur };
   const fait = db.prepare('UPDATE articles SET image_color = ? WHERE id = ? AND image IS NOT NULL')
     .run(valeur, Number(id)).changes > 0;
   return { ok: fait, image_color: valeur };
 }
 
-export function getArticle(id) {
+export function getArticle(id, u) {
+  const compte = exigeCompte(u);
   const row = db.prepare(`
     SELECT ${ARTICLE_COLUMNS}, a.content, a.full_content, a.full_error, a.full_fetched_at,
            f.site_url AS feed_site_url
     FROM articles a JOIN feeds f ON f.id = a.feed_id
-    WHERE a.id = ?
-  `).get(id);
+    WHERE a.id = ? AND f.user_id = ?
+  `).get(id, compte);
   if (!row) return null;
 
   const { full_content, ...reste } = avecTags(row);
-  const tronque = estTronque(row);
-  const actif = getSetting('fulltext', 'auto') !== 'off';
+  const tronque = estTronque(row, compte);
+  const actif = getSetting('fulltext', 'auto', compte) !== 'off';
 
   // Un echec recent ne doit pas relancer un telechargement a chaque ouverture ;
   // au bout d'un jour, le site a pu redevenir lisible, on retente.
@@ -936,10 +1020,14 @@ export function getArticle(id) {
  * Telecharge la page d'origine et en extrait le texte complet.
  * Le resultat est garde en base : la fois suivante, c'est instantane.
  */
-export async function fetchFullText(id, { force = false } = {}) {
-  const row = db.prepare('SELECT id, url, full_content FROM articles WHERE id = ?').get(id);
+export async function fetchFullText(id, { force = false } = {}, u) {
+  const compte = exigeCompte(u);
+  const row = db.prepare(`
+    SELECT a.id, a.url, a.full_content FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE a.id = ? AND f.user_id = ?
+  `).get(id, compte);
   if (!row) throw Object.assign(new Error('Article introuvable.'), { status: 404 });
-  if (row.full_content && !force) return getArticle(id);
+  if (row.full_content && !force) return getArticle(id, compte);
   if (!row.url) throw Object.assign(new Error('Cet article n’a pas de lien vers sa source.'), { status: 422 });
 
   try {
@@ -953,7 +1041,7 @@ export async function fetchFullText(id, { force = false } = {}) {
         author = COALESCE(author, ?)
       WHERE id = ?
     `).run(extrait.content, now(), extrait.wordCount, extrait.image, extrait.excerpt, extrait.byline, id);
-    return getArticle(id);
+    return getArticle(id, compte);
   } catch (error) {
     db.prepare('UPDATE articles SET full_error = ?, full_fetched_at = ? WHERE id = ?')
       .run(String(error.message).slice(0, 300), now(), id);
@@ -961,70 +1049,83 @@ export async function fetchFullText(id, { force = false } = {}) {
   }
 }
 
-export function setRead(id, read) {
+export function setRead(id, read, u) {
+  const compte = exigeCompte(u);
+  if (!articleDuCompte(id, compte)) throw Object.assign(new Error('Article introuvable.'), { status: 404 });
   const ids = groupe(id);
   const stamp = read ? now() : null;
   db.prepare(`UPDATE articles SET read_at = ? WHERE id IN (${ids.map(() => '?').join(',')})`)
     .run(stamp, ...ids);
-  return getArticle(id);
+  return getArticle(id, compte);
 }
 
-export function setStarred(id, starred) {
+export function setStarred(id, starred, u) {
+  const compte = exigeCompte(u);
+  if (!articleDuCompte(id, compte)) throw Object.assign(new Error('Article introuvable.'), { status: 404 });
   const ids = groupe(id);
   db.prepare(`UPDATE articles SET starred = ? WHERE id IN (${ids.map(() => '?').join(',')})`)
     .run(starred ? 1 : 0, ...ids);
-  return getArticle(id);
+  return getArticle(id, compte);
 }
 
 /** Marque comme lu : une liste d'ids, ou tout un flux / dossier / la totalite. */
-export function markRead({ ids, feedId, folder, all, olderThan } = {}) {
+export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
+  const compte = exigeCompte(u);
   const stamp = now();
+  // Quelle que soit la selection, elle est bornee aux articles du compte.
+  const where = ['read_at IS NULL', `id IN ${ARTICLES_DU_COMPTE}`];
+  const params = [stamp, compte];
   let changed = 0;
 
   if (Array.isArray(ids) && ids.length) {
-    const placeholders = ids.map(() => '?').join(',');
-    changed = db.prepare(`UPDATE articles SET read_at = ? WHERE read_at IS NULL AND id IN (${placeholders})`)
-      .run(stamp, ...ids).changes;
+    where.push(`id IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
   } else {
-    const where = ['read_at IS NULL'];
-    const params = [stamp];
-
     if (feedId) { where.push('feed_id = ?'); params.push(Number(feedId)); }
-    if (folder) { where.push('feed_id IN (SELECT id FROM feeds WHERE folder = ?)'); params.push(folder); }
+    if (folder) {
+      where.push('feed_id IN (SELECT id FROM feeds WHERE folder = ? AND user_id = ?)');
+      params.push(folder, compte);
+    }
     if (olderThan) { where.push('published_at < ?'); params.push(Number(olderThan)); }
     if (!feedId && !folder && !all && !olderThan) return 0;
-
-    changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
   }
 
+  changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
+
   // Les copies de la meme histoire suivent, dans les autres flux aussi.
-  if (changed) reconcilierDoublons();
+  if (changed) reconcilierDoublons(compte);
   return changed;
 }
 
-export function counts() {
+export function counts(u) {
+  const compte = exigeCompte(u);
   // Les compteurs suivent ce que les vues montrent vraiment : « Non lus » ne
   // compte que les sources suivies, « Tout » laisse de cote les sources muettes.
   const nonLus = (priorite) => `
     (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
-     WHERE a.read_at IS NULL AND a.dupe_of IS NULL AND f.priority = '${priorite}')`;
+     WHERE a.read_at IS NULL AND a.dupe_of IS NULL AND f.user_id = @compte
+       AND f.priority = '${priorite}')`;
 
   const global = db.prepare(`
     SELECT
       ${nonLus('suivi')}  AS unread,
       ${nonLus('survol')} AS survol,
       ${nonLus('muet')}   AS muet,
-      (SELECT COUNT(*) FROM articles WHERE starred = 1 AND dupe_of IS NULL) AS starred,
       (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
-       WHERE a.dupe_of IS NULL AND f.priority <> 'muet')                    AS total,
-      (SELECT COUNT(*) FROM articles WHERE dupe_of IS NOT NULL)             AS duplicates
-  `).get();
+       WHERE a.starred = 1 AND a.dupe_of IS NULL AND f.user_id = @compte)   AS starred,
+      (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
+       WHERE a.dupe_of IS NULL AND f.user_id = @compte
+         AND f.priority <> 'muet')                                          AS total,
+      (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
+       WHERE a.dupe_of IS NOT NULL AND f.user_id = @compte)                 AS duplicates
+  `).get({ compte });
 
   const byFolder = db.prepare(`
     SELECT f.folder AS name, COUNT(a.id) AS unread
     FROM feeds f LEFT JOIN articles a ON a.feed_id = f.id AND a.read_at IS NULL
+    WHERE f.user_id = ?
     GROUP BY f.folder
-  `).all();
+  `).all(compte);
 
   return { ...global, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
 }

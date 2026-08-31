@@ -20,6 +20,7 @@ const state = {
   pointer: -1,
   openId: null,
   ouvert: null,          // l'article affiche dans le lecteur, liste ou non
+  moi: null,             // le compte connecte
   feeds: [],
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
@@ -87,11 +88,93 @@ function toast(message, kind = '') {
 
 /* --------------------------------------------------------------- demarrage */
 
+/* ================================================== connexion et comptes === */
+
+/**
+ * La porte : premier écran quand personne n'est connecté. Elle sert aussi à
+ * l'installation — le tout premier compte devient super et reprend la
+ * bibliothèque d'avant les comptes.
+ */
+async function ouvrirLaPorte() {
+  const etat = await api.etatAuth();
+  if (etat.compte) { state.moi = etat.compte; return true; }
+
+  const installation = !etat.installe;
+  const porte = $('#porte');
+  porte.hidden = false;
+  $('#porteNomChamp').hidden = !installation;
+  $('#portePass').autocomplete = installation ? 'new-password' : 'current-password';
+  $('#porteBouton').textContent = installation ? 'Créer le compte' : 'Entrer';
+  $('#porteIntro').textContent = installation
+    ? 'Personne n’a encore de compte ici. Le premier créé sera super-utilisateur : il pourra en ouvrir d’autres.'
+    : 'Chaque compte a sa propre bibliothèque.';
+  $('#porteEmail').focus();
+
+  // On rend la main à `boot`, qui reprendra une fois la porte franchie.
+  return new Promise((resolve) => {
+    $('#porteForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const erreur = $('#porteErreur');
+      erreur.hidden = true;
+      const email = $('#porteEmail').value.trim();
+      const motDePasse = $('#portePass').value;
+      try {
+        const r = installation
+          ? await api.installer({ email, nom: $('#porteNom').value.trim(), motDePasse })
+          : await api.login(email, motDePasse);
+        state.moi = r.compte;
+        if (r.repris?.flux) toast(`${nombre(r.repris.flux)} source(s) reprise(s) dans ton compte.`);
+        porte.hidden = true;
+        resolve(true);
+      } catch (error) {
+        erreur.textContent = error.message;
+        erreur.hidden = false;
+        $('#portePass').select();
+      }
+    });
+  });
+}
+
+function renderMonCompte() {
+  const moi = state.moi;
+  if (!moi) return;
+  $('#compteQui').textContent = `${moi.email} · ${moi.role === 'super' ? 'super-utilisateur' : 'éditeur'}`;
+  $('#compteNom').value = moi.nom || '';
+  const estSuper = moi.role === 'super';
+  $('#sepComptes').hidden = !estSuper;
+  $('#zoneComptes').hidden = !estSuper;
+  if (estSuper) renderComptes();
+}
+
+async function renderComptes() {
+  let liste = [];
+  try { liste = (await api.comptes()).comptes; } catch { return; }
+
+  $('#comptesListe').innerHTML = liste.map((c) => `
+    <div class="compte-ligne${c.actif ? '' : ' suspendu'}">
+      <span class="compte-qui">
+        <b>${esc(c.nom || c.email)}${c.id === state.moi.id ? ' <span class="compte-moi">— moi</span>' : ''}</b>
+        <span>${esc(c.email)}</span>
+      </span>
+      <span class="compte-chiffres">${nombre(c.sources)} src<br>${nombre(c.articles)} art.</span>
+      <select data-role-de="${c.id}"${c.id === state.moi.id ? ' disabled' : ''}>
+        <option value="editeur"${c.role === 'editeur' ? ' selected' : ''}>Éditeur</option>
+        <option value="super"${c.role === 'super' ? ' selected' : ''}>Super</option>
+      </select>
+      ${c.id === state.moi.id ? '' : `
+        <button type="button" data-actif-de="${c.id}" data-actif="${c.actif ? 0 : 1}">${c.actif ? 'Suspendre' : 'Réactiver'}</button>
+        <button type="button" class="lien-danger" data-supprimer-compte="${c.id}" data-nom="${esc(c.nom || c.email)}">Supprimer</button>`}
+    </div>`).join('');
+}
+
 async function boot() {
   applyTheme(localStorage.getItem('bublee.theme') || 'auto');
   // L'amorce a posé l'état replié sur <html> avant le rendu ; on le reporte sur
   // .app, qui porte la grille — sans transition pour ce premier passage.
   if (document.documentElement.dataset.plie === '1') $('#app').classList.add('plie');
+
+  // Rien ne se charge tant que personne n'est entré.
+  await ouvrirLaPorte();
   $('#indexDate').textContent = dateJournal();
   $('#mastheadDate').textContent = dateJournal();
 
@@ -1333,6 +1416,7 @@ function ouvrirReglages() {
   $('#setRetention').value = String(state.settings.retentionDays ?? 90);
   $('#setFulltext').value = state.settings.fulltext ?? 'auto';
   renderAccents();
+  renderMonCompte();
   openModal('#settingsModal');
 }
 
@@ -1609,6 +1693,88 @@ function rattraperImages(racine = document) {
 /* ---------------------------------------------------------- branchements */
 
 function wireEvents() {
+  /* --- compte et administration --- */
+  $('#compteNouveau').addEventListener('input', (e) => {
+    // Changer son mot de passe exige l'ancien : le champ n'apparaît qu'alors.
+    $('#compteActuelChamp').hidden = !e.target.value;
+  });
+
+  $('#compteForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nouveau = $('#compteNouveau').value;
+    try {
+      const r = await api.majMoi({
+        nom: $('#compteNom').value.trim(),
+        ...(nouveau ? { motDePasse: nouveau, motDePasseActuel: $('#compteActuel').value } : {})
+      });
+      state.moi = r.compte;
+      $('#compteNouveau').value = '';
+      $('#compteActuel').value = '';
+      $('#compteActuelChamp').hidden = true;
+      renderMonCompte();
+      toast(nouveau ? 'Mot de passe changé' : 'Compte mis à jour');
+    } catch (error) {
+      toast('Compte : ' + error.message, 'bad');
+    }
+  });
+
+  $('#deconnexion').addEventListener('click', async () => {
+    await api.logout().catch(() => {});
+    location.reload();
+  });
+
+  $('#nouveauCompteForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api.creerCompte({
+        email: $('#ncEmail').value.trim(),
+        nom: $('#ncNom').value.trim(),
+        motDePasse: $('#ncPass').value,
+        role: $('#ncRole').value
+      });
+      e.target.reset();
+      renderComptes();
+      toast('Compte créé — sa bibliothèque est vide');
+    } catch (error) {
+      toast('Création : ' + error.message, 'bad');
+    }
+  });
+
+  $('#zoneComptes').addEventListener('change', async (e) => {
+    const role = e.target.closest('[data-role-de]');
+    if (!role) return;
+    try {
+      await api.majCompte(Number(role.dataset.roleDe), { role: role.value });
+      renderComptes();
+      toast('Rôle mis à jour');
+    } catch (error) {
+      toast('Rôle : ' + error.message, 'bad');
+      renderComptes();
+    }
+  });
+
+  $('#zoneComptes').addEventListener('click', async (e) => {
+    const bascule = e.target.closest('[data-actif-de]');
+    if (bascule) {
+      try {
+        await api.majCompte(Number(bascule.dataset.actifDe), { actif: bascule.dataset.actif === '1' });
+        renderComptes();
+      } catch (error) { toast(error.message, 'bad'); }
+      return;
+    }
+    const suppr = e.target.closest('[data-supprimer-compte]');
+    if (!suppr) return;
+    // Suppression irréversible et silencieuse autrement : on nomme ce qui part.
+    if (!confirm(`Supprimer le compte « ${suppr.dataset.nom} » ?
+
+Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif.`)) return;
+    try {
+      await api.supprimerCompte(Number(suppr.dataset.supprimerCompte));
+      renderComptes();
+      toast('Compte supprimé');
+    } catch (error) { toast(error.message, 'bad'); }
+  });
+
   // `load` ne remonte pas : on l'attrape a la descente. Le premier rendu a lieu
   // avant ce branchement — une image arrivee entre-temps n'aurait jamais recu
   // sa classe et serait restee invisible. D'ou le rattrapage juste apres.

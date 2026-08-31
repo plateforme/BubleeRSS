@@ -1,7 +1,7 @@
 // Acces au serveur. Toutes les erreurs remontent sous forme d'Error(message).
 
 async function call(url, options = {}) {
-  const res = await fetch(url, options);
+  const res = await fetch(url, { credentials: 'same-origin', ...options });
   const type = res.headers.get('content-type') || '';
   const payload = type.includes('application/json') ? await res.json() : await res.text();
 
@@ -14,13 +14,28 @@ async function call(url, options = {}) {
   return payload;
 }
 
+/* Les requetes portent le cookie de session : sans `credentials`, le navigateur
+   ne l'enverrait pas sur une origine differente, et l'API repondrait 401. */
 const json = (method, url, body) => call(url, {
+  credentials: 'same-origin',
   method,
   headers: { 'content-type': 'application/json' },
   body: body === undefined ? undefined : JSON.stringify(body)
 });
 
 export const api = {
+  /* --- comptes --- */
+  etatAuth:   () => call('/api/auth/etat'),
+  installer:  (corps) => json('POST', '/api/auth/installer', corps),
+  login:      (email, motDePasse) => json('POST', '/api/auth/login', { email, motDePasse }),
+  logout:     () => json('POST', '/api/auth/logout'),
+  moi:        () => call('/api/auth/moi'),
+  majMoi:     (patch) => json('PATCH', '/api/auth/moi', patch),
+  comptes:    () => call('/api/users'),
+  creerCompte: (corps) => json('POST', '/api/users', corps),
+  majCompte:  (id, patch) => json('PATCH', '/api/users/' + id, patch),
+  supprimerCompte: (id) => json('DELETE', '/api/users/' + id),
+
   state:    () => call('/api/state'),
   settings: (patch) => json('PUT', '/api/settings', patch),
 

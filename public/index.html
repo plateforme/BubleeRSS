@@ -66,6 +66,41 @@
   </symbol>
 </svg>
 
+<!-- ================================================ connexion / installation -->
+<div class="porte" id="porte" hidden>
+  <div class="porte-carte">
+    <div class="porte-marque">
+      <svg class="logo-mark" viewBox="0 0 30 20" aria-hidden="true">
+        <defs><clipPath id="porteLentille"><circle cx="20.2" cy="10" r="8.2"/></clipPath></defs>
+        <circle class="lentille" cx="9.8" cy="10" r="8.2" clip-path="url(#porteLentille)"/>
+        <g class="anneaux"><circle cx="9.8" cy="10" r="8.2"/><circle cx="20.2" cy="10" r="8.2"/></g>
+      </svg>
+      <span class="logo-mot">Bublee</span>
+    </div>
+
+    <p class="porte-intro" id="porteIntro"></p>
+
+    <form id="porteForm">
+      <label class="field" id="porteNomChamp" hidden>
+        <span>Nom</span>
+        <input type="text" id="porteNom" autocomplete="name">
+      </label>
+      <label class="field">
+        <span>Adresse de courriel</span>
+        <input type="email" id="porteEmail" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Mot de passe</span>
+        <input type="password" id="portePass" autocomplete="current-password" required>
+      </label>
+      <p class="field-note porte-erreur" id="porteErreur" hidden></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn solid" id="porteBouton">Entrer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="app" id="app">
 
   <!-- ============================================================ l'index -->
@@ -327,6 +362,45 @@
       <button type="submit" class="btn solid">Enregistrer</button>
     </div>
   </form>
+
+  <div class="modal-sep"><span>mon compte</span></div>
+  <form id="compteForm">
+    <p class="field-note" id="compteQui"></p>
+    <label class="field">
+      <span>Nom</span>
+      <input type="text" id="compteNom" autocomplete="name">
+    </label>
+    <label class="field">
+      <span>Nouveau mot de passe</span>
+      <input type="password" id="compteNouveau" autocomplete="new-password" placeholder="laisser vide pour ne pas changer">
+    </label>
+    <label class="field" id="compteActuelChamp" hidden>
+      <span>Mot de passe actuel</span>
+      <input type="password" id="compteActuel" autocomplete="current-password">
+    </label>
+    <div class="modal-actions spread">
+      <button type="button" class="btn" id="deconnexion">Se déconnecter</button>
+      <span class="grow"></span>
+      <button type="submit" class="btn solid">Enregistrer</button>
+    </div>
+  </form>
+
+  <div class="modal-sep" id="sepComptes" hidden><span>comptes</span></div>
+  <div id="zoneComptes" hidden>
+    <div class="comptes-liste" id="comptesListe"></div>
+    <form id="nouveauCompteForm" class="compte-neuf">
+      <input type="email" id="ncEmail" placeholder="adresse@exemple.com" required>
+      <input type="text" id="ncNom" placeholder="nom">
+      <input type="password" id="ncPass" placeholder="mot de passe (10 caractères min.)" required>
+      <select id="ncRole">
+        <option value="editeur">Éditeur</option>
+        <option value="super">Super-utilisateur</option>
+      </select>
+      <button type="submit" class="btn solid">Créer</button>
+    </form>
+    <p class="field-note">Un nouveau compte démarre avec un Bublee vide : ses sources, ses
+      articles et ses étiquettes n’appartiennent qu’à lui. Le supprimer emporte tout son contenu.</p>
+  </div>
 
   <div class="modal-sep"><span>entretien</span></div>
   <div class="modal-io">

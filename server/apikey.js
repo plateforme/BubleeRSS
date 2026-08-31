@@ -1,32 +1,27 @@
-// Acces a l'API depuis l'exterieur : jeton, portee reseau, CORS.
+// Qui parle a l'API : session de navigateur, ou jeton personnel.
+//
+// Avant les comptes, ce module exemptait tout le reseau prive de jeton. C'etait
+// tenable tant que Bublee tournait sur une machine de bureau ; ca ne l'est plus
+// derriere un proxy, dont l'adresse est justement privee — tout l'internet
+// arrivait alors comme un voisin de palier. L'exemption a donc disparu :
+// l'identite vient de la session ou du jeton, jamais de l'adresse IP.
 import crypto from 'node:crypto';
-import { getSetting, setSetting } from './db.js';
+import { db, getSetting, setSetting } from './db.js';
+import { compteDeSession, jetonDuCookie, compteParId } from './comptes.js';
 
-/**
- * Niveaux d'ouverture (variable BUBLEE_AUTH) :
- *   lan    - defaut : la machine locale et le reseau prive passent sans jeton
- *   strict - seule la machine locale passe sans jeton
- *   off    - aucun controle (a reserver a un reseau de confiance)
- */
-export const NIVEAU = (process.env.BUBLEE_AUTH || 'lan').toLowerCase();
-
-const LOOPBACK = /^(::1|::ffff:127\.|127\.)/;
-const RESEAU_PRIVE = /^(::ffff:)?(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|fe80:|f[cd])/i;
-
-/** Le jeton est genere une fois puis conserve ; BUBLEE_TOKEN a la priorite. */
-export function jeton() {
-  if (process.env.BUBLEE_TOKEN) return process.env.BUBLEE_TOKEN;
-  let valeur = getSetting('api_token');
+/** Le jeton personnel d'un compte, cree a la demande. */
+export function jeton(userId) {
+  let valeur = getSetting('api_token', null, userId);
   if (!valeur) {
     valeur = crypto.randomBytes(24).toString('base64url');
-    setSetting('api_token', valeur);
+    setSetting('api_token', valeur, userId);
   }
   return valeur;
 }
 
-export function regenererJeton() {
+export function regenererJeton(userId) {
   const valeur = crypto.randomBytes(24).toString('base64url');
-  setSetting('api_token', valeur);
+  setSetting('api_token', valeur, userId);
   return valeur;
 }
 
@@ -36,31 +31,89 @@ function jetonFourni(req) {
   return req.get('x-bublee-token') || (typeof req.query.token === 'string' ? req.query.token : null);
 }
 
+/** Compare en temps constant, longueurs egalisees. */
 function memeJeton(fourni, attendu) {
-  if (!fourni || fourni.length !== attendu.length) return false;
+  if (!fourni || !attendu || fourni.length !== attendu.length) return false;
   return crypto.timingSafeEqual(Buffer.from(fourni), Buffer.from(attendu));
 }
 
-/** Autorise les requetes hors API et applique la regle ci-dessus aux routes /api. */
-export function controleAcces(req, res, next) {
-  // Le navigateur d'un autre appareil doit pouvoir appeler l'API : on annonce CORS.
-  res.set('access-control-allow-origin', req.get('origin') || '*');
-  res.set('access-control-allow-headers', 'content-type, authorization, x-bublee-token');
-  res.set('access-control-allow-methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.set('access-control-max-age', '86400');
-  res.set('vary', 'origin');
-  if (req.method === 'OPTIONS') return res.status(204).end();
+/**
+ * Retrouve le compte d'un jeton personnel. Le jeton vit dans les reglages du
+ * compte : on parcourt donc les comptes actifs plutot que d'indexer un secret.
+ * A l'echelle d'une poignee de comptes, c'est sans consequence.
+ */
+export function compteDuJeton(fourni) {
+  if (!fourni) return null;
+  const lignes = db.prepare("SELECT user_id, value FROM settings WHERE key = 'api_token' AND user_id > 0").all();
+  for (const ligne of lignes) {
+    if (!memeJeton(fourni, ligne.value)) continue;
+    const compte = compteParId(ligne.user_id);
+    return compte?.actif ? compte : null;
+  }
+  return null;
+}
 
-  if (NIVEAU === 'off') return next();
+/**
+ * Pose `req.compte` quand la requete est authentifiee. Ne refuse rien ici :
+ * chaque route decide si elle exige un compte, ce qui laisse passer la page de
+ * connexion et la mise en route initiale.
+ */
+export function identifier(req, res, next) {
+  const parSession = compteDeSession(jetonDuCookie(req));
+  if (parSession) {
+    req.compte = parSession;
+    req.viaSession = true;
+    return next();
+  }
+  const compte = compteDuJeton(jetonFourni(req));
+  if (compte) req.compte = compte;
+  next();
+}
 
-  const ip = req.ip || req.socket.remoteAddress || '';
-  if (LOOPBACK.test(ip)) return next();
-  if (NIVEAU === 'lan' && RESEAU_PRIVE.test(ip)) return next();
-
-  if (memeJeton(jetonFourni(req), jeton())) return next();
-
+/** Exige un compte. */
+export function exigeCompte(req, res, next) {
+  if (req.compte) return next();
   res.status(401).json({
-    error: 'Jeton d’API manquant ou invalide.',
-    aide: 'Ajoute l’en-tete « Authorization: Bearer <jeton> ». Le jeton s’affiche dans les réglages de Bublee.'
+    error: 'Authentification requise.',
+    aide: 'Connecte-toi, ou ajoute l’en-tête « Authorization: Bearer <jeton> ».'
   });
 }
+
+/** Exige le role super. */
+export function exigeSuper(req, res, next) {
+  if (req.compte?.role === 'super') return next();
+  res.status(403).json({ error: 'Réservé à un super-utilisateur.' });
+}
+
+/** Les en-tetes CORS, et la reponse au preflight. */
+export function cors(req, res, next) {
+  const origine = req.get('origin');
+  if (origine) {
+    res.set('access-control-allow-origin', origine);
+    res.set('access-control-allow-credentials', 'true');
+    res.set('vary', 'origin');
+  }
+  res.set('access-control-allow-headers', 'content-type, authorization, x-bublee-token');
+  res.set('access-control-allow-methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  res.set('access-control-max-age', '86400');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+}
+
+/** Analyse l'en-tete Cookie. Une dizaine de lignes valent mieux qu'une
+    dependance de plus pour ce seul besoin. */
+export function cookies(req, res, next) {
+  req.cookies = {};
+  const brut = req.get('cookie');
+  if (brut) {
+    for (const morceau of brut.split(';')) {
+      const i = morceau.indexOf('=');
+      if (i < 1) continue;
+      const cle = morceau.slice(0, i).trim();
+      try { req.cookies[cle] = decodeURIComponent(morceau.slice(i + 1).trim()); } catch { /* valeur illisible */ }
+    }
+  }
+  next();
+}
+
+export { memeJeton, compteParId };

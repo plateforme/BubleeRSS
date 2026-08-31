@@ -44,12 +44,14 @@ export function parseOpml(xml) {
 }
 
 /** Insere les flux d'un OPML sans les telecharger (le rafraichissement suit). */
-export function importOpml(xml, { defaultFolder = '' } = {}) {
+export function importOpml(xml, { defaultFolder = '' } = {}, userId) {
   const entries = parseOpml(xml);
+  // L'unicite de l'adresse est desormais par compte : deux personnes peuvent
+  // importer le meme OPML sans se marcher dessus.
   const insert = db.prepare(`
-    INSERT INTO feeds (url, title, folder, created_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(url) DO NOTHING
+    INSERT INTO feeds (url, title, folder, created_at, user_id)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, url) DO NOTHING
   `);
 
   let added = 0;
@@ -59,7 +61,7 @@ export function importOpml(xml, { defaultFolder = '' } = {}) {
   const run = db.transaction(() => {
     for (const entry of entries) {
       if (!/^https?:\/\//i.test(entry.url)) { skipped++; continue; }
-      const info = insert.run(entry.url, entry.title || '', entry.folder || defaultFolder, stamp);
+      const info = insert.run(entry.url, entry.title || '', entry.folder || defaultFolder, stamp, userId);
       if (info.changes) added++; else skipped++;
     }
   });
@@ -74,8 +76,8 @@ function esc(value) {
     .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
-export function exportOpml() {
-  const feeds = listFeeds();
+export function exportOpml(userId) {
+  const feeds = listFeeds(userId);
   const byFolder = new Map();
   for (const feed of feeds) {
     const key = feed.folder || '';

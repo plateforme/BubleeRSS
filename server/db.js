@@ -51,9 +51,36 @@ CREATE TABLE IF NOT EXISTS articles (
   UNIQUE(feed_id, guid)
 );
 
+-- Un compte par personne. Les flux, articles, etiquettes et reglages lui
+-- appartiennent et partent avec lui : l'isolation est structurelle, elle ne
+-- depend pas d'un WHERE qu'on aurait pu oublier quelque part.
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY,
+  email         TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  nom           TEXT NOT NULL DEFAULT '',
+  mot_de_passe  TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'editeur',
+  actif         INTEGER NOT NULL DEFAULT 1,
+  created_at    INTEGER NOT NULL,
+  last_seen_at  INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  agent      TEXT,
+  ip         TEXT
+);
+
+-- user_id = 0 : les reglages du service, qui n'appartiennent a personne
+-- (date du dernier rafraichissement, par exemple).
 CREATE TABLE IF NOT EXISTS settings (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
+  user_id INTEGER NOT NULL DEFAULT 0,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  PRIMARY KEY (user_id, key)
 );
 
 -- Etiquettes posees a la main sur les articles, pour les retrouver ensuite
@@ -96,7 +123,11 @@ export const migrationApplied = [
   addColumn('feeds', 'priority', "TEXT NOT NULL DEFAULT 'suivi'"),
   // Deux couleurs moyennes de l'illustration, « #rrggbb,#rrggbb » : elles
   // tiennent la place pendant que l'image arrive.
-  addColumn('articles', 'image_color', 'TEXT')
+  addColumn('articles', 'image_color', 'TEXT'),
+  // Le proprietaire d'un flux. NULL le temps de la migration ci-dessous, qui
+  // rattache l'existant au premier compte cree.
+  addColumn('feeds', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE'),
+  addColumn('tags', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE')
 ].some(Boolean);
 
 db.exec(`
@@ -109,7 +140,85 @@ CREATE INDEX IF NOT EXISTS idx_articles_titlekey  ON articles(title_key, publish
 CREATE INDEX IF NOT EXISTS idx_articles_dupe      ON articles(dupe_of);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag   ON article_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_feeds_priority     ON feeds(priority);
+CREATE INDEX IF NOT EXISTS idx_feeds_user         ON feeds(user_id);
+CREATE INDEX IF NOT EXISTS idx_tags_user          ON tags(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
 `);
+
+/* Meme raison pour l'adresse d'un flux : deux personnes ont le droit de suivre
+   Le Monde. L'unicite globale d'origine devient une unicite par compte. */
+{
+  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='feeds'").all();
+  if (index.some((i) => /sqlite_autoindex_feeds/.test(i.name)) &&
+      !index.some((i) => i.name === 'idx_feeds_url_par_compte')) {
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      BEGIN;
+      CREATE TABLE feeds_nouveau (
+        id             INTEGER PRIMARY KEY,
+        url            TEXT NOT NULL,
+        site_url       TEXT,
+        title          TEXT NOT NULL DEFAULT '',
+        custom_title   TEXT,
+        description    TEXT,
+        folder         TEXT NOT NULL DEFAULT '',
+        icon           TEXT,
+        etag           TEXT,
+        last_modified  TEXT,
+        last_fetched_at INTEGER,
+        last_error     TEXT,
+        error_count    INTEGER NOT NULL DEFAULT 0,
+        created_at     INTEGER NOT NULL,
+        priority       TEXT NOT NULL DEFAULT 'suivi',
+        user_id        INTEGER REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO feeds_nouveau SELECT id, url, site_url, title, custom_title, description,
+        folder, icon, etag, last_modified, last_fetched_at, last_error, error_count,
+        created_at, priority, user_id FROM feeds;
+      DROP TABLE feeds;
+      ALTER TABLE feeds_nouveau RENAME TO feeds;
+      CREATE UNIQUE INDEX idx_feeds_url_par_compte ON feeds(user_id, url);
+      CREATE INDEX idx_feeds_priority ON feeds(priority);
+      CREATE INDEX idx_feeds_user ON feeds(user_id);
+      COMMIT;
+      PRAGMA foreign_keys = ON;
+    `);
+    console.log('[bublee] flux : unicite de l adresse passee du global au compte.');
+  }
+}
+
+/* Une etiquette n'est unique que dans le compte qui la porte : deux personnes
+   ont le droit d'avoir chacune une etiquette « veille ». L'unicite globale
+   d'origine doit donc ceder la place a une unicite par compte. */
+{
+  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='tags'").all();
+  const global = index.find((i) => /sqlite_autoindex_tags/.test(i.name));
+  const parCompte = index.find((i) => i.name === 'idx_tags_nom_par_compte');
+  if (global && !parCompte) {
+    // On ne peut pas retirer une contrainte UNIQUE de colonne sans reecrire la
+    // table : c'est ce que fait ce bloc, une seule fois.
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      BEGIN;
+      CREATE TABLE tags_nouveau (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL COLLATE NOCASE,
+        created_at INTEGER NOT NULL,
+        color      TEXT,
+        user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO tags_nouveau (id, name, created_at, color, user_id)
+        SELECT id, name, created_at, color, user_id FROM tags;
+      DROP TABLE tags;
+      ALTER TABLE tags_nouveau RENAME TO tags;
+      CREATE UNIQUE INDEX idx_tags_nom_par_compte ON tags(user_id, name);
+      CREATE INDEX idx_tags_user ON tags(user_id);
+      COMMIT;
+      PRAGMA foreign_keys = ON;
+    `);
+    console.log('[bublee] etiquettes : unicite passee du global au compte.');
+  }
+}
 
 /* ------------------------------------------------------------- recherche */
 
@@ -189,15 +298,36 @@ if (migrationApplied) {
   if (n) console.log(`[bublee] ${n} article(s) ajoute(s) a l'index de recherche.`);
 }
 
+/**
+ * Rattache au premier compte tout ce qui existait avant les comptes. Sans ca,
+ * la bibliotheque d'origine n'appartiendrait a personne et resterait invisible.
+ */
+export function adopterOrphelins(userId) {
+  const flux = db.prepare('UPDATE feeds SET user_id = ? WHERE user_id IS NULL').run(userId).changes;
+  const etiquettes = db.prepare('UPDATE tags SET user_id = ? WHERE user_id IS NULL').run(userId).changes;
+  const reglages = db.prepare(
+    "UPDATE settings SET user_id = ? WHERE user_id = 0 AND key NOT IN ('last_refresh_at')"
+  ).run(userId).changes;
+  return { flux, etiquettes, reglages };
+}
+
+export const orphelinsEnAttente = () =>
+  db.prepare('SELECT COUNT(*) n FROM feeds WHERE user_id IS NULL').get().n;
+
 /* ---------------------------------------------------------------- reglages */
 
-export function getSetting(key, fallback = null) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+/* Les reglages sont par compte. `user_id = 0` est reserve au service lui-meme,
+   pour ce qui n'appartient a personne — la date du dernier rafraichissement. */
+export const REGLAGES_SERVICE = 0;
+
+export function getSetting(key, fallback = null, userId = REGLAGES_SERVICE) {
+  const row = db.prepare('SELECT value FROM settings WHERE user_id = ? AND key = ?').get(userId, key);
   return row ? row.value : fallback;
 }
 
-export function setSetting(key, value) {
-  db.prepare(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, String(value));
+export function setSetting(key, value, userId = REGLAGES_SERVICE) {
+  db.prepare(`
+    INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
+    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
+  `).run(userId, key, String(value));
 }

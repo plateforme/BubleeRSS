@@ -10,9 +10,16 @@ process.env.BUBLEE_DATA = dossier;
 const store = await import('../server/store.js');
 const { db } = await import('../server/db.js');
 
+
+// Depuis les comptes, tout appartient a quelqu'un : on cree le porteur des
+// fixtures avant d'inserer quoi que ce soit.
+const U = Number(db.prepare(
+  "INSERT INTO users (email, nom, mot_de_passe, role, created_at) VALUES (?, ?, ?, 'super', ?)"
+).run('essai@bublee.test', 'Essai', 'x', Date.now()).lastInsertRowid);
+
 const creerFlux = (url, titre) => Number(
-  db.prepare('INSERT INTO feeds (url, title, folder, created_at) VALUES (?, ?, ?, ?)')
-    .run(url, titre, 'Test', Date.now()).lastInsertRowid
+  db.prepare('INSERT INTO feeds (url, title, folder, created_at, user_id) VALUES (?, ?, ?, ?, ?)')
+    .run(url, titre, 'Test', Date.now(), U).lastInsertRowid
 );
 
 const suivi = creerFlux('https://suivi.test/rss', 'Suivi');
@@ -35,12 +42,12 @@ const article = (surcharge = {}) => ({
 });
 
 for (const flux of [suivi, survole, muet]) {
-  store.saveItems(flux, [article(), article()]);
+  store.saveItems(flux, [article(), article()], U);
 }
-store.updateFeed(survole, { priority: 'survol' });
-store.updateFeed(muet, { priority: 'muet' });
+store.updateFeed(survole, { priority: 'survol' }, U);
+store.updateFeed(muet, { priority: 'muet' }, U);
 
-const titresDe = (opts) => store.queryArticles(opts).articles.map((a) => a.feed_title);
+const titresDe = (opts) => store.queryArticles(opts, U).articles.map((a) => a.feed_title);
 
 /* ------------------------------------------------------------ priorité --- */
 
@@ -75,7 +82,7 @@ test('le dossier et la recherche ne cachent rien non plus', () => {
 });
 
 test('les compteurs suivent ce que les vues montrent', () => {
-  const c = store.counts();
+  const c = store.counts(U);
   assert.equal(c.unread, 2, 'seules les sources suivies comptent');
   assert.equal(c.survol, 2);
   assert.equal(c.muet, 2);
@@ -83,7 +90,7 @@ test('les compteurs suivent ce que les vues montrent', () => {
 });
 
 test('une priorité inconnue est refusée', () => {
-  assert.throws(() => store.updateFeed(suivi, { priority: 'important' }), /Priorite inconnue/);
+  assert.throws(() => store.updateFeed(suivi, { priority: 'important' }, U), /Priorite inconnue/);
 });
 
 /* ------------------------------------------------------------ recherche --- */
@@ -101,8 +108,8 @@ test('la recherche voit le corps de l’article, pas seulement le titre', () => 
     title: 'Une chronique parfaitement anodine sur le temps qu’il fait',
     summary: 'resume',
     content: '<p>Le mot <b>hippocampe</b> n’apparaît que dans le corps du texte.</p>'
-  })]);
-  const trouves = store.queryArticles({ view: 'all', q: 'hippocampe', limit: 5 }).articles;
+  })], U);
+  const trouves = store.queryArticles({ view: 'all', q: 'hippocampe', limit: 5 }, U).articles;
   assert.equal(trouves.length, 1);
   assert.match(trouves[0].title, /chronique parfaitement anodine/);
 });
@@ -110,23 +117,23 @@ test('la recherche voit le corps de l’article, pas seulement le titre', () => 
 test('la recherche ignore les accents et cherche par préfixe', () => {
   store.saveItems(suivi, [article({
     title: 'Élections au Québec : un scrutin serré dans plusieurs circonscriptions'
-  })]);
-  assert.equal(store.queryArticles({ view: 'all', q: 'quebec', limit: 5 }).articles.length, 1);
-  assert.equal(store.queryArticles({ view: 'all', q: 'circonscript', limit: 5 }).articles.length, 1);
+  })], U);
+  assert.equal(store.queryArticles({ view: 'all', q: 'quebec', limit: 5 }, U).articles.length, 1);
+  assert.equal(store.queryArticles({ view: 'all', q: 'circonscript', limit: 5 }, U).articles.length, 1);
 });
 
 test('le balisage n’est pas indexé comme des mots', () => {
   store.saveItems(suivi, [article({
     title: 'Une dépêche avec une image dedans et rien de particulier',
     content: '<p><img src="https://exemple.test/photo.jpg" alt=""> Légende.</p>'
-  })]);
-  assert.equal(store.queryArticles({ view: 'all', q: 'img', limit: 5 }).articles.length, 0);
-  assert.equal(store.queryArticles({ view: 'all', q: 'légende', limit: 5 }).articles.length, 1);
+  })], U);
+  assert.equal(store.queryArticles({ view: 'all', q: 'img', limit: 5 }, U).articles.length, 0);
+  assert.equal(store.queryArticles({ view: 'all', q: 'légende', limit: 5 }, U).articles.length, 1);
 });
 
 test('modifier un article met l’index à jour', () => {
   const id = db.prepare("SELECT id FROM articles WHERE title LIKE '%hippocampe%' OR content LIKE '%hippocampe%'").get().id;
   db.prepare('UPDATE articles SET content = ? WHERE id = ?').run('<p>Désormais un tatou.</p>', id);
-  assert.equal(store.queryArticles({ view: 'all', q: 'hippocampe', limit: 5 }).articles.length, 0);
-  assert.equal(store.queryArticles({ view: 'all', q: 'tatou', limit: 5 }).articles.length, 1);
+  assert.equal(store.queryArticles({ view: 'all', q: 'hippocampe', limit: 5 }, U).articles.length, 0);
+  assert.equal(store.queryArticles({ view: 'all', q: 'tatou', limit: 5 }, U).articles.length, 1);
 });

@@ -87,6 +87,51 @@ HOST=0.0.0.0 npm start
   automatique, purge des vieux articles lus (jamais les non-lus ni les favoris).
 - **Thème clair « kiosque » et sombre « encre »**, ou automatique, et **couleur d’accent** au choix.
 
+## Comptes et rôles
+
+Bublee n'avait pas d'authentification : il tournait sur une machine de bureau,
+et le contrôle d'accès dispensait tout le réseau privé de jeton. Derrière un
+proxy, dont l'adresse est justement privée, cette dispense laissait passer
+l'internet entier. Elle a disparu : **l'identité vient de la session ou du
+jeton, jamais de l'adresse IP.**
+
+**Deux rôles.** `super` administre les comptes en plus du sien ; `editeur` n'a
+que le sien. Pas de troisième rôle en lecture seule : ce serait un cas de plus
+à vérifier partout pour un besoin qui n'existe pas.
+
+**Chaque compte possède ses sources**, et les articles en descendent par
+cascade. L'alternative — des flux partagés et des abonnements — économiserait
+les téléchargements quand deux personnes suivent la même source, mais elle
+déplacerait l'état de lecture dans une table à part et ferait dépendre
+l'isolation d'un `WHERE user_id` jamais oublié sur quatre-vingts requêtes. Ici
+l'isolation est structurelle : supprimer un compte emporte tout ce qui lui
+appartient, et la déduplication ne rapproche jamais deux articles de comptes
+différents — deux personnes qui suivent Le Monde ont chacune leur exemplaire de
+la même dépêche.
+
+**Le premier compte créé devient super** et reprend la bibliothèque d'avant les
+comptes. Ensuite, plus d'inscription ouverte : c'est un super qui crée les
+comptes. Un formulaire public sur une adresse exposée invite le tout-venant, et
+chaque compte coûte du réseau et du CPU réels.
+
+**Les mots de passe** sont dérivés avec scrypt (`N=2¹⁵`), de la bibliothèque
+standard : bcrypt et argon2 demandent une compilation native, ce qui rendrait
+le déploiement dépendant d'une chaîne de build. Dix caractères minimum, sans
+rituel de majuscules et de chiffres — c'est la longueur qui compte.
+
+**Les sessions** durent trente jours et se prolongent à l'usage. Le cookie est
+`HttpOnly`, `SameSite=Lax`, et `Secure` dès que la connexion est en HTTPS. La
+base ne garde que l'**empreinte** du jeton : une copie de la base ne donne pas
+les sessions en cours. Suspendre un compte ferme les siennes immédiatement.
+
+**Garde-fous** : le dernier super ne peut être ni rétrogradé, ni suspendu, ni
+supprimé ; un super ne peut pas se retirer à lui-même son rôle ; et changer son
+mot de passe exige de connaître l'ancien, sinon une session volée suffirait à
+s'approprier le compte pour de bon.
+
+**Le jeton d'API est personnel**, un par compte, révocable sans toucher aux
+autres.
+
 ## Le dessin
 
 Trois familles, et une règle : **aucun texte d'interface n'est en sans-serif.**

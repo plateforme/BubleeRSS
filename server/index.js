@@ -9,6 +9,7 @@ import { migrationApplied } from './db.js';
 import { importOpml, exportOpml } from './opml.js';
 import { urlPubliqueOuNull, USER_AGENT_NAVIGATEUR } from './http.js';
 import { controleAcces, jeton, regenererJeton, NIVEAU } from './apikey.js';
+import * as cacheImages from './cache-images.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -76,10 +77,14 @@ app.get('/api', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', wrap(async (req, res) => {
   const counts = store.counts();
-  res.json({ ok: true, version: VERSION, uptime: Math.round(process.uptime()), ...counts });
-});
+  res.json({
+    ok: true, version: VERSION, uptime: Math.round(process.uptime()),
+    ...counts,
+    cacheImages: await cacheImages.etat()
+  });
+}));
 
 app.get('/api/token', (req, res) => res.json({ token: jeton(), mode: NIVEAU }));
 app.post('/api/token/rotate', (req, res) => res.json({ token: regenererJeton(), mode: NIVEAU }));
@@ -275,6 +280,15 @@ app.get('/api/image', wrap(async (req, res) => {
   const parsed = urlPubliqueOuNull(req.query.url || '');
   if (!parsed) return res.status(400).end();
 
+  // Deja vue : on la sert du disque, sans repartir chez l'editeur.
+  const gardee = await cacheImages.lire(parsed.href);
+  if (gardee) {
+    return res.set('content-type', gardee.type)
+      .set('cache-control', 'public, max-age=604800')
+      .set('x-bublee-cache', 'disque')
+      .send(gardee.corps);
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
   try {
@@ -287,8 +301,12 @@ app.get('/api/image', wrap(async (req, res) => {
     const type = upstream.headers.get('content-type') || 'image/jpeg';
     if (!/^image\//i.test(type)) return res.status(415).end();
 
-    res.set('content-type', type).set('cache-control', 'public, max-age=604800');
-    res.send(Buffer.from(await upstream.arrayBuffer()));
+    const corps = Buffer.from(await upstream.arrayBuffer());
+    res.set('content-type', type).set('cache-control', 'public, max-age=604800')
+      .set('x-bublee-cache', 'reseau').send(corps);
+
+    // Rangee apres l'envoi : le cache ne doit jamais retarder l'affichage.
+    cacheImages.ranger(parsed.href, type, corps).catch(() => {});
   } catch {
     res.status(504).end();
   } finally {

@@ -57,6 +57,7 @@ Le navigateur s'ouvre sur <http://127.0.0.1:4321>. La base SQLite vit dans
 | `BUBLEE_AUTH`       | `lan`       | portée de l'API : `lan`, `strict` ou `off`          |
 | `BUBLEE_TOKEN`      | —           | impose un jeton d'API au lieu de celui généré       |
 | `BUBLEE_NO_OPEN`    | —           | si défini, n'ouvre pas le navigateur au démarrage   |
+| `BUBLEE_IMG_CACHE_MB` | `512`     | plafond du cache disque des images                  |
 
 Pour lire depuis un autre appareil du réseau :
 
@@ -319,6 +320,35 @@ canevas n'est pas souillé et reste lisible.
 Tant qu'une couleur n'est pas connue, c'est la teinte de la source qui tient la
 place. Et si une image ne charge pas du tout, le fond reste : mieux qu'une
 icône cassée.
+
+### Le cache disque du relais
+
+Sans lui, chaque affichage d'une vignette repartait chercher l'octet chez
+l'éditeur : le fond d'attente restait en place le temps de l'aller-retour, et
+on refaisait le trajet dès que le cache du navigateur expirait ou qu'un autre
+appareil regardait la même page. Désormais, seule la première vue paie le
+voyage.
+
+    1re vue  0,110 s (12 756 o)  →  2e vue  0,024 s   [x-bublee-cache: disque]
+    1re vue  0,083 s (10 447 o)  →  2e vue  0,016 s   [x-bublee-cache: disque]
+
+Un fichier par image dans `data/cache-images`, nommé d'après l'**empreinte
+SHA-256 de son adresse** — jamais d'après l'adresse elle-même, qui pourrait
+sortir du dossier. Le type MIME tient sur la première ligne du fichier : pas
+d'index à maintenir, donc pas d'index à désynchroniser. L'écriture passe par un
+fichier temporaire puis un renommage, pour qu'une lecture concurrente ne tombe
+jamais sur un fichier à moitié écrit.
+
+Le cache est plafonné (512 Mo par défaut, `BUBLEE_IMG_CACHE_MB`). Au-delà, les
+entrées les moins récemment lues sont effacées jusqu'à redescendre à 90 % —
+pas à 100 %, sinon on rebalaierait au fichier suivant. Le balayage ne tourne
+qu'une fois toutes les dix minutes : le déclencher à chaque écriture
+reviendrait à lire tout le dossier à chaque vignette. Et la date d'accès n'est
+rafraîchie qu'une fois par jour, sinon afficher une page coûterait une écriture
+par image.
+
+L'en-tête `x-bublee-cache` dit d'où vient l'octet, `disque` ou `reseau`, et
+`/api/health` donne l'état du cache.
 
 ## Sources injoignables
 

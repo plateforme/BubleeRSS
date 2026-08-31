@@ -16,6 +16,8 @@
     document.documentElement.dataset.theme = localStorage.getItem('bublee.theme') || 'auto';
     const accent = localStorage.getItem('bublee.accent');
     if (accent) document.documentElement.style.setProperty('--accent', accent);
+    const largeur = localStorage.getItem('bublee.indexWidth');
+    if (largeur) document.documentElement.style.setProperty('--index-w', largeur + 'px');
   } catch (e) {}
 </script>
 </head>
@@ -90,6 +92,10 @@
       </button>
       <span id="lastRefresh"></span>
     </footer>
+
+    <div class="index-poignee" id="indexGrip" role="separator" aria-orientation="vertical"
+         tabindex="0" aria-label="Largeur de l’index"
+         title="Glisser pour élargir · double-clic pour revenir à la largeur d’origine"></div>
   </aside>
 
   <!-- ============================================================== scène -->
@@ -125,6 +131,12 @@
       <section class="flux" id="flux" tabindex="-1"></section>
       <div class="sentinel" id="sentinel"></div>
       <div class="end-note" id="endNote" hidden>— fin de l’édition —</div>
+
+      <!-- Flotte au coin de la carte survolée : une carte est déjà un <button>,
+           on ne peut pas en imbriquer un second dedans. -->
+      <div class="art-actions" id="artActions" hidden>
+        <button type="button" id="artTagBtn" title="Étiqueter sans ouvrir (T)">＋ Étiquette</button>
+      </div>
     </div>
   </main>
 </div>
@@ -147,6 +159,14 @@
   <div class="reader-scroll" id="readerScroll"></div>
   <datalist id="tagOptions"></datalist>
 </article>
+
+<!-- ========================================== étiquetage depuis les vues -->
+<div class="tagpop" id="tagPop" hidden role="dialog" aria-label="Étiqueter l’article">
+  <p class="tagpop-titre" id="tagPopTitre"></p>
+  <div class="tagpop-list" id="tagPopList"></div>
+  <input class="tagpop-input" id="tagPopInput" list="tagOptions" autocomplete="off"
+         placeholder="Nouvelle étiquette" aria-label="Créer une étiquette" maxlength="60">
+</div>
 
 <!-- ============================================================= fenêtres -->
 <div class="modal-shade" id="modalShade" hidden></div>
@@ -261,7 +281,7 @@
         <dt><kbd>Entrée</kbd></dt><dd>ouvrir</dd>
         <dt><kbd>M</kbd></dt><dd>lu / non lu</dd>
         <dt><kbd>S</kbd></dt><dd>favori</dd>
-        <dt><kbd>T</kbd></dt><dd>étiqueter</dd>
+        <dt><kbd>T</kbd></dt><dd>étiqueter — l’article ouvert, ou celui au curseur</dd>
         <dt><kbd>V</kbd></dt><dd>original</dd>
         <dt><kbd>F</kbd></dt><dd>texte complet</dd>
       </dl>

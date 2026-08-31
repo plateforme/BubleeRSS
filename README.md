@@ -124,6 +124,12 @@ Dans l'index, la **pastille de type** distingue les sources : rien pour un
 article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
 de niveau pour un podcast.
 
+L'**index** se règle à la largeur qu'on veut : une poignée sur son bord droit,
+de 240 à 460 px, double-clic pour revenir à 266. Les noms de sources longs ne
+sont plus tronqués dès qu'on lui donne une centaine de pixels de plus. La
+largeur tient dans le navigateur, pas sur le serveur — c'est un réglage d'écran,
+pas de compte, et elle s'applique avant le premier rendu pour éviter le saut.
+
 Le **lecteur** est un panneau ancré à droite, pas une page plein écran. Il prend
 `min(1080px, 100vw − 180px)` : assez large pour une colonne de texte confortable,
 en laissant voir la liste par-dessous — cliquer dedans referme, comme `Échap`.
@@ -330,6 +336,15 @@ celui-là qu'il faut donner à Bublee.
 Poser une étiquette sur un article, c'est le retrouver ensuite — dans
 l'interface comme par l'API.
 
+- **Sans ouvrir l'article** : au survol d'une carte, un bouton « ＋ Étiquette »
+  apparaît dans son coin, et ouvre la liste des étiquettes — un clic pose ou
+  retire, le champ du bas en crée une. <kbd>T</kbd> fait la même chose sur
+  l'article au curseur. Les étiquettes posées s'affichent ensuite dans la carte
+  elle-même, dans les trois mises en page.
+- Le bouton ne se superpose à rien : là où la carte porte déjà une méta à
+  droite — la source d'une dépêche, la durée d'un aplat — cette méta s'efface le
+  temps du survol et le bouton prend sa place. Rien ne bouge, rien ne se
+  chevauche.
 - Dans le lecteur, sous le titre : les étiquettes de l'article, chacune
   retirable, et un champ pour en ajouter (<kbd>T</kbd> y place le curseur).
   Plusieurs d'un coup en les séparant par des virgules.
@@ -382,7 +397,7 @@ de clavier en bas de la colonne de gauche.
 | `A` | ajouter une source |
 | `Maj+A` | tout marquer comme lu |
 | `G` | changer de mise en page |
-| `T` | étiqueter l’article ouvert |
+| `T` | étiqueter — l’article ouvert, ou celui au curseur dans la liste |
 | `/` | rechercher |
 | `,` | réglages |
 | `?` | aide-mémoire |

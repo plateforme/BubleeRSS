@@ -316,6 +316,20 @@ function attrs(a) {
 const classeLue = (a) => (a.read_at ? ' read' : '');
 const curseur = (a) => (indexParId.get(a.id) === state.pointer ? ' cursor' : '');
 
+/** Les étiquettes d'un article, telles qu'elles s'affichent dans une carte. */
+const pastilles = (a) => (a.tags || [])
+  .map((nom) => `<span class="art-etiq" style="background:${esc(couleurTag(nom))}">${esc(nom)}</span>`)
+  .join('');
+
+/* Le conteneur est toujours posé, même vide (il se cache tout seul) : c'est ce
+   qui permet de rafraîchir une carte sans la reconstruire, donc sans faire
+   sauter la page sous le curseur. */
+const puces = (a) => `<span class="art-etiqs">${pastilles(a)}</span>`;
+
+function majPuces(a) {
+  $$(`.art[data-id="${a.id}"] .art-etiqs`).forEach((el) => { el.innerHTML = pastilles(a); });
+}
+
 /* --- les blocs de la mise en page « la une » ----------------------------- */
 
 function blocUne(a) {
@@ -333,6 +347,7 @@ function blocUne(a) {
         <div class="une-sur">${surtitre(a)}</div>
         <h2 class="une-titre">${esc(a.title)}</h2>
         ${a.summary ? `<p class="une-chapo">${esc(a.summary)}</p>` : ''}
+        ${puces(a)}
       </button>
     </div>`;
 }
@@ -344,7 +359,7 @@ function blocColonnes(liste) {
       <h3 class="col-titre">${esc(a.title)}</h3>
       <div class="wipe"></div>
       ${a.summary ? `<p class="chapo">${esc(a.summary)}</p>` : ''}
-      <div class="col-pied">${esc(laDuree(a) || 'à lire')}</div>
+      <div class="col-pied">${esc(laDuree(a) || 'à lire')}${puces(a)}</div>
     </button>`).join('')}</div>`;
 }
 
@@ -363,6 +378,7 @@ function blocMur(liste) {
         <span class="tuile-corps">
           <span class="tuile-sur">${esc(a.feed_title)} · ${esc(quand(a.published_at))}</span>
           <span class="tuile-titre">${esc(a.title)}</span>
+          ${puces(a)}
         </span>
       </button>`;
   }).join('')}</div>`;
@@ -386,7 +402,7 @@ function blocAplats(liste) {
       <span class="aplat-titre">${esc(large.title)}</span>
       <span class="aplat-pied">
         ${large.summary ? `<span class="aplat-chapo">${esc(large.summary)}</span>` : '<span></span>'}
-        <span class="aplat-duree">${esc(laDuree(large))}</span>
+        <span class="aplat-duree">${puces(large)}${esc(laDuree(large))}</span>
       </span>
     </button>`;
 
@@ -405,7 +421,7 @@ function blocPlaque(a, i = 0) {
         <span class="sur">${esc(quand(a.published_at))} · sans illustration</span>
         <span class="plaque-titre">${esc(a.title)}</span>
         <span class="wipe"></span>
-        <span class="plaque-pied">${esc(laDuree(a) || 'texte indisponible')}</span>
+        <span class="plaque-pied">${esc(laDuree(a) || 'texte indisponible')}${puces(a)}</span>
       </span>
     </button>`;
 }
@@ -422,6 +438,7 @@ function blocFils(liste) {
         <button class="fil art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
           <span class="fil-heure">${esc(heure(a.published_at))}</span>
           <span class="fil-titre">${esc(a.title)}</span>
+          ${puces(a)}
           <span class="fil-source">${esc(a.feed_title)}</span>
         </button>`).join('')}</div>
     </div>`;
@@ -521,6 +538,7 @@ function ligneSommaire(a, i) {
         <span class="sur">${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
         <span class="som-titre">${esc(a.title)}</span>
         ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
+        ${puces(a)}
       </span>
       <span class="som-thumb" style="--teinte:${couleur}">${vignette}</span>
     </button>`;
@@ -532,6 +550,7 @@ function ligneDepeche(a) {
       <span class="dep-puce" aria-hidden="true"></span>
       <span class="dep-heure">${esc(heure(a.published_at))}</span>
       <span class="dep-titre">${esc(a.title)}</span>
+      ${puces(a)}
       <span class="dep-source">${esc(a.feed_title)}</span>
       <span class="dep-duree">${esc(a.duration ? '◆ ' + Math.round(a.duration / 60) + ' min' : '')}</span>
     </button>`;
@@ -725,9 +744,90 @@ async function etiqueter(id, action) {
     if (local) local.tags = article.tags;
     if (state.openId === id) $('#tagEditor').innerHTML = editeurTags(article);
     await reloadState();
+    majPuces(article);
+    if (popId === id) renderPopTags();
   } catch (error) {
     toast('Étiquette : ' + error.message, 'bad');
   }
+}
+
+/* ------------------------------------------- étiqueter sans ouvrir l'article */
+
+let popId = null;
+
+/** Colle le bouton au coin bas-droit de la carte survolée : en haut il passait
+    sur le surtitre. Il vit dans le scroller, donc il suit la page sans qu'on
+    ait à le repositionner au défilement. */
+function survolCarte(carte) {
+  const zone = $('#artActions');
+  if (popId !== null) return;                       // pendant l'édition, il ne bouge plus
+  if (!carte) { zone.hidden = true; return; }
+
+  const scroller = $('#scroller');
+  const r = carte.getBoundingClientRect();
+  const s = scroller.getBoundingClientRect();
+  zone.hidden = false;
+  zone.dataset.id = carte.dataset.id;
+  zone.classList.toggle('sur-depeche', carte.classList.contains('dep'));
+
+  // Bas-droit dans un bloc ; centré à droite dans une ligne de dépêche, trop
+  // basse pour qu'un coin veuille dire quelque chose.
+  const h = zone.offsetHeight;
+  const y = r.height > h + 16 ? r.bottom - h - 8 : r.top + (r.height - h) / 2;
+  zone.style.top = Math.round(y - s.top + scroller.scrollTop) + 'px';
+  zone.style.left = Math.round(r.right - s.left - zone.offsetWidth - 8) + 'px';
+}
+
+function renderPopTags() {
+  const a = state.articles.find((x) => x.id === popId);
+  if (!a) return;
+  const posees = new Set(a.tags || []);
+
+  $('#tagPopTitre').textContent = a.title;
+  $('#tagPopList').innerHTML = state.tags.length
+    ? state.tags.map((t) => `
+        <button type="button" class="tagpop-row${posees.has(t.name) ? ' on' : ''}"
+                data-pop-tag="${esc(t.name)}" style="--teinte:${esc(t.color || 'var(--accent)')}">
+          <span class="tag-square" aria-hidden="true"></span>
+          <span class="tagpop-nom">${esc(t.name)}</span>
+          <span class="tagpop-coche" aria-hidden="true">${posees.has(t.name) ? '✓' : ''}</span>
+        </button>`).join('')
+    : '<p class="tagpop-vide">Aucune étiquette encore. Tape un nom ci-dessous.</p>';
+}
+
+function ouvrirPopTags(id, ancre) {
+  if (!state.articles.some((a) => a.id === id)) return;
+  popId = id;
+  const pop = $('#tagPop');
+  pop.hidden = false;
+  renderPopTags();
+
+  // Le popover se pose sous l'ancre, ou au-dessus s'il n'y a pas la place.
+  const r = ancre.getBoundingClientRect();
+  const largeur = pop.offsetWidth;
+  const hauteur = pop.offsetHeight;
+  pop.style.left = Math.round(Math.min(Math.max(10, r.right - largeur), innerWidth - largeur - 10)) + 'px';
+  pop.style.top = Math.round(r.bottom + 8 + hauteur < innerHeight
+    ? r.bottom + 8
+    : Math.max(10, r.top - 8 - hauteur)) + 'px';
+
+  $('#tagPopInput').value = '';
+  $('#tagPopInput').focus();
+}
+
+function fermerPopTags() {
+  if (popId === null) return;
+  popId = null;
+  $('#tagPop').hidden = true;
+  $('#artActions').hidden = true;
+}
+
+/** Ouvre le popover sur l'article au curseur — c'est ce que fait `T` hors lecteur. */
+function popSurCurseur() {
+  const id = articleCourant();
+  const carte = id !== null ? $(`.art[data-id="${id}"]`) : null;
+  if (!carte) return;
+  ouvrirPopTags(id, carte);
 }
 
 async function completerArticle(article, force = false) {
@@ -818,6 +918,7 @@ function onKey(event) {
   const key = event.key;
 
   if (key === 'Escape') {
+    if (popId !== null) return fermerPopTags();
     if (!$('#reader').hidden) return closeReader();
     if (!$('#modalShade').hidden) return closeModals();
     if (state.q) { $('#search').value = ''; state.q = ''; loadArticles(true); }
@@ -877,7 +978,12 @@ function onKey(event) {
     if (a?.url) window.open(a.url, '_blank', 'noopener');
     return;
   }
-  if (key === 't' && state.openId) { event.preventDefault(); $('#tagInput')?.focus(); return; }
+  // `T` étiquette : le champ du lecteur s'il est ouvert, sinon l'article au curseur.
+  if (key === 't') {
+    event.preventDefault();
+    if (state.openId) $('#tagInput')?.focus(); else popSurCurseur();
+    return;
+  }
   if (key === 'f' && state.openId) { event.preventDefault(); completerArticle({ id: state.openId }, true); }
 }
 
@@ -1167,11 +1273,58 @@ async function supprimerFlux() {
   }
 }
 
+/* ------------------------------------------------------- largeur d'index */
+
+const INDEX_MIN = 240;
+const INDEX_MAX = 460;
+const INDEX_DEFAUT = 266;
+
+function largeurIndex(px) {
+  const w = Math.round(Math.min(INDEX_MAX, Math.max(INDEX_MIN, px)));
+  document.documentElement.style.setProperty('--index-w', w + 'px');
+  try { localStorage.setItem('bublee.indexWidth', String(w)); } catch (e) {}
+  return w;
+}
+
+function poigneeIndex() {
+  const grip = $('#indexGrip');
+  const app = $('#app');
+  if (!grip) return;
+
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    app.classList.add('redim');
+    const bouge = (ev) => largeurIndex(ev.clientX);
+    const fini = () => {
+      app.classList.remove('redim');
+      grip.removeEventListener('pointermove', bouge);
+      grip.removeEventListener('pointerup', fini);
+      grip.removeEventListener('pointercancel', fini);
+    };
+    grip.addEventListener('pointermove', bouge);
+    grip.addEventListener('pointerup', fini);
+    grip.addEventListener('pointercancel', fini);
+  });
+
+  // Double-clic : retour à la largeur d'origine.
+  grip.addEventListener('dblclick', () => largeurIndex(INDEX_DEFAUT));
+
+  // Au clavier, la poignée se règle aux flèches — 16 px par appui.
+  grip.addEventListener('keydown', (e) => {
+    const pas = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+    if (!pas) return;
+    e.preventDefault();
+    largeurIndex($('#rail').getBoundingClientRect().width + pas);
+  });
+}
+
 /* ---------------------------------------------------------- branchements */
 
 function wireEvents() {
   // Le logo ramène à la une, comme le titre d'un journal qu'on replie.
   $('#logo').addEventListener('click', () => { closeReader(); setView({ view: 'unread' }); });
+  poigneeIndex();
   $$('.view-row').forEach((b) => b.addEventListener('click', () => setView({ view: b.dataset.view })));
   $$('.tab').forEach((b) => b.addEventListener('click', () => {
     applyLayout(b.dataset.layout);
@@ -1203,6 +1356,45 @@ function wireEvents() {
     if (!row) return;
     e.preventDefault();
     ouvrirEditionFlux(Number(row.dataset.feed));
+  });
+
+  /* --- étiqueter depuis les vues --- */
+  const scroller = $('#scroller');
+  $('#flux').addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;           // au doigt, le survol n'existe pas
+    survolCarte(e.target.closest('.art'));
+  });
+  scroller.addEventListener('pointerleave', () => survolCarte(null));
+  scroller.addEventListener('scroll', () => { if (popId !== null) fermerPopTags(); });
+
+  $('#artTagBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    ouvrirPopTags(Number($('#artActions').dataset.id), $('#artActions'));
+  });
+
+  $('#tagPop').addEventListener('click', (e) => {
+    const ligne = e.target.closest('[data-pop-tag]');
+    if (!ligne || popId === null) return;
+    const nom = ligne.dataset.popTag;
+    const a = state.articles.find((x) => x.id === popId);
+    const posee = (a?.tags || []).includes(nom);
+    etiqueter(popId, posee ? { remove: [nom] } : { add: [nom] });
+  });
+
+  $('#tagPopInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); fermerPopTags(); $('#flux').focus(); return; }
+    if (e.key !== 'Enter') return;
+    const nom = e.target.value.trim();
+    if (!nom || popId === null) return;
+    e.target.value = '';
+    etiqueter(popId, { add: [nom] });
+  });
+
+  // Un clic ailleurs referme — mais pas celui qui vient de l'ouvrir.
+  document.addEventListener('pointerdown', (e) => {
+    if (popId === null) return;
+    if (e.target.closest('#tagPop') || e.target.closest('#artActions')) return;
+    fermerPopTags();
   });
 
   $('#flux').addEventListener('click', (e) => {

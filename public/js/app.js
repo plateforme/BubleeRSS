@@ -346,9 +346,15 @@ function fondImage(a) {
   return `--f1:${h};--f2:${b}`;
 }
 
-/** Les images arrivent en fondu sur ce fond, plutôt que d'apparaître d'un bloc. */
-const imgFondue = (src, extra = '') =>
-  `<img class="fondu" src="${esc(src)}" alt="" loading="lazy"${extra ? ' ' + extra : ''}>`;
+/**
+ * Les images arrivent en fondu sur ce fond, plutôt que d'apparaître d'un bloc.
+ *
+ * `pressee` pour ce qui est certainement au-dessus de la ligne de flottaison :
+ * la une et l'ouverture du lecteur. Les différer là n'économise rien et laisse
+ * le fond d'attente en place une seconde de trop, juste sous les yeux.
+ */
+const imgFondue = (src, { pressee = false } = {}) => `<img class="fondu" src="${esc(src)}" alt=""` +
+  (pressee ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"') + ' decoding="async">';
 
 /** Les étiquettes d'un article, telles qu'elles s'affichent dans une carte. */
 const pastilles = (a) => (a.tags || [])
@@ -369,7 +375,7 @@ function majPuces(a) {
 function blocUne(a) {
   const couleur = teinte(a.feed_title);
   const fond = a.image
-    ? imgFondue(relais(a.image))
+    ? imgFondue(relais(a.image), { pressee: true })
     : `<div class="plaque-initiale" style="color:${rgba(couleur, .2)}">${esc(initialeDe(a))}</div>`;
 
   return `
@@ -706,7 +712,7 @@ function renderReader(a) {
 
   const ouverture = a.image && !video
     ? `<div class="reader-hero" style="${fondImage(a)}">
-         ${imgFondue(relais(a.image))}
+         ${imgFondue(relais(a.image), { pressee: true })}
          <div class="voile"></div>
          <div class="reader-hero-corps"><div class="reader-hero-inner">
            ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
@@ -714,7 +720,8 @@ function renderReader(a) {
            <h1 class="reader-titre">${esc(a.title)}</h1>
          </div></div>
        </div>`
-    : `<div class="reader-hero plaque-hero${video ? ' hero-video' : ''}" style="--teinte:${couleur}">
+    : `<div class="reader-hero plaque-hero${video ? ' hero-video' : ''}"
+            style="--teinte:${couleur};--sur-plaque:${contraste(couleur)}">
          <span class="plaque-initiale">${esc(initialeDe(a))}</span>
          <div class="reader-hero-corps"><div class="reader-hero-inner">
            ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}

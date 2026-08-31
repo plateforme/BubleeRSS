@@ -917,9 +917,19 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   color: #f6f5f1; max-width: 26ch; text-wrap: pretty;
 }
 
-/* le bandeau devient une plaque quand l'article n'a pas d'illustration */
-.reader-hero.plaque-hero { background: var(--teinte, var(--ink-deep)); }
-.reader-hero.plaque-hero .plaque-initiale { font-size: 420px; left: -1%; bottom: -34%; color: rgba(246,245,241,.14); }
+/* Le bandeau devient une plaque quand l'article n'a pas d'illustration. Il n'a
+   alors pas de voile pour assombrir le fond : le texte se pose directement sur
+   la teinte de la source. Or deux des huit teintes sont des neutres clairs —
+   Libération tombe sur #f6f5f1 — et un titre blanc y devenait invisible. La
+   couleur du texte est donc calculée d'après la luminance de la plaque, comme
+   pour les aplats de la une. */
+.reader-hero.plaque-hero { background: var(--teinte, var(--ink-deep)); color: var(--sur-plaque, #f6f5f1); }
+.reader-hero.plaque-hero .reader-titre,
+.reader-hero.plaque-hero .reader-meta { color: inherit; }
+.reader-hero.plaque-hero .reader-meta { opacity: .72; }
+.reader-hero.plaque-hero .plaque-initiale {
+  font-size: 420px; left: -1%; bottom: -34%; color: currentColor; opacity: .14;
+}
 /* Une vidéo n'a pas besoin d'une ouverture pleine hauteur : le lecteur doit
    arriver tout de suite, sinon on scrolle pour rien. */
 .reader-hero.hero-video { height: min(30vh, 230px); }

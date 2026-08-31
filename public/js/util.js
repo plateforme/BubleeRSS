@@ -18,7 +18,9 @@ export function quand(ms) {
   const diff = Date.now() - ms;
   const minutes = Math.round(diff / 60000);
 
-  if (diff < 0) return 'à venir';
+  // Beaucoup d'editeurs datent leurs articles avec quelques heures d'avance :
+  // afficher « à venir » n'aurait aucun sens pour un lecteur.
+  if (diff < 0) return 'à l’instant';
   if (minutes < 1) return 'à l’instant';
   if (minutes < 60) return `il y a ${minutes} min`;
 

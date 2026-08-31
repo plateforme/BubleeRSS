@@ -64,6 +64,10 @@ async function boot() {
     toast('Le serveur ne répond pas : ' + error.message, 'bad');
   }
   wireEvents();
+
+  // Lien direct vers un article : #/article/482
+  const cible = /^#\/article\/(\d+)$/.exec(location.hash);
+  if (cible) openArticle(Number(cible[1]));
 }
 
 function absorb(data) {
@@ -359,6 +363,7 @@ async function openArticle(id) {
   const index = state.articles.findIndex((a) => a.id === id);
   if (index >= 0) setPointer(index, false);
   state.openId = id;
+  history.replaceState(null, '', '#/article/' + id);
 
   $('#readerShade').hidden = false;
   $('#reader').hidden = false;
@@ -479,7 +484,8 @@ function renderReader(article) {
   });
 
   // La lettrine se pose sur le premier vrai paragraphe de texte.
-  const premier = $$('.reader-body > p').find((p) => {
+  // Pas de `>` : Readability enveloppe son extraction dans un conteneur.
+  const premier = $$('.reader-body p').find((p) => {
     const texte = p.textContent.trim();
     return texte.length > 90 && !p.querySelector('img') && /^[\p{L}\p{N}]/u.test(texte);
   });
@@ -493,6 +499,7 @@ function articleSuivant() {
 
 function closeReader() {
   state.openId = null;
+  history.replaceState(null, '', location.pathname);
   $('#reader').hidden = true;
   $('#readerShade').hidden = true;
   document.body.style.overflow = '';

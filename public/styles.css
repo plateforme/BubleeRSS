@@ -146,7 +146,9 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 }
 .wordmark-text em { font-style: italic; color: var(--accent); font-weight: 500; }
 
-.rail-close { display: none; }
+/* Deux classes : `.icon-btn { display: grid }` est declare plus bas et
+   l'emporterait sur une regle a classe unique. */
+.rail-head .rail-close { display: none; }
 
 /* recherche */
 .rail-search {
@@ -998,7 +1000,7 @@ kbd {
   }
   .rail-open { display: grid; }
   /* La croix ne sert qu'a refermer le tiroir : inutile de l'afficher autrement. */
-  .app.rail-on .rail-close { display: grid; }
+  .app.rail-on .rail-head .rail-close { display: grid; }
   .topbar { padding: 14px 20px; gap: 10px; }
   .flux { padding: 26px 20px 10px; }
   .reader-inner { padding: 34px 30px 80px; }

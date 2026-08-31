@@ -4,6 +4,15 @@ Un lecteur RSS maison, pensé comme un magazine : grande une, colonnes,
 titres en serif, lecture au calme. Tout tourne en local, rien ne sort de
 la machine à part les requêtes vers les flux eux-mêmes.
 
+![La vue magazine : une grande une, puis une grille rythmée par des cartes larges](docs/magazine.png)
+
+*La vue magazine, thème « papier ».*
+
+![Le lecteur : lettrine, temps de lecture, texte complet récupéré sur la page d'origine](docs/lecteur.png)
+
+*Le lecteur, thème « encre ». L'étiquette « texte complet » signale un article
+que le flux ne publiait qu'en résumé.*
+
 ## Démarrer
 
 ```bash

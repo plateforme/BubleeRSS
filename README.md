@@ -237,6 +237,13 @@ en laissant voir la liste par-dessous — cliquer dedans referme, comme `Échap`
 Sous 1100 px la lisière tombe à 72 px, et sous 720 px le panneau prend tout
 l'écran : une lisière de 72 px, au doigt, se toucherait par accident.
 
+À cette largeur, son bandeau se déleste pour tenir sur une seule ligne. Partent
+la méta — que le titre juste en dessous répète —, « Texte complet » et
+« Non lu ». Le premier n'est pas une perte : le texte se récupère tout seul à
+l'ouverture, et quand l'extraction échoue le bandeau d'erreur porte son propre
+« réessayer ». Le second fait revenir en arrière, ce qui se fait rarement au
+doigt. Restent fermer, étiqueter, mettre en favori, ouvrir l'original.
+
 ## Texte complet
 
 Beaucoup d'éditeurs ne diffusent qu'un résumé dans leur flux. À l'ouverture

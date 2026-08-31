@@ -1281,11 +1281,15 @@ kbd {
      le panneau prend tout, on referme par ✕ ou Échap. */
   .reader { width: 100vw; border-left: 0; }
 
-  /* Le bandeau ne tient pas sur une ligne à cette largeur. Il passe sur deux
-     plutôt que de déborder : un débordement ici élargit toute la page, et le
-     panneau se retrouve décalé hors de l'écran. */
-  .reader-bar { height: auto; min-height: 52px; flex-wrap: wrap; padding: 9px 16px; gap: 10px 14px; }
-  .reader-bar .sep, .reader-bar .infos { display: none; }
+  /* Le bandeau tient sur une ligne en se délestant. Partent : la méta, que le
+     titre juste en dessous répète ; « Texte complet », qui se récupère de toute
+     façon tout seul à l'ouverture ; et « Non lu », qui ne sert qu'à revenir en
+     arrière. Restent fermer, étiqueter, mettre en favori et ouvrir l'original. */
+  .reader-bar { padding: 0 14px; gap: 12px; }
+  .reader-bar .sep,
+  .reader-bar .infos,
+  #readerFull,
+  #readerUnread { display: none; }
 }
 
 @media (max-width: 860px) {

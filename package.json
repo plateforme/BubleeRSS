@@ -1,0 +1,22 @@
+{
+  "name": "bublee",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lecteur RSS maison, façon magazine.",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "better-sqlite3": "^11.5.0",
+    "express": "^4.21.1",
+    "fast-xml-parser": "^4.5.0",
+    "jsdom": "^29.1.1"
+  }
+}

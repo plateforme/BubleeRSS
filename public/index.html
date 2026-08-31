@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="fr" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bublee</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23c0392b'/><g fill='white'><circle cx='30' cy='70' r='9'/><path d='M22 46a32 32 0 0 1 32 32h-13a19 19 0 0 0-19-19z'/><path d='M22 22a56 56 0 0 1 56 56H65A43 43 0 0 0 22 35z'/></g></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<script>
+  // Applique le theme avant le premier rendu pour eviter le flash blanc.
+  try {
+    const saved = localStorage.getItem('bublee.theme') || 'auto';
+    document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<a class="skip-link" href="#flux">Aller au contenu</a>
+
+<div class="app" id="app">
+
+  <!-- ------------------------------------------------------- colonne gauche -->
+  <aside class="rail" id="rail">
+    <header class="rail-head">
+      <div class="wordmark">
+        <span class="wordmark-glyph" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><circle cx="26" cy="74" r="10"/><path d="M18 44a38 38 0 0 1 38 38H42a24 24 0 0 0-24-24z"/><path d="M18 16a66 66 0 0 1 66 66H70A52 52 0 0 0 18 30z"/></svg>
+        </span>
+        <span class="wordmark-text">Bub<em>lee</em></span>
+      </div>
+      <button class="icon-btn rail-close" id="railClose" title="Fermer le menu" aria-label="Fermer le menu">&#10005;</button>
+    </header>
+
+    <div class="rail-search">
+      <svg class="search-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="search" id="search" placeholder="Rechercher…" autocomplete="off" aria-label="Rechercher dans les articles">
+      <kbd class="search-kbd">/</kbd>
+    </div>
+
+    <nav class="rail-nav" aria-label="Vues">
+      <button class="nav-item" data-view="unread"><span class="nav-label">Non lus</span><span class="pill" id="countUnread">0</span></button>
+      <button class="nav-item" data-view="all"><span class="nav-label">Tout</span><span class="pill ghost" id="countAll">0</span></button>
+      <button class="nav-item" data-view="starred"><span class="nav-label">Favoris</span><span class="pill ghost" id="countStarred">0</span></button>
+    </nav>
+
+    <div class="rail-section">
+      <span class="rail-section-title">Mes sources</span>
+      <button class="icon-btn tiny" id="addFeedRail" title="Ajouter un flux" aria-label="Ajouter un flux">+</button>
+    </div>
+
+    <div class="rail-feeds" id="feedList"></div>
+
+    <footer class="rail-foot">
+      <button class="ghost-btn" id="openSettings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>
+        Réglages
+      </button>
+      <span class="rail-stamp" id="lastRefresh"></span>
+    </footer>
+  </aside>
+
+  <!-- ---------------------------------------------------------- colonne droite -->
+  <main class="stage">
+    <header class="topbar">
+      <button class="icon-btn rail-open" id="railOpen" aria-label="Ouvrir le menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+
+      <div class="topbar-title">
+        <h1 id="stageTitle">Non lus</h1>
+        <p id="stageSub"></p>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="seg" role="group" aria-label="Mise en page">
+          <button data-layout="magazine" title="Magazine" aria-label="Vue magazine">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="10" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="3" rx="1"/><rect x="3" y="15" width="18" height="6" rx="1"/></svg>
+          </button>
+          <button data-layout="list" title="Liste" aria-label="Vue liste">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>
+          </button>
+          <button data-layout="compact" title="Compact" aria-label="Vue compacte">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+          </button>
+        </div>
+
+        <button class="ghost-btn" id="markAllRead" title="Tout marquer comme lu (Maj+A)">Tout lire</button>
+        <button class="icon-btn" id="refreshBtn" title="Rafraîchir (R)" aria-label="Rafraîchir">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v4.5h-4.5"/></svg>
+        </button>
+        <button class="accent-btn" id="addFeedBtn">＋ Flux</button>
+      </div>
+    </header>
+
+    <div class="scroller" id="scroller">
+      <section class="flux" id="flux" tabindex="-1"></section>
+      <div class="sentinel" id="sentinel"></div>
+      <div class="end-note" id="endNote" hidden>— fin —</div>
+    </div>
+  </main>
+</div>
+
+<!-- ------------------------------------------------------------------ lecteur -->
+<div class="reader-shade" id="readerShade" hidden></div>
+<article class="reader" id="reader" hidden aria-modal="true" role="dialog" aria-label="Lecture">
+  <header class="reader-bar">
+    <button class="icon-btn" id="readerClose" title="Fermer (Échap)" aria-label="Fermer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+    <div class="reader-bar-actions">
+      <button class="icon-btn" id="readerStar" title="Favori (S)" aria-label="Favori">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
+      </button>
+      <button class="icon-btn" id="readerFull" title="Récupérer le texte complet (F)" aria-label="Récupérer le texte complet">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 10h16M4 15h11M4 20h7"/><path d="M17 17.5h5M19.5 15v5"/></svg>
+      </button>
+      <button class="icon-btn" id="readerUnread" title="Marquer non lu (M)" aria-label="Marquer non lu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg>
+      </button>
+      <a class="ghost-btn" id="readerOpen" href="#" target="_blank" rel="noopener noreferrer">Article original ↗</a>
+    </div>
+  </header>
+  <div class="reader-scroll" id="readerScroll"></div>
+  <div class="reader-progress" id="readerProgress"></div>
+</article>
+
+<!-- ------------------------------------------------------------------ fenetres -->
+<div class="modal-shade" id="modalShade" hidden></div>
+
+<div class="modal" id="feedModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedModalTitle">
+  <h2 id="feedModalTitle">Ajouter une source</h2>
+  <p class="modal-hint">Colle l’adresse d’un flux RSS/Atom — ou simplement celle du site, on cherchera le flux.</p>
+  <form id="feedForm">
+    <label class="field">
+      <span>Adresse</span>
+      <input type="text" id="feedUrl" placeholder="lemonde.fr  ·  exemple.com/feed" required autocomplete="off">
+    </label>
+    <label class="field">
+      <span>Dossier <small>(optionnel)</small></span>
+      <input type="text" id="feedFolder" list="folderOptions" placeholder="Actualité, Tech, Design…" autocomplete="off">
+      <datalist id="folderOptions"></datalist>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="ghost-btn" data-close>Annuler</button>
+      <button type="submit" class="accent-btn" id="feedSubmit">Ajouter</button>
+    </div>
+  </form>
+  <div class="modal-sep"><span>ou</span></div>
+  <div class="modal-io">
+    <button class="ghost-btn" id="importOpml">Importer un OPML (Feedly…)</button>
+    <a class="ghost-btn" href="/api/opml/export">Exporter mes flux</a>
+    <input type="file" id="opmlFile" accept=".opml,.xml,text/xml,application/xml" hidden>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <h2 id="settingsTitle">Réglages</h2>
+  <form id="settingsForm">
+    <label class="field">
+      <span>Thème</span>
+      <select id="setTheme">
+        <option value="auto">Automatique (système)</option>
+        <option value="light">Clair — papier</option>
+        <option value="dark">Sombre — encre</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Rafraîchissement automatique</span>
+      <select id="setRefresh">
+        <option value="0">Jamais</option>
+        <option value="15">Toutes les 15 minutes</option>
+        <option value="30">Toutes les 30 minutes</option>
+        <option value="60">Toutes les heures</option>
+        <option value="180">Toutes les 3 heures</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Texte complet des articles tronqués</span>
+      <select id="setFulltext">
+        <option value="auto">Récupérer automatiquement</option>
+        <option value="off">Ne pas récupérer</option>
+      </select>
+      <small class="field-note">Quand un flux ne publie qu’un résumé, la page d’origine est lue et le texte est conservé.</small>
+    </label>
+    <label class="field">
+      <span>Conserver les articles lus</span>
+      <select id="setRetention">
+        <option value="30">30 jours</option>
+        <option value="90">90 jours</option>
+        <option value="365">1 an</option>
+        <option value="0">Toujours</option>
+      </select>
+      <small class="field-note">Les non-lus et les favoris ne sont jamais supprimés.</small>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="ghost-btn" data-close>Fermer</button>
+      <button type="submit" class="accent-btn">Enregistrer</button>
+    </div>
+  </form>
+  <div class="modal-sep"><span>raccourcis</span></div>
+  <ul class="shortcuts">
+    <li><kbd>J</kbd><kbd>K</kbd> naviguer</li>
+    <li><kbd>Entrée</kbd> ouvrir</li>
+    <li><kbd>M</kbd> lu / non lu</li>
+    <li><kbd>S</kbd> favori</li>
+    <li><kbd>V</kbd> article original</li>
+    <li><kbd>F</kbd> texte complet</li>
+    <li><kbd>R</kbd> rafraîchir</li>
+    <li><kbd>/</kbd> rechercher</li>
+    <li><kbd>Échap</kbd> fermer</li>
+  </ul>
+</div>
+
+<div class="modal" id="feedEditModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedEditTitle">
+  <h2 id="feedEditTitle">Modifier la source</h2>
+  <form id="feedEditForm">
+    <input type="hidden" id="editFeedId">
+    <label class="field">
+      <span>Nom affiché</span>
+      <input type="text" id="editFeedTitle" autocomplete="off">
+    </label>
+    <label class="field">
+      <span>Dossier</span>
+      <input type="text" id="editFeedFolder" list="folderOptions" autocomplete="off">
+    </label>
+    <p class="field-note" id="editFeedUrl"></p>
+    <div class="modal-actions spread">
+      <button type="button" class="danger-btn" id="deleteFeed">Supprimer</button>
+      <span class="grow"></span>
+      <button type="button" class="ghost-btn" data-close>Annuler</button>
+      <button type="submit" class="accent-btn">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

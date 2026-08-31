@@ -253,8 +253,12 @@ function carte(article, index) {
   else if (index > 3 && (index - 4) % 7 === 0) classes.push('wide');
   if (index === state.pointer) classes.push('cursor');
 
+  const estVideo = /(^|\/\/)(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(article.url || '');
   const media = article.image
-    ? `<div class="card-media"><img src="${esc(relais(article.image))}" alt="" loading="lazy"></div>`
+    ? `<div class="card-media${estVideo ? ' video' : ''}">
+         <img src="${esc(relais(article.image))}" alt="" loading="lazy">
+         ${estVideo ? '<span class="play" aria-hidden="true"></span>' : ''}
+       </div>`
     : plaque(article);
 
   const lecture = tempsLecture(article.word_count);
@@ -439,8 +443,11 @@ async function completerArticle(article, force = false) {
 
 function renderReader(article) {
   const suivant = articleSuivant();
+  // Une vidéo : le lecteur remplace le texte, la miniature ferait doublon.
+  const estVideo = /<iframe[^>]+(youtube|vimeo|dailymotion)/i.test(article.content || '');
 
   $('#readerStar').classList.toggle('on', Boolean(article.starred));
+  $('#readerFull').hidden = estVideo || !article.url;
   const lien = $('#readerOpen');
   lien.href = article.url || '#';
   lien.style.visibility = article.url ? '' : 'hidden';
@@ -448,7 +455,8 @@ function renderReader(article) {
   const meta = [];
   if (article.author) meta.push(`<span class="author">${esc(article.author)}</span>`);
   meta.push(esc(dateLongue(article.published_at)));
-  const lecture = tempsLecture(article.word_count);
+  // Un temps de lecture n'a pas de sens pour une vidéo.
+  const lecture = estVideo ? '' : tempsLecture(article.word_count);
   if (lecture) meta.push(esc(lecture));
   if (article.url) meta.push(esc(hote(article.url)));
 
@@ -464,7 +472,7 @@ function renderReader(article) {
     : '';
 
   // On ne repete pas l'image d'ouverture si elle est deja dans le corps.
-  const heroDansCorps = article.image && article.content?.includes(article.image);
+  const heroDansCorps = estVideo || (article.image && article.content?.includes(article.image));
   const hero = article.image && !heroDansCorps
     ? `<figure class="reader-hero"><img src="${esc(relais(article.image))}" alt=""></figure>`
     : '';
@@ -611,6 +619,24 @@ function onKey(event) {
   if (key === 'a') { event.preventDefault(); openModal('#feedModal'); $('#feedUrl').focus(); return; }
   if (key === 'A') { event.preventDefault(); toutMarquerLu(); return; }
   if (key === 'r') { event.preventDefault(); rafraichir(); return; }
+  if (key === '?') { event.preventDefault(); openModal('#shortcutsModal'); return; }
+  if (key === ',') { event.preventDefault(); ouvrirReglages(); return; }
+
+  // Bascule d'une mise en page à l'autre.
+  if (key === 'g') {
+    event.preventDefault();
+    const suite = ['magazine', 'list', 'compact'];
+    const suivante = suite[(suite.indexOf(state.layout) + 1) % suite.length];
+    applyLayout(suivante);
+    renderFlux();
+    api.settings({ layout: suivante }).catch(() => {});
+    toast('Vue ' + { magazine: 'magazine', list: 'liste', compact: 'compacte' }[suivante]);
+    return;
+  }
+
+  // Vues principales.
+  const vues = { 1: 'unread', 2: 'all', 3: 'starred' };
+  if (vues[key] && !state.openId) { event.preventDefault(); setView({ view: vues[key] }); return; }
 
   if (key === 'j' || key === 'ArrowDown') {
     event.preventDefault();
@@ -813,6 +839,8 @@ function wireEvents() {
   $('#modalShade').addEventListener('click', closeModals);
   $$('[data-close]').forEach((btn) => btn.addEventListener('click', closeModals));
   $('#openSettings').addEventListener('click', ouvrirReglages);
+  $('#shortcutsBtn').addEventListener('click', () => openModal('#shortcutsModal'));
+  $('#openShortcuts').addEventListener('click', () => openModal('#shortcutsModal'));
 
   $('#feedForm').addEventListener('submit', ajouterFlux);
   $('#importOpml').addEventListener('click', () => $('#opmlFile').click());

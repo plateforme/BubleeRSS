@@ -59,6 +59,9 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18"/></svg>
         Réglages
       </button>
+      <button class="icon-btn tiny" id="shortcutsBtn" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M6.5 14h11"/></svg>
+      </button>
       <span class="rail-stamp" id="lastRefresh"></span>
     </footer>
   </aside>
@@ -133,11 +136,13 @@
 
 <div class="modal" id="feedModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedModalTitle">
   <h2 id="feedModalTitle">Ajouter une source</h2>
-  <p class="modal-hint">Colle l’adresse d’un flux RSS/Atom — ou simplement celle du site, on cherchera le flux.</p>
+  <p class="modal-hint">Colle l’adresse d’un flux RSS/Atom, ou simplement celle du site : Bublee
+    cherchera le flux. Une chaîne YouTube fonctionne aussi — pseudo, adresse de chaîne,
+    liste de lecture ou même lien d’une vidéo.</p>
   <form id="feedForm">
     <label class="field">
       <span>Adresse</span>
-      <input type="text" id="feedUrl" placeholder="lemonde.fr  ·  exemple.com/feed" required autocomplete="off">
+      <input type="text" id="feedUrl" placeholder="lemonde.fr · exemple.com/feed · youtube.com/@chaine" required autocomplete="off">
     </label>
     <label class="field">
       <span>Dossier <small>(optionnel)</small></span>
@@ -208,17 +213,56 @@
   </div>
 
   <div class="modal-sep"><span>raccourcis</span></div>
-  <ul class="shortcuts">
-    <li><kbd>J</kbd><kbd>K</kbd> naviguer</li>
-    <li><kbd>Entrée</kbd> ouvrir</li>
-    <li><kbd>M</kbd> lu / non lu</li>
-    <li><kbd>S</kbd> favori</li>
-    <li><kbd>V</kbd> article original</li>
-    <li><kbd>F</kbd> texte complet</li>
-    <li><kbd>R</kbd> rafraîchir</li>
-    <li><kbd>/</kbd> rechercher</li>
-    <li><kbd>Échap</kbd> fermer</li>
-  </ul>
+  <div class="modal-io">
+    <button class="ghost-btn" id="openShortcuts">Voir tous les raccourcis <kbd>?</kbd></button>
+  </div>
+</div>
+
+<div class="modal wide" id="shortcutsModal" hidden role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+  <h2 id="shortcutsTitle">Raccourcis clavier</h2>
+  <p class="modal-hint">Bublee se pilote sans souris. Appuie sur <kbd>?</kbd> à tout moment pour revenir ici.</p>
+
+  <div class="keys">
+    <section>
+      <h3>Naviguer</h3>
+      <dl>
+        <dt><kbd>J</kbd> <kbd>↓</kbd></dt><dd>article suivant</dd>
+        <dt><kbd>K</kbd> <kbd>↑</kbd></dt><dd>article précédent</dd>
+        <dt><kbd>1</kbd></dt><dd>vue Non lus</dd>
+        <dt><kbd>2</kbd></dt><dd>vue Tout</dd>
+        <dt><kbd>3</kbd></dt><dd>vue Favoris</dd>
+        <dt><kbd>/</kbd></dt><dd>rechercher</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h3>Lire</h3>
+      <dl>
+        <dt><kbd>Entrée</kbd> <kbd>O</kbd></dt><dd>ouvrir l’article</dd>
+        <dt><kbd>M</kbd></dt><dd>marquer lu / non lu</dd>
+        <dt><kbd>S</kbd></dt><dd>mettre en favori</dd>
+        <dt><kbd>V</kbd></dt><dd>ouvrir l’article original</dd>
+        <dt><kbd>F</kbd></dt><dd>récupérer le texte complet</dd>
+        <dt><kbd>Échap</kbd></dt><dd>fermer</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h3>Organiser</h3>
+      <dl>
+        <dt><kbd>R</kbd></dt><dd>rafraîchir les sources</dd>
+        <dt><kbd>A</kbd></dt><dd>ajouter une source</dd>
+        <dt><kbd>Maj</kbd> <kbd>A</kbd></dt><dd>tout marquer comme lu</dd>
+        <dt><kbd>G</kbd></dt><dd>changer de mise en page</dd>
+        <dt><kbd>,</kbd></dt><dd>réglages</dd>
+        <dt><kbd>?</kbd></dt><dd>cet écran</dd>
+      </dl>
+    </section>
+  </div>
+
+  <div class="modal-actions">
+    <button type="button" class="accent-btn" data-close>Compris</button>
+  </div>
 </div>
 
 <div class="modal" id="feedEditModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedEditTitle">

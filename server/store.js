@@ -3,6 +3,7 @@ import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
 import { extraireTexteComplet, extraireImageDeLaPage } from './readable.js';
+import { estYouTube } from './youtube.js';
 
 const now = () => Date.now();
 
@@ -178,7 +179,7 @@ export async function reparerFlux(id) {
     const confiance = ressemblance(titre, feed);
 
     if (confiance >= SEUIL_CERTITUDE) {
-      appliquerAdresse(id, candidat.url);
+      appliquerAdresse(id, candidat.url, { figerNom: true });
       const refresh = await refreshFeed(id);
       if (!refresh.error) {
         return { ...base, status: 'repare', to: candidat.url, toTitle: titre, added: refresh.added };
@@ -203,7 +204,7 @@ export async function accepterReparation(id, url) {
   }
 
   const ancienne = feed.url;
-  appliquerAdresse(id, url);
+  appliquerAdresse(id, url, { figerNom: true });
   const refresh = await refreshFeed(id);
   if (refresh.error) {
     appliquerAdresse(id, ancienne);
@@ -638,6 +639,8 @@ export function queryArticles({ view = 'unread', feedId, folder, q, limit = 30, 
 /** Un article est juge tronque quand le flux n'en livre qu'un aperçu. */
 function estTronque(row) {
   if (row.has_full) return false;
+  // Une video est courte par nature : son "texte" est le lecteur.
+  if (estYouTube(row.url)) return false;
   const seuil = Number(getSetting('fulltext_min_words', '250'));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
 }

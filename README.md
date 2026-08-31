@@ -48,6 +48,7 @@ HOST=0.0.0.0 npm start
   la découverte lit les `<link rel="alternate">` de la page, et à défaut teste
   les chemins classiques (`/feed`, `/rss.xml`, `/atom.xml`…).
 - **Importer / exporter en OPML** — l'export Feedly passe tel quel, dossiers compris.
+- **Chaînes YouTube** agrégées comme n'importe quelle source, lecteur intégré (voir plus bas).
 - **Formats** : RSS 2.0, RSS 1.0 (RDF) et Atom, avec `content:encoded`,
   `media:content`, `dc:creator`, encodages latin-1, ETag / Last-Modified.
 - **Texte complet** des articles que le flux ne publie qu'en résumé (voir plus bas).
@@ -129,8 +130,9 @@ dans cet ordre :
 Les images passent ensuite par le relais local, ce qui contourne les
 protections anti-hotlink. Il reste des cas sans issue : un site qui répond 403
 aux robots (le New York Times, par exemple) ne livrera ni image ni texte.
-La carte devient alors une brève typographique — filet, titre plus grand,
-chapô plus long — plutôt qu'un blanc.
+La carte reçoit alors une **plaque typographique** : l'initiale de l'article
+en gros serif débordant du cadre, le nom de la source en petites capitales,
+et une teinte propre à chaque source. Une composition, pas un trou.
 
 ## Sources injoignables
 
@@ -210,11 +212,34 @@ curl -s -X POST http://127.0.0.1:4321/api/feeds \
   -d '{"url":"korben.info","folder":"Tech"}'
 ```
 
+## Chaînes YouTube
+
+YouTube n'affiche plus de bouton RSS, mais publie toujours un flux Atom par
+chaîne et par liste de lecture. Colle n'importe quelle adresse YouTube dans
+« Ajouter une source » — Bublee retrouve le flux :
+
+| Ce que tu colles | Ce que Bublee en fait |
+|---|---|
+| `youtube.com/@monsieurphi` | lit la page pour trouver l'identifiant de chaîne |
+| `youtube.com/channel/UC…` | conversion directe, sans requête |
+| `youtube.com/playlist?list=…` | flux de la liste de lecture |
+| `youtube.com/watch?v=…` | remonte à la chaîne de la vidéo |
+
+Les vidéos arrivent comme les articles : miniature, titre, auteur, date,
+description. La carte porte un bouton de lecture, et le lecteur intègre le
+player YouTube — en `youtube-nocookie.com`, sans quitter Bublee. Les liens et
+les chapitres de la description restent cliquables. Ni temps de lecture ni
+récupération de texte complet sur une vidéo : ça n'aurait pas de sens.
+
 ## Raccourcis clavier
+
+<kbd>?</kbd> à tout moment ouvre l'aide-mémoire, aussi accessible par l'icône
+de clavier en bas de la colonne de gauche.
 
 | Touche | Action |
 |--------|--------|
 | `J` / `K` | article suivant / précédent |
+| `1` `2` `3` | vues Non lus / Tout / Favoris |
 | `Entrée` ou `O` | ouvrir |
 | `M` | lu / non lu |
 | `S` | favori |
@@ -223,7 +248,10 @@ curl -s -X POST http://127.0.0.1:4321/api/feeds \
 | `R` | rafraîchir |
 | `A` | ajouter une source |
 | `Maj+A` | tout marquer comme lu |
+| `G` | changer de mise en page |
 | `/` | rechercher |
+| `,` | réglages |
+| `?` | aide-mémoire |
 | `Échap` | fermer |
 
 ## Sous le capot
@@ -237,6 +265,7 @@ server/
   readable.js extraction du texte complet (Readability)
   opml.js     import / export OPML
   html.js     nettoyage du HTML des articles
+  youtube.js  chaînes YouTube : résolution du flux, lecteur intégré
   http.js     couche réseau commune, garde-fous SSRF
   apikey.js   jeton d'API, portée réseau, CORS
   db.js       schéma SQLite et migrations
@@ -264,6 +293,6 @@ Quelques choix à connaître :
 npm test
 ```
 
-32 tests : nettoyage HTML, analyse des trois formats de flux, normalisation
-des clés de comparaison et comportement complet de la déduplication —
-y compris les faux positifs rencontrés sur de vrais flux.
+36 tests : nettoyage HTML, analyse des trois formats de flux, chaînes
+YouTube, normalisation des clés de comparaison et comportement complet
+de la déduplication — y compris les faux positifs rencontrés sur de vrais flux.

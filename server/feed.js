@@ -2,6 +2,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { sanitizeHtml, toPlainText, firstImage, decodeEntities, countWords, absolutize } from './html.js';
 import { httpGet, decodeBody, MAX_BYTES } from './http.js';
+import { estYouTube, resoudreFluxYouTube, contenuVideo } from './youtube.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -148,8 +149,19 @@ function normalizeItem(node, feedUrl, siteUrl) {
     pick(node, 'pubDate', 'published', 'dc:date', 'updated', 'date', 'lastBuildDate')
   );
 
-  const rawContent = pick(node, 'content:encoded', 'content', 'description', 'summary', 'subtitle');
-  const rawSummary = pick(node, 'description', 'summary', 'subtitle') || rawContent;
+  // Une video YouTube n'a ni <content> ni <description> : tout est dans
+  // <media:group>. On compose le lecteur et la description a la place.
+  const videoId = pick(node, 'yt:videoId');
+  const groupe = node['media:group'];
+  const descriptionVideo = groupe ? pick(groupe, 'media:description') : '';
+
+  const rawContent = videoId
+    ? contenuVideo(videoId, descriptionVideo)
+    : pick(node, 'content:encoded', 'content', 'description', 'summary', 'subtitle');
+
+  const rawSummary = videoId
+    ? descriptionVideo
+    : pick(node, 'description', 'summary', 'subtitle') || rawContent;
 
   const content = sanitizeHtml(rawContent, base);
   const plain = toPlainText(rawSummary);
@@ -250,6 +262,20 @@ function looksLikeFeed(body) {
 export async function discoverFeeds(input) {
   let url = String(input).trim();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+  // YouTube n'annonce pas son flux dans la page : on le deduit de l'adresse.
+  if (estYouTube(url)) {
+    const fluxYT = await resoudreFluxYouTube(url);
+    if (fluxYT) {
+      try {
+        const { res, buffer } = await getFlux(fluxYT);
+        if (res.ok) {
+          const parsed = parseFeed(decodeBody(buffer, res.headers.get('content-type')), fluxYT);
+          return [{ url: fluxYT, title: parsed.title }];
+        }
+      } catch { /* on retombe sur la decouverte classique */ }
+    }
+  }
 
   const found = new Map();
 

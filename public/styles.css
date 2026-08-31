@@ -42,8 +42,8 @@
   --ease:    cubic-bezier(.16, .84, .24, 1);
 }
 
-/* Le thème sombre inverse le papier et l'encre ; l'index passe au noir pur
-   pour rester distinct du fond, les filets deviennent translucides. */
+/* Le thème sombre inverse le papier et l'encre. L'index reste un cran plus
+   sombre que la page pour s'en détacher — sans jamais tomber sur du noir pur. */
 :root[data-theme='dark'] {
   --ink:      #e4e1d9;
   --ink-deep: #0f0e0d;
@@ -151,14 +151,25 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 }
 
 .wordmark {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.wordmark-text {
-  font-family: var(--display); font-size: 34px; line-height: .86; letter-spacing: -.02em;
-  color: #f6f5f1;
+
+/* Le logo : deux bulles qui se recouvrent, l'intersection en accent.
+   Deux filets, comme les règles de toute la maquette, mais courbés — ce sont les
+   seules courbes de l'interface, d'où la reconnaissance immédiate. Et le dessin
+   dit ce que fait l'app : deux sources qui se croisent, le recoupement mis en
+   valeur plutôt que subi. */
+.logo {
+  display: flex; align-items: center; gap: 12px;
+  color: #f6f5f1; text-decoration: none;
 }
-/* Le logo : un carré d'accent, rien de plus. */
-.wordmark-square { width: 14px; height: 14px; flex: none; background: var(--accent); margin-bottom: 4px; }
+.logo-mark { width: 34px; height: 22.7px; flex: none; }
+.logo-mark .lentille { fill: var(--accent); }
+.logo-mark .anneaux { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.logo-mot {
+  font-family: var(--display); font-size: 33px; line-height: .86; letter-spacing: -.025em;
+}
+.logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 
 .index-date {
   margin-top: 12px;
@@ -750,12 +761,25 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 
 /* ============================================================== lecteur */
 
+/* Le lecteur est un panneau, pas un plein écran : il laisse voir la liste sur
+   sa gauche, et cliquer cette lisière referme. La mesure de lecture reste à
+   66ch, donc l'espace utile ne perd rien à ce compromis. */
+.reader-shade {
+  position: fixed; inset: 0; z-index: 59;
+  background: rgba(var(--voile), .5);
+  animation: ed-fade .24s var(--ease);
+}
+
 .reader {
-  position: fixed; inset: 0; z-index: 60;
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+  width: min(1080px, calc(100vw - 180px));
   display: flex; flex-direction: column;
   background: var(--bone);
-  animation: ed-up .42s var(--ease);
+  border-left: 1px solid var(--ink);
+  animation: ed-slide .34s var(--ease);
 }
+
+@keyframes ed-slide { from { opacity: 0; transform: translateX(30px); } }
 
 .reader-progress {
   position: absolute; left: 0; top: 0; height: 3px; z-index: 3;
@@ -820,6 +844,10 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 /* le bandeau devient une plaque quand l'article n'a pas d'illustration */
 .reader-hero.plaque-hero { background: var(--teinte, var(--ink-deep)); }
 .reader-hero.plaque-hero .plaque-initiale { font-size: 420px; left: -1%; bottom: -34%; color: rgba(246,245,241,.14); }
+/* Une vidéo n'a pas besoin d'une ouverture pleine hauteur : le lecteur doit
+   arriver tout de suite, sinon on scrolle pour rien. */
+.reader-hero.hero-video { height: min(30vh, 230px); }
+.reader-hero.hero-video .plaque-initiale { font-size: 230px; bottom: -30%; }
 
 .reader-inner { max-width: 66ch; margin: 0 auto; padding: 0 20px 90px; }
 
@@ -1065,6 +1093,16 @@ kbd {
   .col:nth-child(3) { border-left: 0; }
   .wall { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fils { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1100px) {
+  .reader { width: calc(100vw - 72px); }
+}
+
+@media (max-width: 720px) {
+  /* Sur un téléphone, une lisière de 72 px se toucherait par accident :
+     le panneau prend tout, on referme par ✕ ou Échap. */
+  .reader { width: 100vw; border-left: 0; }
 }
 
 @media (max-width: 860px) {

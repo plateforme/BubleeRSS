@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bublee</title>
 <meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%2310604a'/><text x='50' y='74' font-family='Georgia,serif' font-size='72' fill='%23f6f5f1' text-anchor='middle'>B</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -6 32 32'><defs><clipPath id='l'><circle cx='20.2' cy='10' r='8.2'/></clipPath></defs><circle cx='9.8' cy='10' r='8.2' fill='%2310604a' clip-path='url(%23l)'/><g fill='none' stroke='%2324231f' stroke-width='2'><circle cx='9.8' cy='10' r='8.2'/><circle cx='20.2' cy='10' r='8.2'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -29,8 +29,14 @@
   <aside class="index" id="rail">
     <header class="index-head">
       <div class="wordmark">
-        <span class="wordmark-text">Bublee</span>
-        <span class="wordmark-square" aria-hidden="true"></span>
+        <button class="logo" type="button" id="logo" aria-label="Bublee, retour à la une">
+          <svg class="logo-mark" viewBox="0 0 30 20" aria-hidden="true" focusable="false">
+            <defs><clipPath id="logoLentille"><circle cx="20.2" cy="10" r="8.2"/></clipPath></defs>
+            <circle class="lentille" cx="9.8" cy="10" r="8.2" clip-path="url(#logoLentille)"/>
+            <g class="anneaux"><circle cx="9.8" cy="10" r="8.2"/><circle cx="20.2" cy="10" r="8.2"/></g>
+          </svg>
+          <span class="logo-mot">Bublee</span>
+        </button>
         <button class="index-close" id="railClose" aria-label="Fermer l’index">✕</button>
       </div>
       <p class="index-date" id="indexDate"></p>
@@ -124,6 +130,7 @@
 </div>
 
 <!-- ============================================================== lecteur -->
+<div class="reader-shade" id="readerShade" hidden></div>
 <article class="reader" id="reader" hidden aria-modal="true" role="dialog" aria-label="Lecture">
   <div class="reader-progress" id="readerProgress"></div>
   <header class="reader-bar">

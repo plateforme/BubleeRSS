@@ -613,6 +613,7 @@ async function openArticle(id) {
   state.openId = id;
   history.replaceState(null, '', '#/article/' + id);
 
+  $('#readerShade').hidden = false;
   $('#reader').hidden = false;
   $('#readerScroll').innerHTML = '';
   document.body.style.overflow = 'hidden';
@@ -657,7 +658,7 @@ function renderReader(a) {
            <h1 class="reader-titre">${esc(a.title)}</h1>
          </div></div>
        </div>`
-    : `<div class="reader-hero plaque-hero" style="--teinte:${couleur}">
+    : `<div class="reader-hero plaque-hero${video ? ' hero-video' : ''}" style="--teinte:${couleur}">
          <span class="plaque-initiale">${esc(initialeDe(a))}</span>
          <div class="reader-hero-corps"><div class="reader-hero-inner">
            ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
@@ -754,6 +755,7 @@ function closeReader() {
   state.openId = null;
   history.replaceState(null, '', location.pathname);
   $('#reader').hidden = true;
+  $('#readerShade').hidden = true;
   document.body.style.overflow = '';
 }
 
@@ -1168,6 +1170,8 @@ async function supprimerFlux() {
 /* ---------------------------------------------------------- branchements */
 
 function wireEvents() {
+  // Le logo ramène à la une, comme le titre d'un journal qu'on replie.
+  $('#logo').addEventListener('click', () => { closeReader(); setView({ view: 'unread' }); });
   $$('.view-row').forEach((b) => b.addEventListener('click', () => setView({ view: b.dataset.view })));
   $$('.tab').forEach((b) => b.addEventListener('click', () => {
     applyLayout(b.dataset.layout);
@@ -1233,6 +1237,8 @@ function wireEvents() {
   $('#railClose').addEventListener('click', closeRail);
 
   $('#readerClose').addEventListener('click', closeReader);
+  // Cliquer la liste, à côté du panneau, referme la lecture.
+  $('#readerShade').addEventListener('click', closeReader);
   $('#readerStar').addEventListener('click', () => state.openId && basculerFavori(state.openId));
   $('#readerTag').addEventListener('click', () => $('#tagInput')?.focus());
   $('#readerFull').addEventListener('click', () => state.openId && completerArticle({ id: state.openId }, true));

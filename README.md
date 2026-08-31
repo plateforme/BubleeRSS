@@ -14,9 +14,10 @@ la machine à part les requêtes vers les flux eux-mêmes.
 
 <p align="center">
   <img src="docs/lecteur.png" width="760"
-       alt="Le lecteur plein écran : bandeau d'ouverture, étiquettes colorées, lettrine">
-  <br><em>Le lecteur, plein écran. Aeon ne publie qu'un résumé de 27 mots :
-  l'étiquette « texte complet » signale les 4 100 mots lus sur la page d'origine.</em>
+       alt="Le lecteur en panneau : la liste reste visible à gauche, bandeau d'ouverture, étiquettes colorées, lettrine">
+  <br><em>Le lecteur s'ouvre en panneau : la liste reste là, un clic à côté referme.
+  Aeon ne publie qu'un résumé de 27 mots — l'étiquette « texte complet » signale
+  les 4 100 mots lus sur la page d'origine.</em>
 </p>
 
 <p align="center">
@@ -89,6 +90,13 @@ Trois familles, et une règle : **aucun texte d'interface n'est en sans-serif.**
 `border-radius: 0` partout, aucune ombre, aucun flou : la hiérarchie tient aux
 filets et aux aplats.
 
+La **marque** est la seule exception, et c'est ce qui la rend reconnaissable :
+deux bulles qui se recouvrent, tracées au même filet que le reste de la page,
+l'intersection remplie à l'accent. Ce sont les seules courbes de toute
+l'interface. Le dessin dit aussi ce que fait l'app — deux sources qui se
+croisent, le recoupement mis en valeur plutôt que subi. Cliquer le logo
+ramène aux non-lus.
+
 Les noirs sont **chauds et jamais purs** : l'encre est `#24231f`, l'index
 `#302e2a`, le fond des blocs photo `#1b1a17`. Un aplat noir franc contre le
 papier crème donnait 15,7:1 à la lisière — une arête qui fatigue sur une page
@@ -115,6 +123,12 @@ Trois mises en page, indépendantes de la vue :
 Dans l'index, la **pastille de type** distingue les sources : rien pour un
 article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
 de niveau pour un podcast.
+
+Le **lecteur** est un panneau ancré à droite, pas une page plein écran. Il prend
+`min(1080px, 100vw − 180px)` : assez large pour une colonne de texte confortable,
+en laissant voir la liste par-dessous — cliquer dedans referme, comme `Échap`.
+Sous 1100 px la lisière tombe à 72 px, et sous 720 px le panneau prend tout
+l'écran : une lisière de 72 px, au doigt, se toucherait par accident.
 
 ## Texte complet
 

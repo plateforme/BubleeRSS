@@ -141,7 +141,13 @@ Dans l'index, la **pastille de type** distingue les sources : rien pour un
 article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
 de niveau pour un podcast.
 
-L'**index** se règle à la largeur qu'on veut : une poignée sur son bord droit,
+L'**index** se replie entièrement — le chevron dans son en-tête, ou <kbd>B</kbd> —
+et la scène récupère toute la largeur ; le ☰ de la barre d'outils le ramène.
+Replier plutôt que réduire à une barre de pictogrammes : un nom de source ne se
+résume pas à une icône, et une demi-mesure ne rendrait presque rien. L'état est
+retenu et appliqué avant le premier rendu, comme le thème.
+
+Il se règle aussi à la largeur qu'on veut : une poignée sur son bord droit,
 de 240 à 460 px, double-clic pour revenir à 266. Les noms de sources longs ne
 sont plus tronqués dès qu'on lui donne une centaine de pixels de plus. La
 largeur tient dans le navigateur, pas sur le serveur — c'est un réglage d'écran,
@@ -502,6 +508,7 @@ de clavier en bas de la colonne de gauche.
 | `G` | changer de mise en page |
 | `T` | étiqueter — l’article ouvert, ou celui au curseur dans la liste |
 | `P` | partager l’article au curseur |
+| `B` | replier ou déplier l’index |
 | `/` | rechercher |
 | `,` | réglages |
 | `?` | aide-mémoire |

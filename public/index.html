@@ -18,6 +18,8 @@
     if (accent) document.documentElement.style.setProperty('--accent', accent);
     const largeur = localStorage.getItem('bublee.indexWidth');
     if (largeur) document.documentElement.style.setProperty('--index-w', largeur + 'px');
+    // Posé sur <html> avant le rendu ; app.js le reporte sur .app au démarrage.
+    if (localStorage.getItem('bublee.indexPlie') === '1') document.documentElement.dataset.plie = '1';
   } catch (e) {}
 </script>
 </head>
@@ -77,6 +79,10 @@
             <g class="anneaux"><circle cx="9.8" cy="10" r="8.2"/><circle cx="20.2" cy="10" r="8.2"/></g>
           </svg>
           <span class="logo-mot">Bublee</span>
+        </button>
+        <button class="index-plier" id="railCollapse" title="Replier l’index (B)"
+                aria-label="Replier l’index" aria-expanded="true" aria-controls="rail">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5.5-6 6.5 6 6.5"/></svg>
         </button>
         <button class="index-close" id="railClose" aria-label="Fermer l’index">✕</button>
       </div>
@@ -147,7 +153,7 @@
   <!-- ============================================================== scène -->
   <main class="stage">
     <header class="toolbar">
-      <button class="index-open" id="railOpen" aria-label="Ouvrir l’index">☰</button>
+      <button class="index-open" id="railOpen" title="Rouvrir l’index (B)" aria-label="Ouvrir l’index">☰</button>
 
       <div class="tabs" role="group" aria-label="Mise en page">
         <button class="tab" data-layout="magazine">La une</button>
@@ -358,6 +364,7 @@
         <dt><kbd>S</kbd></dt><dd>favori</dd>
         <dt><kbd>T</kbd></dt><dd>étiqueter — l’article ouvert, ou celui au curseur</dd>
         <dt><kbd>P</kbd></dt><dd>partager l’article au curseur</dd>
+        <dt><kbd>B</kbd></dt><dd>replier ou déplier l’index</dd>
         <dt><kbd>V</kbd></dt><dd>original</dd>
         <dt><kbd>F</kbd></dt><dd>texte complet</dd>
       </dl>

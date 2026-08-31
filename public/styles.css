@@ -137,6 +137,24 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   height: 100%;
 }
 
+/* Index replié : la colonne tombe à zéro et la scène prend toute la largeur.
+   Replier plutôt que réduire à une barre d'icônes — un nom de source ne se
+   résume pas à un pictogramme, une demi-mesure ne rendrait pas de surface.
+
+   Borné au-delà de 860 px : en dessous, l'index est déjà un tiroir et la grille
+   n'a qu'une colonne — y appliquer le repli la casserait. */
+@media (min-width: 861px) {
+  .app.plie { grid-template-columns: 0 minmax(0, 1fr); }
+  .app.plie .index { overflow: hidden; border-right: 0; }
+  .app.plie .index-poignee { display: none; }
+  .app.plie .index-open { display: flex; align-items: center; padding: 0 14px; height: 100%; border-right: 1px solid var(--bone-2); }
+}
+
+/* Pas de transition sur grid-template-columns : mesuree, elle empeche purement
+   et simplement la colonne de tomber a zero — la valeur reste bloquee a sa
+   largeur de depart. Le repli est donc instantane, ce qui va tres bien a une
+   bascule de mise en page. */
+
 /* ====================================================== l'index (kiosque) */
 
 .index {
@@ -198,6 +216,18 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 }
 
 .index-close { display: none; }
+
+/* Le chevron de repli : discret au repos, il ne prend la lumière qu'au survol
+   de l'en-tête — sinon il concurrencerait le logo juste à côté. */
+.index-plier {
+  flex: none; width: 24px; height: 24px;
+  display: grid; place-items: center;
+  color: var(--on-ink-4);
+  opacity: 0; transition: opacity .18s var(--ease), color .18s var(--ease);
+}
+.index-plier svg { width: 15px; height: 15px; stroke-width: 1.8; }
+.index-head:hover .index-plier, .index-plier:focus-visible { opacity: 1; }
+.index-plier:hover { color: var(--accent); }
 
 /* recherche */
 .index-search { position: relative; border-bottom: 1px solid var(--ink-2); }
@@ -1235,8 +1265,9 @@ kbd {
 @media (max-width: 860px) {
   :root { --gut: 18px; }
   .app { grid-template-columns: 1fr; }
-  /* L'index passe en tiroir plein écran : plus rien à redimensionner. */
-  .index-poignee { display: none; }
+  /* L'index passe en tiroir plein écran : plus rien à redimensionner ni à
+     replier, le tiroir se ferme déjà par sa croix. */
+  .index-poignee, .index-plier { display: none; }
 
   .index {
     position: fixed; inset: 0; z-index: 50;

@@ -89,6 +89,9 @@ function toast(message, kind = '') {
 
 async function boot() {
   applyTheme(localStorage.getItem('bublee.theme') || 'auto');
+  // L'amorce a posé l'état replié sur <html> avant le rendu ; on le reporte sur
+  // .app, qui porte la grille — sans transition pour ce premier passage.
+  if (document.documentElement.dataset.plie === '1') $('#app').classList.add('plie');
   $('#indexDate').textContent = dateJournal();
   $('#mastheadDate').textContent = dateJournal();
 
@@ -1137,6 +1140,7 @@ function onKey(event) {
     if (a?.url) window.open(a.url, '_blank', 'noopener');
     return;
   }
+  if (key === 'b' && !state.openId) { event.preventDefault(); plierIndex(!indexPlie()); return; }
   if (key === 'p') { event.preventDefault(); partageSurCurseur(); return; }
 
   // `T` étiquette : le champ du lecteur s'il est ouvert, sinon l'article au curseur.
@@ -1449,6 +1453,19 @@ function largeurIndex(px) {
   return w;
 }
 
+/**
+ * Replie l'index sur toute la largeur de la scène. On mémorise l'état comme la
+ * largeur : c'est un réglage d'écran, pas de compte.
+ */
+function plierIndex(plie) {
+  const app = $('#app');
+  app.classList.toggle('plie', plie);
+  $('#railCollapse').setAttribute('aria-expanded', String(!plie));
+  try { localStorage.setItem('bublee.indexPlie', plie ? '1' : '0'); } catch (e) {}
+}
+
+const indexPlie = () => $('#app').classList.contains('plie');
+
 function poigneeIndex() {
   const grip = $('#indexGrip');
   const app = $('#app');
@@ -1596,8 +1613,13 @@ function wireEvents() {
   $('#markAllRead').addEventListener('click', toutMarquerLu);
   $('#addFeedBtn').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
   $('#addFeedRail').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
-  $('#railOpen').addEventListener('click', () => $('#app').classList.add('rail-on'));
+  // Sous 860 px l'index est un tiroir : le ☰ l'ouvre. Au-dessus, il le déplie.
+  $('#railOpen').addEventListener('click', () => {
+    if (matchMedia('(max-width: 860px)').matches) $('#app').classList.add('rail-on');
+    else plierIndex(false);
+  });
   $('#railClose').addEventListener('click', closeRail);
+  $('#railCollapse').addEventListener('click', () => plierIndex(true));
 
   $('#readerClose').addEventListener('click', closeReader);
   // Cliquer la liste, à côté du panneau, referme la lecture.

@@ -46,8 +46,13 @@ npm install
 npm start
 ```
 
-Le navigateur s'ouvre sur <http://127.0.0.1:4321>. La base SQLite vit dans
-`data/bublee.db` — c'est le seul fichier à sauvegarder.
+Le navigateur s'ouvre sur <http://127.0.0.1:4321>. **Au premier démarrage,
+Bublee demande de créer un compte** : le premier devient super-utilisateur et
+reprend la bibliothèque déjà en base, s'il y en a une. Ensuite, c'est lui qui
+ouvre les comptes suivants — il n'y a pas d'inscription publique.
+
+La base SQLite vit dans `data/bublee.db` — c'est le seul fichier à sauvegarder.
+Le cache disque des images, à côté, se reconstruit tout seul.
 
 | Variable            | Défaut      | Effet                                              |
 |---------------------|-------------|----------------------------------------------------|
@@ -88,6 +93,13 @@ HOST=0.0.0.0 npm start
 - **Thème clair « kiosque » et sombre « encre »**, ou automatique, et **couleur d’accent** au choix.
 
 ## Comptes et rôles
+
+<p align="center">
+  <img src="docs/connexion.png" width="560"
+       alt="L’écran de connexion : la marque, deux champs, un bouton">
+  <br><em>La porte. Au tout premier démarrage, elle propose de créer le compte
+  qui deviendra super-utilisateur et reprendra la bibliothèque existante.</em>
+</p>
 
 Bublee n'avait pas d'authentification : il tournait sur une machine de bureau,
 et le contrôle d'accès dispensait tout le réseau privé de jeton. Derrière un
@@ -131,6 +143,13 @@ s'approprier le compte pour de bon.
 
 **Le jeton d'API est personnel**, un par compte, révocable sans toucher aux
 autres.
+
+<p align="center">
+  <img src="docs/comptes.png" width="760"
+       alt="La section Comptes des réglages : la liste des comptes avec leur rôle, et le formulaire de création">
+  <br><em>Réglages → Comptes. Chaque ligne montre ce que le compte possède
+  réellement ; le sien ne peut être ni suspendu ni supprimé depuis là.</em>
+</p>
 
 ## Le dessin
 

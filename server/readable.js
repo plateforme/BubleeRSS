@@ -67,6 +67,36 @@ export async function extraireImageDeLaPage(url) {
   return null;
 }
 
+export const EXTRACTION_DOUTEUSE =
+  'La page est surtout de la mise en page — menus, comparateur de prix, encarts — et pas un article.';
+
+/** En deca, le rapport est trop bruite pour decider : une breve de trois lignes
+    a mecaniquement beaucoup de balises par caractere. */
+const TEXTE_MESURABLE = 300;
+const BALISES_MAX = 70;      // par millier de caracteres de texte
+const IMAGES_ILLUSTRE = 15;  // au-dela, c'est une galerie, pas un debordement
+
+/**
+ * Readability se trompe parfois de bloc et rend la page entiere : le comparateur
+ * de prix d'un bon plan, une liste de marchands, un pied de page. Ca se voit au
+ * nombre de balises rapporte au texte — un paragraphe, c'est une balise pour
+ * cent-cinquante caracteres ; une ligne de comparateur, huit balises pour trente.
+ *
+ * Sur la bibliotheque reelle, tout ce qui etait lisible plafonnait a 42 balises
+ * par millier de caracteres, et les pages ratees demarraient a 95.
+ *
+ * Une exception : un article tres illustre (une galerie d'architecture) monte
+ * aussi haut, mais parce qu'il est fait d'images. On ne compte donc comme
+ * suspect que le balisage que les images n'expliquent pas.
+ */
+export function extractionDouteuse(html, texte) {
+  if (texte.length < TEXTE_MESURABLE) return false;
+  const mille = texte.length / 1000;
+  const balises = (html.match(/<[a-z]/gi) || []).length / mille;
+  const images = (html.match(/<img[\s>]/gi) || []).length / mille;
+  return balises > BALISES_MAX && images < IMAGES_ILLUSTRE;
+}
+
 /**
  * Telecharge `url` et en extrait l'article principal.
  * Leve une erreur explicite si la page est inaccessible ou illisible.
@@ -109,6 +139,7 @@ export async function extraireTexteComplet(url) {
   const contenu = sanitizeHtml(article.content, finalUrl);
   const texte = toPlainText(contenu);
   if (countWords(texte) < 40) throw new Error('Le texte extrait est trop court.');
+  if (extractionDouteuse(contenu, texte)) throw new Error(EXTRACTION_DOUTEUSE);
 
   return {
     content: contenu,

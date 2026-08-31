@@ -758,10 +758,24 @@ let popId = null;
 /** Colle le bouton au coin bas-droit de la carte survolée : en haut il passait
     sur le surtitre. Il vit dans le scroller, donc il suit la page sans qu'on
     ait à le repositionner au défilement. */
+let carteSurvolee = null;
+
+/** Marque la carte visée. On ne peut pas s'appuyer sur `:hover` : le bouton vit
+    à côté de la carte, pas dedans, donc dès que la souris l'atteint la carte
+    perdrait son survol — et la méta qu'on venait d'effacer réapparaîtrait sous
+    le bouton. */
+function marquerSurvol(carte) {
+  if (carteSurvolee === carte) return;
+  carteSurvolee?.classList.remove('survol');
+  carteSurvolee = carte;
+  carte?.classList.add('survol');
+}
+
 function survolCarte(carte) {
   const zone = $('#artActions');
   if (popId !== null) return;                       // pendant l'édition, il ne bouge plus
-  if (!carte) { zone.hidden = true; return; }
+  if (!carte) { zone.hidden = true; marquerSurvol(null); return; }
+  marquerSurvol(carte);
 
   const scroller = $('#scroller');
   const r = carte.getBoundingClientRect();
@@ -820,6 +834,7 @@ function fermerPopTags() {
   popId = null;
   $('#tagPop').hidden = true;
   $('#artActions').hidden = true;
+  marquerSurvol(null);
 }
 
 /** Ouvre le popover sur l'article au curseur — c'est ce que fait `T` hors lecteur. */

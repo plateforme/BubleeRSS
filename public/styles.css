@@ -920,7 +920,12 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
    méta de droite, il prend sa place : elle s'efface le temps du survol. Rien ne
    se superpose, et aucune ligne ne bouge. */
 .dep-source, .fil-source, .aplat-duree { transition: opacity .16s var(--ease); }
-.art:hover .dep-source, .art:hover .fil-source, .art:hover .aplat-duree { opacity: 0; }
+.art.survol .dep-source, .art.survol .fil-source, .art.survol .aplat-duree { opacity: 0; }
+/* La dépêche reste inversée tant que la souris est sur le bouton, sinon la
+   ligne clignoterait au moment précis où on va cliquer. */
+.dep.survol { background: var(--ink); color: var(--bone); }
+.dep.survol .dep-heure, .dep.survol .dep-source, .dep.survol .dep-duree { color: var(--bone); }
+.fil.survol { background: var(--bone-2); }
 
 .art-actions { position: absolute; z-index: 6; }
 .art-actions button {

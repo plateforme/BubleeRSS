@@ -149,6 +149,19 @@ garde en base : les fois suivantes, l'affichage est instantané.
   même sur un article que Bublee n'estimait pas tronqué.
 - Un site qui refuse la lecture automatique (Cloudflare, mur payant) affiche
   la raison et le lien vers l'original. L'échec n'est pas retenté avant 24 h.
+- **Une extraction ratée est refusée plutôt qu'affichée.** Readability se trompe
+  parfois de bloc et rend la page entière — sur un « bon plan », c'est tout le
+  comparateur de prix qui arrive : des centaines de lignes de marchands autour
+  de trois paragraphes utiles. Ça se voit au nombre de balises rapporté au
+  texte : un paragraphe, c'est une balise pour cent-cinquante caractères ; une
+  ligne de comparateur, huit balises pour trente. Sur la bibliothèque réelle,
+  tout ce qui était lisible plafonnait à 42 balises par millier de caractères et
+  les pages ratées démarraient à 95 — le seuil est posé à 70. Une galerie
+  d'architecture monte aussi haut, mais parce qu'elle est faite d'images : on ne
+  compte donc que le balisage que les images n'expliquent pas. L'article refusé
+  garde son résumé et son lien, ce qui est la bonne réponse pour ces pages.
+- `node scripts/purger-extractions.mjs` repasse les textes déjà en base devant
+  ce contrôle ; `--purger` efface ceux qui ne passent plus.
 - Désactivable dans les réglages.
 
 ## Déduplication

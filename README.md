@@ -325,6 +325,19 @@ player YouTube — en `youtube-nocookie.com`, sans quitter Bublee. Les liens et
 les chapitres de la description restent cliquables. Ni temps de lecture ni
 récupération de texte complet sur une vidéo : ça n'aurait pas de sens.
 
+## Partager
+
+Le second pictogramme du coin d'une carte ouvre les destinations : **courriel**,
+**WhatsApp**, **Telegram**, **copier le lien** — et, sur les navigateurs qui la
+portent, la **feuille de partage du système**, qui donne accès à tout ce qui est
+installé sur la machine. <kbd>P</kbd> fait la même chose sur l'article au
+curseur, ou sur celui qu'on est en train de lire.
+
+Rien n'est envoyé par Bublee : chaque destination ouvre sa propre fenêtre de
+rédaction, pré-remplie du titre et du lien. C'est toi qui postes. La ligne
+« Partager… » n'apparaît que si le navigateur porte vraiment l'API — pas de
+bouton qui ne ferait rien.
+
 ## Podcasts
 
 Un podcast, c'est un flux RSS. Colle son adresse et Bublee en fait des
@@ -349,11 +362,12 @@ celui-là qu'il faut donner à Bublee.
 Poser une étiquette sur un article, c'est le retrouver ensuite — dans
 l'interface comme par l'API.
 
-- **Sans ouvrir l'article** : au survol d'une carte, un bouton « ＋ Étiquette »
-  apparaît dans son coin, et ouvre la liste des étiquettes — un clic pose ou
-  retire, le champ du bas en crée une. <kbd>T</kbd> fait la même chose sur
-  l'article au curseur. Les étiquettes posées s'affichent ensuite dans la carte
-  elle-même, dans les trois mises en page.
+- **Sans ouvrir l'article** : au survol d'une carte, deux pictogrammes
+  apparaissent dans son coin — une étiquette et un partage. Le premier ouvre la
+  liste des étiquettes : un clic pose ou retire, le champ du bas en crée une.
+  <kbd>T</kbd> fait la même chose sur l'article au curseur. Les étiquettes
+  posées s'affichent ensuite dans la carte elle-même, dans les trois mises en
+  page.
 - Le bouton ne se superpose à rien : là où la carte porte déjà une méta à
   droite — la source d'une dépêche, la durée d'un aplat — cette méta s'efface le
   temps du survol et le bouton prend sa place. Rien ne bouge, rien ne se
@@ -411,6 +425,7 @@ de clavier en bas de la colonne de gauche.
 | `Maj+A` | tout marquer comme lu |
 | `G` | changer de mise en page |
 | `T` | étiqueter — l’article ouvert, ou celui au curseur dans la liste |
+| `P` | partager l’article au curseur |
 | `/` | rechercher |
 | `,` | réglages |
 | `?` | aide-mémoire |

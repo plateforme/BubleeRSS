@@ -369,7 +369,9 @@ function blocMur(liste) {
       ? `<span class="badge video">▶ ${esc(duree(a.duration) || 'vidéo')}</span>`
       : estAudio(a)
         ? `<span class="badge audio">◆ ${esc(duree(a.duration))}</span>`
-        : '<span class="badge">Photo</span>';
+        // Une image dans un mur d'images n'a pas besoin qu'on la dise image.
+        // La pastille ne sert qu'à annoncer ce qui ne se voit pas : une durée.
+        : '';
     return `
       <button class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
         <img src="${esc(relais(a.image))}" alt="" loading="lazy">
@@ -773,7 +775,7 @@ function marquerSurvol(carte) {
 
 function survolCarte(carte) {
   const zone = $('#artActions');
-  if (popId !== null) return;                       // pendant l'édition, il ne bouge plus
+  if (popId !== null || partageId !== null) return;  // un popover ouvert le fige
   if (!carte) { zone.hidden = true; marquerSurvol(null); return; }
   marquerSurvol(carte);
 
@@ -811,19 +813,13 @@ function renderPopTags() {
 
 function ouvrirPopTags(id, ancre) {
   if (!state.articles.some((a) => a.id === id)) return;
+  fermerPartage();
   popId = id;
   const pop = $('#tagPop');
   pop.hidden = false;
   renderPopTags();
 
-  // Le popover se pose sous l'ancre, ou au-dessus s'il n'y a pas la place.
-  const r = ancre.getBoundingClientRect();
-  const largeur = pop.offsetWidth;
-  const hauteur = pop.offsetHeight;
-  pop.style.left = Math.round(Math.min(Math.max(10, r.right - largeur), innerWidth - largeur - 10)) + 'px';
-  pop.style.top = Math.round(r.bottom + 8 + hauteur < innerHeight
-    ? r.bottom + 8
-    : Math.max(10, r.top - 8 - hauteur)) + 'px';
+  poserContre(pop, ancre);
 
   $('#tagPopInput').value = '';
   $('#tagPopInput').focus();
@@ -835,6 +831,99 @@ function fermerPopTags() {
   $('#tagPop').hidden = true;
   $('#artActions').hidden = true;
   marquerSurvol(null);
+}
+
+/* ------------------------------------------------------------- partager --- */
+
+let partageId = null;
+
+/** Pose un popover contre son ancre : dessous s'il y a la place, dessus sinon. */
+function poserContre(pop, ancre) {
+  const r = ancre.getBoundingClientRect();
+  const l = pop.offsetWidth;
+  const h = pop.offsetHeight;
+  pop.style.left = Math.round(Math.min(Math.max(10, r.right - l), innerWidth - l - 10)) + 'px';
+  pop.style.top = Math.round(r.bottom + 8 + h < innerHeight ? r.bottom + 8 : Math.max(10, r.top - 8 - h)) + 'px';
+}
+
+function ouvrirPartage(id, ancre) {
+  const a = state.articles.find((x) => x.id === id);
+  if (!a || !a.url) { toast('Cet article n’a pas de lien à partager.', 'bad'); return; }
+  fermerPopTags();
+  partageId = id;
+
+  const pop = $('#sharePop');
+  $('#sharePopTitre').textContent = a.title;
+  // La feuille de partage du système n'existe pas partout : on ne propose la
+  // ligne que si le navigateur la porte vraiment.
+  $('[data-partage="systeme"]', pop).hidden = typeof navigator.share !== 'function';
+  pop.hidden = false;
+  poserContre(pop, ancre);
+  $('[data-partage]:not([hidden])', pop)?.focus();
+}
+
+function fermerPartage() {
+  if (partageId === null) return;
+  partageId = null;
+  $('#sharePop').hidden = true;
+  $('#artActions').hidden = true;
+  marquerSurvol(null);
+}
+
+/**
+ * Ouvre le canal choisi avec l'article pré-rempli. Rien n'est envoyé d'ici :
+ * chaque destination ouvre sa propre fenêtre de rédaction, c'est toi qui postes.
+ */
+async function partager(canal) {
+  const a = state.articles.find((x) => x.id === partageId);
+  if (!a) return;
+  const titre = a.title;
+  const lien = a.url;
+  const texte = `${titre}\n${lien}`;
+
+  if (canal === 'copier') {
+    try {
+      await navigator.clipboard.writeText(lien);
+      toast('Lien copié.');
+    } catch (error) {
+      toast('Copie refusée par le navigateur : ' + error.message, 'bad');
+    }
+    fermerPartage();
+    return;
+  }
+
+  if (canal === 'systeme') {
+    try {
+      await navigator.share({ title: titre, text: titre, url: lien });
+    } catch (error) {
+      // L'utilisateur qui referme la feuille lève AbortError : ce n'est pas une panne.
+      if (error.name !== 'AbortError') toast('Partage : ' + error.message, 'bad');
+    }
+    fermerPartage();
+    return;
+  }
+
+  const destinations = {
+    mail: () => {
+      location.href = `mailto:?subject=${encodeURIComponent(titre)}&body=${encodeURIComponent(texte)}`;
+    },
+    whatsapp: () => window.open('https://wa.me/?text=' + encodeURIComponent(texte), '_blank', 'noopener'),
+    telegram: () => window.open(
+      `https://t.me/share/url?url=${encodeURIComponent(lien)}&text=${encodeURIComponent(titre)}`,
+      '_blank', 'noopener'
+    )
+  };
+  destinations[canal]?.();
+  fermerPartage();
+}
+
+/** Ouvre le partage sur l'article au curseur — ce que fait `P` hors lecteur. */
+function partageSurCurseur() {
+  const id = articleCourant();
+  if (id === null) return;
+  // Lecteur ouvert : on s'ancre à sa barre, la carte est cachée derrière.
+  const ancre = state.openId === id ? $('.reader-bar') : $(`.art[data-id="${id}"]`);
+  if (ancre) ouvrirPartage(id, ancre);
 }
 
 /** Ouvre le popover sur l'article au curseur — c'est ce que fait `T` hors lecteur. */
@@ -933,6 +1022,7 @@ function onKey(event) {
   const key = event.key;
 
   if (key === 'Escape') {
+    if (partageId !== null) return fermerPartage();
     if (popId !== null) return fermerPopTags();
     if (!$('#reader').hidden) return closeReader();
     if (!$('#modalShade').hidden) return closeModals();
@@ -993,6 +1083,8 @@ function onKey(event) {
     if (a?.url) window.open(a.url, '_blank', 'noopener');
     return;
   }
+  if (key === 'p') { event.preventDefault(); partageSurCurseur(); return; }
+
   // `T` étiquette : le champ du lecteur s'il est ouvert, sinon l'article au curseur.
   if (key === 't') {
     event.preventDefault();
@@ -1380,11 +1472,19 @@ function wireEvents() {
     survolCarte(e.target.closest('.art'));
   });
   scroller.addEventListener('pointerleave', () => survolCarte(null));
-  scroller.addEventListener('scroll', () => { if (popId !== null) fermerPopTags(); });
+  scroller.addEventListener('scroll', () => { fermerPopTags(); fermerPartage(); });
 
   $('#artTagBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     ouvrirPopTags(Number($('#artActions').dataset.id), $('#artActions'));
+  });
+  $('#artShareBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    ouvrirPartage(Number($('#artActions').dataset.id), $('#artActions'));
+  });
+  $('#sharePop').addEventListener('click', (e) => {
+    const ligne = e.target.closest('[data-partage]');
+    if (ligne) partager(ligne.dataset.partage);
   });
 
   $('#tagPop').addEventListener('click', (e) => {
@@ -1407,9 +1507,10 @@ function wireEvents() {
 
   // Un clic ailleurs referme — mais pas celui qui vient de l'ouvrir.
   document.addEventListener('pointerdown', (e) => {
-    if (popId === null) return;
-    if (e.target.closest('#tagPop') || e.target.closest('#artActions')) return;
+    if (popId === null && partageId === null) return;
+    if (e.target.closest('#tagPop') || e.target.closest('#sharePop') || e.target.closest('#artActions')) return;
     fermerPopTags();
+    fermerPartage();
   });
 
   $('#flux').addEventListener('click', (e) => {

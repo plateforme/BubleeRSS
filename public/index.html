@@ -135,7 +135,18 @@
       <!-- Flotte au coin de la carte survolée : une carte est déjà un <button>,
            on ne peut pas en imbriquer un second dedans. -->
       <div class="art-actions" id="artActions" hidden>
-        <button type="button" id="artTagBtn" title="Étiqueter sans ouvrir (T)">＋ Étiquette</button>
+        <button type="button" id="artTagBtn" title="Étiqueter sans ouvrir (T)" aria-label="Étiqueter">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 3h8.2l9.3 9.3a1.6 1.6 0 0 1 0 2.3l-6 6a1.6 1.6 0 0 1-2.3 0L3 11.2Z"/>
+            <path d="M7.4 7.4h.01"/>
+          </svg>
+        </button>
+        <button type="button" id="artShareBtn" title="Partager (P)" aria-label="Partager">
+          <svg class="glyphe-partage" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m8.4 10.7 7.2-4.2M8.4 13.3l7.2 4.2"/>
+            <circle cx="18" cy="5.2" r="2.8"/><circle cx="6" cy="12" r="2.8"/><circle cx="18" cy="18.8" r="2.8"/>
+          </svg>
+        </button>
       </div>
     </div>
   </main>
@@ -166,6 +177,22 @@
   <div class="tagpop-list" id="tagPopList"></div>
   <input class="tagpop-input" id="tagPopInput" list="tagOptions" autocomplete="off"
          placeholder="Nouvelle étiquette" aria-label="Créer une étiquette" maxlength="60">
+</div>
+
+<div class="tagpop" id="sharePop" hidden role="dialog" aria-label="Partager l’article">
+  <p class="tagpop-titre" id="sharePopTitre"></p>
+  <div class="tagpop-list">
+    <button type="button" class="tagpop-row" data-partage="systeme" hidden>
+      <span class="tagpop-nom">Partager…</span></button>
+    <button type="button" class="tagpop-row" data-partage="mail">
+      <span class="tagpop-nom">Courriel</span></button>
+    <button type="button" class="tagpop-row" data-partage="whatsapp">
+      <span class="tagpop-nom">WhatsApp</span></button>
+    <button type="button" class="tagpop-row" data-partage="telegram">
+      <span class="tagpop-nom">Telegram</span></button>
+    <button type="button" class="tagpop-row" data-partage="copier">
+      <span class="tagpop-nom">Copier le lien</span></button>
+  </div>
 </div>
 
 <!-- ============================================================= fenêtres -->
@@ -282,6 +309,7 @@
         <dt><kbd>M</kbd></dt><dd>lu / non lu</dd>
         <dt><kbd>S</kbd></dt><dd>favori</dd>
         <dt><kbd>T</kbd></dt><dd>étiqueter — l’article ouvert, ou celui au curseur</dd>
+        <dt><kbd>P</kbd></dt><dd>partager l’article au curseur</dd>
         <dt><kbd>V</kbd></dt><dd>original</dd>
         <dt><kbd>F</kbd></dt><dd>texte complet</dd>
       </dl>

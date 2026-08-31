@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { urlKey, titleKey } from './dedupe.js';
+import { toPlainText } from './html.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dataDir = process.env.BUBLEE_DATA || path.join(root, 'data');
@@ -89,7 +90,10 @@ export const migrationApplied = [
   addColumn('articles', 'full_error', 'TEXT'),
   addColumn('articles', 'image_checked', 'INTEGER'),
   addColumn('articles', 'duration', 'INTEGER'),
-  addColumn('tags', 'color', 'TEXT')
+  addColumn('tags', 'color', 'TEXT'),
+  // Toutes les sources ne se lisent pas pareil : certaines se lisent en entier,
+  // d'autres se survolent, d'autres ne doivent plus remonter d'elles-memes.
+  addColumn('feeds', 'priority', "TEXT NOT NULL DEFAULT 'suivi'")
 ].some(Boolean);
 
 db.exec(`
@@ -101,7 +105,62 @@ CREATE INDEX IF NOT EXISTS idx_articles_urlkey    ON articles(url_key);
 CREATE INDEX IF NOT EXISTS idx_articles_titlekey  ON articles(title_key, published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_dupe      ON articles(dupe_of);
 CREATE INDEX IF NOT EXISTS idx_article_tags_tag   ON article_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_feeds_priority     ON feeds(priority);
 `);
+
+/* ------------------------------------------------------------- recherche */
+
+/* La recherche portait sur le titre, le resume et l'auteur — pas sur le corps
+   des articles. FTS5 indexe le texte entier, sans accents et par prefixe.
+
+   Le corps est nettoye de son balisage avant d'etre indexe : sans ca, `<img>`
+   et `<span>` deviendraient des mots, et chercher « src » remonterait la
+   moitie de la bibliotheque. D'ou cette fonction SQL, appelee par les
+   declencheurs — c'est ce qui garantit que l'index ne peut pas deriver de la
+   table, quel que soit le chemin d'ecriture. */
+db.function('texte_brut', (html) => toPlainText(html || ''));
+
+db.exec(`
+CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+  title, summary, author, body,
+  tokenize = "unicode61 remove_diacritics 2"
+);
+
+CREATE TRIGGER IF NOT EXISTS articles_fts_insere AFTER INSERT ON articles BEGIN
+  INSERT INTO articles_fts (rowid, title, summary, author, body)
+  VALUES (new.id, new.title, new.summary, new.author,
+          texte_brut(COALESCE(new.full_content, new.content)));
+END;
+
+CREATE TRIGGER IF NOT EXISTS articles_fts_supprime AFTER DELETE ON articles BEGIN
+  DELETE FROM articles_fts WHERE rowid = old.id;
+END;
+
+-- Sur les seules colonnes indexees : marquer un article comme lu ne doit pas
+-- couter une reindexation de tout son texte.
+CREATE TRIGGER IF NOT EXISTS articles_fts_modifie
+AFTER UPDATE OF title, summary, author, content, full_content ON articles BEGIN
+  DELETE FROM articles_fts WHERE rowid = old.id;
+  INSERT INTO articles_fts (rowid, title, summary, author, body)
+  VALUES (new.id, new.title, new.summary, new.author,
+          texte_brut(COALESCE(new.full_content, new.content)));
+END;
+`);
+
+/** Indexe les articles arrives avant la recherche plein texte. */
+function backfillRecherche() {
+  const restants = db.prepare(
+    'SELECT COUNT(*) n FROM articles WHERE id NOT IN (SELECT rowid FROM articles_fts)'
+  ).get().n;
+  if (!restants) return 0;
+
+  db.exec(`
+    INSERT INTO articles_fts (rowid, title, summary, author, body)
+    SELECT a.id, a.title, a.summary, a.author, texte_brut(COALESCE(a.full_content, a.content))
+    FROM articles a WHERE a.id NOT IN (SELECT rowid FROM articles_fts)
+  `);
+  return restants;
+}
 
 /** Renseigne les cles de comparaison sur les articles deja stockes. */
 function backfillKeys() {
@@ -120,6 +179,11 @@ function backfillKeys() {
 if (migrationApplied) {
   const n = backfillKeys();
   if (n) console.log(`[bublee] cles de deduplication calculees pour ${n} article(s).`);
+}
+
+{
+  const n = backfillRecherche();
+  if (n) console.log(`[bublee] ${n} article(s) ajoute(s) a l'index de recherche.`);
 }
 
 /* ---------------------------------------------------------------- reglages */

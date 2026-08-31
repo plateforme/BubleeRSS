@@ -11,7 +11,7 @@ const now = () => Date.now();
 
 export function listFeeds() {
   return db.prepare(`
-    SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description,
+    SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
            f.last_fetched_at, f.last_error, f.error_count, f.created_at,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
@@ -65,12 +65,23 @@ export async function addFeed(input, folder = '', title = '') {
   return { feed: getFeed(feedId), ...result, alternatives: candidates.slice(1) };
 }
 
+/** Suivi : on lit tout. Survol : hors des non-lus, mais consultable. Muet :
+    archive seulement, on n'y va que par la source, l'etiquette ou la recherche. */
+export const PRIORITES = new Set(['suivi', 'survol', 'muet']);
+
 export function updateFeed(id, patch) {
   const feed = getFeed(id);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
 
   const fields = [];
   const values = [];
+  if (patch.priority !== undefined) {
+    if (!PRIORITES.has(patch.priority)) {
+      throw Object.assign(new Error('Priorite inconnue : ' + patch.priority), { status: 400 });
+    }
+    fields.push('priority = ?');
+    values.push(patch.priority);
+  }
   for (const key of ['custom_title', 'folder', 'url']) {
     if (patch[key] !== undefined) {
       fields.push(key + ' = ?');
@@ -777,6 +788,20 @@ function avecTags(row) {
 }
 
 /** view: all | unread | starred ; pagination par curseur (before = "publie,id"). */
+/**
+ * Traduit ce qui est tape dans la barre en expression FTS5. On n'extrait que
+ * des lettres et des chiffres : l'utilisateur n'a pas a connaitre la syntaxe de
+ * FTS, et rien de ce qu'il tape ne peut en devenir un operateur.
+ *
+ * Le dernier mot est cherche par prefixe, pour que la liste se resserre pendant
+ * la frappe plutot qu'au dernier caractere.
+ */
+export function expressionFts(q) {
+  const mots = String(q ?? '').match(/[\p{L}\p{N}]+/gu) || [];
+  if (!mots.length) return null;
+  return mots.map((m, i) => (i === mots.length - 1 ? `"${m}"*` : `"${m}"`)).join(' AND ');
+}
+
 export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}) {
   const where = [];
   const params = {};
@@ -800,11 +825,28 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
 
   if (view === 'unread') where.push('a.read_at IS NULL');
   if (view === 'starred') where.push('a.starred = 1');
+  if (view === 'survol') { where.push('a.read_at IS NULL'); where.push("f.priority = 'survol'"); }
   if (feedId) { where.push('a.feed_id = @feedId'); params.feedId = Number(feedId); }
   if (folder) { where.push('f.folder = @folder'); params.folder = folder; }
+
+  // La priorite d'une source ne joue que sur les vues d'ensemble. Demander un
+  // flux, un dossier, une etiquette ou une recherche, c'est demander
+  // explicitement : on ne cache rien a quelqu'un qui est alle chercher.
+  const ensemble = !feedId && !folder && !etiquettes.length && !q;
+  if (ensemble && view === 'unread') where.push("f.priority = 'suivi'");
+  if (ensemble && view === 'all') where.push("f.priority <> 'muet'");
+
   if (q) {
-    where.push('(a.title LIKE @q OR a.summary LIKE @q OR a.author LIKE @q)');
-    params.q = '%' + q + '%';
+    const expr = expressionFts(q);
+    if (expr) {
+      where.push('a.id IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH @fts)');
+      params.fts = expr;
+    } else {
+      // Une recherche qui ne contient aucun mot (de la ponctuation seule) n'a
+      // rien a donner a FTS : on retombe sur la comparaison litterale.
+      where.push('(a.title LIKE @q OR a.summary LIKE @q OR a.author LIKE @q)');
+      params.q = '%' + q + '%';
+    }
   }
   if (before) {
     const [ts, id] = String(before).split(',').map(Number);
@@ -942,12 +984,21 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}) {
 }
 
 export function counts() {
+  // Les compteurs suivent ce que les vues montrent vraiment : « Non lus » ne
+  // compte que les sources suivies, « Tout » laisse de cote les sources muettes.
+  const nonLus = (priorite) => `
+    (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
+     WHERE a.read_at IS NULL AND a.dupe_of IS NULL AND f.priority = '${priorite}')`;
+
   const global = db.prepare(`
     SELECT
-      (SELECT COUNT(*) FROM articles WHERE read_at IS NULL AND dupe_of IS NULL) AS unread,
-      (SELECT COUNT(*) FROM articles WHERE starred = 1 AND dupe_of IS NULL)     AS starred,
-      (SELECT COUNT(*) FROM articles WHERE dupe_of IS NULL)                     AS total,
-      (SELECT COUNT(*) FROM articles WHERE dupe_of IS NOT NULL)                 AS duplicates
+      ${nonLus('suivi')}  AS unread,
+      ${nonLus('survol')} AS survol,
+      ${nonLus('muet')}   AS muet,
+      (SELECT COUNT(*) FROM articles WHERE starred = 1 AND dupe_of IS NULL) AS starred,
+      (SELECT COUNT(*) FROM articles a JOIN feeds f ON f.id = a.feed_id
+       WHERE a.dupe_of IS NULL AND f.priority <> 'muet')                    AS total,
+      (SELECT COUNT(*) FROM articles WHERE dupe_of IS NOT NULL)             AS duplicates
   `).get();
 
   const byFolder = db.prepare(`

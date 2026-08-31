@@ -99,6 +99,13 @@
         <span class="view-label">Tout</span>
         <span class="view-count" id="countAll">0</span>
       </button>
+      <!-- Ne s'affiche que si des sources sont en survol : sinon c'est une
+           ligne morte pour qui ne se sert pas de la priorite. -->
+      <button class="view-row" data-view="survol" id="rowSurvol" hidden>
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">Survol</span>
+        <span class="view-count" id="countSurvol">0</span>
+      </button>
       <button class="view-row" data-view="starred">
         <span class="view-mark" aria-hidden="true"></span>
         <span class="view-label">Favoris</span>
@@ -389,6 +396,17 @@
       <span>Adresse du flux</span>
       <input type="text" id="editFeedUrl" autocomplete="off" spellcheck="false">
     </label>
+    <label class="field">
+      <span>Priorité</span>
+      <select id="editFeedPriority">
+        <option value="suivi">Suivie — compte dans les non-lus</option>
+        <option value="survol">Survol — à part, hors des non-lus</option>
+        <option value="muet">Muette — archivée, ne remonte plus</option>
+      </select>
+    </label>
+    <p class="field-note">Toutes les sources ne se lisent pas pareil. Une source
+      en survol ou muette reste consultable en cliquant dessus, par étiquette et
+      par la recherche : rien n’est perdu, seul le flot d’arrivée change.</p>
     <p class="field-note" id="editFeedError"></p>
     <div class="modal-actions spread">
       <button type="button" class="btn" id="deleteFeed">Supprimer</button>

@@ -131,6 +131,8 @@ function renderIndex() {
   $('#countUnread').textContent = nombre(state.counts.unread);
   $('#countAll').textContent = nombre(state.counts.total);
   $('#countStarred').textContent = nombre(state.counts.starred);
+  $('#countSurvol').textContent = nombre(state.counts.survol || 0);
+  $('#rowSurvol').hidden = !state.counts.survol && state.view !== 'survol';
 
   const neutre = !state.feedId && !state.folder && !state.tag;
   $$('.view-row').forEach((b) => b.classList.toggle('active', neutre && b.dataset.view === state.view));
@@ -161,6 +163,12 @@ function renderTagList() {
       <span class="tag-count">${t.count || ''}</span>
     </button>`).join('');
 }
+
+/** Ce qu'ajoute l'infobulle d'une source selon sa priorité. */
+const LEGENDE_PRIORITE = {
+  survol: ' — en survol, hors des non-lus',
+  muet: ' — muette, ne remonte plus d’elle-même'
+};
 
 /** La pastille de type : rien pour un article, une marque pour la vidéo et le son. */
 function pastilleType(kind) {
@@ -195,9 +203,11 @@ function renderFeedList() {
       : `<span class="feed-icon mono-mark" style="--teinte:${couleur};--teinte-texte:${contraste(couleur)}">${esc(initiale(feed.title))}</span>`;
 
     return `
-      <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}"
+      <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}${
+                feed.priority && feed.priority !== 'suivi' ? ' p-' + feed.priority : ''}"
               data-feed="${feed.id}" style="--teinte:${couleur}"
-              title="${esc(feed.last_error ? feed.title + ' — ' + feed.last_error : feed.title)}">
+              title="${esc(feed.last_error ? feed.title + ' — ' + feed.last_error
+                : feed.title + (LEGENDE_PRIORITE[feed.priority] || ''))}">
         <span class="feed-bar" aria-hidden="true"></span>
         <span class="feed-mark">${marque}${pastilleType(feed.kind)}</span>
         <span class="feed-name">${esc(feed.title)}</span>
@@ -235,7 +245,7 @@ function titreVue() {
   if (state.feedId) return state.feeds.find((f) => f.id === state.feedId)?.title || 'Source';
   if (state.tag) return '#' + state.tag;
   if (state.folder) return state.folder;
-  return { unread: 'Non lus', all: 'Tout', starred: 'Favoris' }[state.view];
+  return { unread: 'Non lus', all: 'Tout', starred: 'Favoris', survol: 'Survol' }[state.view];
 }
 
 function sousTitre() {
@@ -1382,6 +1392,7 @@ function ouvrirEditionFlux(id) {
   $('#editFeedTitle').value = feed.custom_title || feed.title;
   $('#editFeedFolder').value = feed.folder || '';
   $('#editFeedUrl').value = feed.url;
+  $('#editFeedPriority').value = feed.priority || 'suivi';
   $('#editFeedError').textContent = feed.last_error ? '⚠ ' + feed.last_error : '';
   $('#repairFeed').hidden = !feed.last_error;
   openModal('#feedEditModal');
@@ -1397,6 +1408,7 @@ async function enregistrerFlux(event) {
     await api.updateFeed(id, {
       custom_title: $('#editFeedTitle').value.trim(),
       folder: $('#editFeedFolder').value.trim(),
+      priority: $('#editFeedPriority').value,
       ...(url && url !== feed?.url ? { url } : {})
     });
     if (url && url !== feed?.url) await api.refreshFeed(id);

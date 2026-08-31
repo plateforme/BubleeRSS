@@ -327,6 +327,14 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   color: var(--on-ink-1);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Une source qui ne remonte plus d'elle-même se lit comme telle : le compteur
+   passe en gris de fond pour le survol, et la ligne entière s'efface pour une
+   source muette — elle est là, elle n'appelle plus. */
+.feed-row.p-survol .feed-count { color: var(--on-ink-4); }
+.feed-row.p-muet { opacity: .5; }
+.feed-row.p-muet .feed-count { color: var(--on-ink-4); }
+.feed-row.p-muet:hover, .feed-row.p-muet.active { opacity: 1; }
+
 .feed-row:hover .feed-name, .feed-row.active .feed-name { color: #f6f5f1; }
 .feed-row.error .feed-name { color: var(--on-ink-4); }
 .feed-warn { flex: none; font-family: var(--mono); font-size: 9px; letter-spacing: .1em; color: #d63a2a; }

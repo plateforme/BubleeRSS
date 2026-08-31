@@ -35,7 +35,7 @@ const ROUTES = [
   ['PUT',    '/api/settings',            'modifier les reglages'],
   ['GET',    '/api/feeds',               'liste des sources'],
   ['POST',   '/api/feeds',               'ajouter une source { url, folder?, title? }'],
-  ['PATCH',  '/api/feeds/:id',           'renommer ou deplacer une source'],
+  ['PATCH',  '/api/feeds/:id',           'renommer, deplacer, ou changer la priorite { suivi | survol | muet }'],
   ['DELETE', '/api/feeds/:id',           'supprimer une source'],
   ['POST',   '/api/feeds/:id/refresh',   'rafraichir une source'],
   ['POST',   '/api/refresh',             'rafraichir toutes les sources'],

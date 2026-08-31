@@ -80,6 +80,8 @@ HOST=0.0.0.0 npm start
 - **Trois mises en page** : magazine (une + grille), liste, compact.
 - **Lecture intégrée** : contenu nettoyé, lettrine, temps de lecture,
   barre de progression, enchaînement vers l'article suivant.
+- **Priorité par source** : toutes les sources ne se lisent pas pareil (voir plus bas).
+- **Recherche plein texte** dans le corps des articles, accents ignorés.
 - **Non lus / favoris / recherche**, dossiers, compteurs, rafraîchissement
   automatique, purge des vieux articles lus (jamais les non-lus ni les favoris).
 - **Thème clair « kiosque » et sombre « encre »**, ou automatique, et **couleur d’accent** au choix.
@@ -178,6 +180,56 @@ garde en base : les fois suivantes, l'affichage est instantané.
 - `node scripts/purger-extractions.mjs` repasse les textes déjà en base devant
   ce contrôle ; `--purger` efface ceux qui ne passent plus.
 - Désactivable dans les réglages.
+
+## Priorité par source
+
+Le vrai problème d'un agrégateur n'est pas de collecter, c'est le débit. Sur
+98 sources il entre ici **225 articles par jour** : la pile de non-lus croît
+toute seule, et la rétention ne purge que les articles *lus*. Aucune étiquette
+ni aucun partage ne répond à ça — ils servent une fois qu'on a décidé quoi lire.
+
+Chaque source porte donc une priorité, réglable dans « Modifier la source » :
+
+| Priorité | Non lus | Tout | Sa propre vue |
+|---|---|---|---|
+| **Suivie** (défaut) | oui | oui | oui |
+| **Survol** | non, mais dans sa vue « Survol » | oui | oui |
+| **Muette** | non | non | oui |
+
+Le principe tient en une phrase : **la priorité ne joue que sur les vues
+d'ensemble.** Cliquer une source, ouvrir un dossier, suivre une étiquette ou
+chercher, c'est demander explicitement — et on ne cache rien à quelqu'un qui est
+allé chercher. Une source muette n'est pas désabonnée : elle continue d'être
+collectée, dédupliquée, indexée. Elle cesse seulement d'appeler.
+
+Dans l'index, une source en survol a son compteur en gris ; une source muette a
+sa ligne entière estompée, qui se rallume au survol. Une vue « Survol »
+apparaît sous les non-lus dès qu'une source y est placée, et disparaît sinon —
+pas de ligne morte pour qui ne se sert pas de la fonction.
+
+```bash
+curl -X PATCH http://127.0.0.1:4321/api/feeds/17   -H 'content-type: application/json' -d '{"priority":"survol"}'
+```
+
+## Recherche
+
+La recherche portait sur le titre, le résumé et l'auteur. Elle porte maintenant
+sur **le corps entier des articles**, texte complet récupéré compris, via un
+index FTS5.
+
+- **Les accents sont ignorés** des deux côtés : `quebec` trouve « Québec ».
+- **Le dernier mot est cherché par préfixe**, pour que la liste se resserre
+  pendant la frappe et pas au dernier caractère.
+- **Rien de ce qu'on tape ne devient un opérateur** : seuls les lettres et les
+  chiffres sont extraits, chaque mot est cité, et `AND` tapé par mégarde reste
+  le mot « and ».
+- **Le balisage n'est pas indexé.** Le corps est nettoyé de son HTML avant de
+  l'être — sinon `<img>` et `<span>` deviendraient des mots, et chercher « src »
+  remonterait la moitié de la bibliothèque. Le nettoyage est une fonction SQL
+  appelée par des déclencheurs, ce qui garantit que l'index ne peut pas dériver
+  de la table quel que soit le chemin d'écriture.
+
+L'index se remplit tout seul au premier démarrage qui suit la mise à jour.
 
 ## Déduplication
 

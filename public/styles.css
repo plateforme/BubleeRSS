@@ -1290,7 +1290,27 @@ kbd {
 
 @media (max-width: 860px) {
   :root { --gut: 18px; }
-  .app { grid-template-columns: 1fr; }
+
+  /* `1fr` vaut `minmax(auto, 1fr)`, et ce minimum automatique est la largeur
+     minimale du contenu : la barre d'outils en réclamait 656, la colonne
+     s'élargissait d'autant et toute la page se mettait à défiler latéralement.
+     `minmax(0, 1fr)` autorise la colonne à descendre sous son contenu. */
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage { min-width: 0; }
+
+  /* La barre garde toutes ses commandes, mais serrées — et si l'écran est
+     vraiment étroit, c'est elle qui défile, plus la page entière. */
+  .toolbar {
+    gap: 7px; padding-right: 10px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar .tab { padding: 0 7px; letter-spacing: .04em; font-size: 9px; }
+  .toolbar .btn { padding: 6px 8px; letter-spacing: .06em; font-size: 8.5px; }
+  /* « ＋ Source » quitte la barre : l'ajout reste à portée par le « + » du
+     kiosque, dans l'index. Deux chemins pour la même chose ne valent pas
+     d'expulser « Tout lire » hors de l'écran. */
+  #addFeedBtn { display: none; }
   /* L'index passe en tiroir plein écran : plus rien à redimensionner ni à
      replier, le tiroir se ferme déjà par sa croix. */
   .index-poignee, .index-plier { display: none; }
@@ -1301,7 +1321,7 @@ kbd {
     transition: transform .32s var(--ease);
   }
   .app.rail-on .index { transform: none; }
-  .index-open { display: flex; align-items: center; padding: 0 14px; height: 100%; border-right: 1px solid var(--bone-2); }
+  .index-open { display: flex; align-items: center; padding: 0 11px; height: 100%; border-right: 1px solid var(--bone-2); }
   .index-head .index-close { display: block; color: var(--on-ink-1); font-family: var(--mono); font-size: 12px; }
 
   .cols, .aplats, .wall { grid-template-columns: 1fr; }

@@ -218,6 +218,19 @@ sont plus tronqués dès qu'on lui donne une centaine de pixels de plus. La
 largeur tient dans le navigateur, pas sur le serveur — c'est un réglage d'écran,
 pas de compte, et elle s'applique avant le premier rendu pour éviter le saut.
 
+**Sur un téléphone**, la grille passe à une colonne et l'index devient un
+tiroir. Le piège s'y cachait dans une valeur par défaut : `grid-template-columns:
+1fr` vaut `minmax(auto, 1fr)`, et ce minimum automatique est la largeur minimale
+du contenu. La barre d'outils en réclamait 656 px ; la colonne s'élargissait
+d'autant, la fenêtre de rendu avec elle, et toute la page se mettait à défiler
+latéralement — sur un écran de 375 px, elle en occupait 638. `minmax(0, 1fr)`
+autorise la colonne à descendre sous son contenu, et le débordement disparaît.
+
+La barre elle-même est resserrée pour tenir : « ＋ Source » la quitte, l'ajout
+restant à portée par le « + » du kiosque dans l'index. Elle garde un défilement
+horizontal comme filet — elle tient entière à 375 px, elle se décale un peu
+en dessous plutôt que de casser la page.
+
 Le **lecteur** est un panneau ancré à droite, pas une page plein écran. Il prend
 `min(1080px, 100vw − 180px)` : assez large pour une colonne de texte confortable,
 en laissant voir la liste par-dessous — cliquer dedans referme, comme `Échap`.

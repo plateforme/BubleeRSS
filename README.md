@@ -87,7 +87,14 @@ Trois familles, et une règle : **aucun texte d'interface n'est en sans-serif.**
 | Méta, surtitres, boutons, compteurs, heures | **IBM Plex Mono**, capitales |
 
 `border-radius: 0` partout, aucune ombre, aucun flou : la hiérarchie tient aux
-filets et aux aplats. L'**accent** est une variable unique — tampon de la une,
+filets et aux aplats.
+
+Les noirs sont **chauds et jamais purs** : l'encre est `#24231f`, l'index
+`#302e2a`, le fond des blocs photo `#1b1a17`. Un aplat noir franc contre le
+papier crème donnait 15,7:1 à la lisière — une arête qui fatigue sur une page
+qu'on lit longtemps. On est à 10,5:1, très au-dessus du seuil AAA (7:1), et
+les gris de l'index ont monté d'autant pour garder le même rapport sur un
+fond éclairci. L'**accent** est une variable unique — tampon de la une,
 surtitres, filet qui se dessine au survol, pastilles de non-lu, lettrine, jauge
 de lecture. Quatre valeurs au choix dans les réglages : forêt `#10604a` (par
 défaut), vermillon `#e2452a`, Klein `#1b3fd8`, magenta `#d81e73`.

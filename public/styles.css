@@ -5,12 +5,17 @@
    =========================================================================== */
 
 :root {
-  --ink:    #0d0d0c;   /* encre : texte, filets forts, fond de l'index */
-  --ink-2:  #1c1b19;   /* séparateurs internes de l'index */
-  --bone:   #e9e7e0;   /* fond de page */
-  --bone-2: #dedbd2;   /* aplats clairs, survol de ligne */
-  --paper:  #f6f5f1;   /* texte sur fond encre */
-  --mute:   #7d7a71;   /* méta, libellés secondaires */
+  /* Des noirs chauds, jamais purs : l'encre d'un journal n'est pas du #000,
+     et un aplat trop sombre à côté du papier fatigue à la lecture longue. */
+  --ink:      #24231f;   /* encre : texte, filets forts, aplats pleins */
+  --ink-deep: #1b1a17;   /* fond des blocs photo, derrière les voiles */
+  --index-bg: #302e2a;   /* l'index : un cran au-dessus de l'encre */
+  --ink-2:    #403d37;   /* séparateurs internes de l'index */
+  --voile:    27, 26, 22;/* base des voiles posés sur les images */
+  --bone:     #e9e7e0;   /* fond de page */
+  --bone-2:   #dedbd2;   /* aplats clairs, survol de ligne */
+  --paper:    #f6f5f1;   /* encre claire : texte posé sur un fond sombre */
+  --mute:     #7d7a71;   /* méta, libellés secondaires */
 
   /* Accent — réglable dans les préférences. Vert forêt par défaut. */
   --accent: #10604a;
@@ -19,12 +24,14 @@
   --rule-col:  #c9c6bc;
   --rule-list: #cfccc2;
   --rule-fil:  #d6d3c9;
-  --dark-rule: #2a2925;
-  --dark-hov:  #171614;
-  --on-ink-1:  #b9b6ad;
-  --on-ink-2:  #9d9a92;
-  --on-ink-3:  #8d8a82;
-  --on-ink-4:  #6f6d66;
+  --dark-rule: #4c4941;
+  --dark-hov:  #3b3833;
+  /* Sur un fond d'index éclairci, les gris doivent monter d'autant pour que
+     la méta garde le même rapport de lisibilité. */
+  --on-ink-1:  #cbc7bd;
+  --on-ink-2:  #b5b1a7;
+  --on-ink-3:  #a29e94;
+  --on-ink-4:  #8c887e;
 
   --display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
   --body:    'Newsreader', Georgia, 'Times New Roman', serif;
@@ -38,12 +45,13 @@
 /* Le thème sombre inverse le papier et l'encre ; l'index passe au noir pur
    pour rester distinct du fond, les filets deviennent translucides. */
 :root[data-theme='dark'] {
-  --ink:    #e9e7e0;
-  --ink-2:  rgba(233, 231, 224, .14);
-  --bone:   #0d0d0c;
-  --bone-2: #1a1917;
-  --paper:  #0d0d0c;
-  --mute:   #8d8a82;
+  --ink:      #e4e1d9;
+  --ink-deep: #0f0e0d;
+  --index-bg: #100f0e;
+  --ink-2:    rgba(228, 225, 217, .12);
+  --bone:     #161513;
+  --bone-2:   #211f1c;
+  --mute:     #8d8a82;
 
   --rule-col:  rgba(233, 231, 224, .16);
   --rule-list: rgba(233, 231, 224, .14);
@@ -58,12 +66,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root[data-theme='auto'] {
-    --ink:    #e9e7e0;
-    --ink-2:  rgba(233, 231, 224, .14);
-    --bone:   #0d0d0c;
-    --bone-2: #1a1917;
-    --paper:  #0d0d0c;
-    --mute:   #8d8a82;
+    --ink:      #e4e1d9;
+    --ink-deep: #0f0e0d;
+    --index-bg: #100f0e;
+    --ink-2:    rgba(228, 225, 217, .12);
+    --bone:     #161513;
+    --bone-2:   #211f1c;
+    --mute:     #8d8a82;
 
     --rule-col:  rgba(233, 231, 224, .16);
     --rule-list: rgba(233, 231, 224, .14);
@@ -73,11 +82,8 @@
   }
 }
 
-/* En sombre, l'index reste un bloc noir et son texte clair : il ne suit pas
-   l'inversion générale, sinon il se confondrait avec la page. */
-:root[data-theme='dark'] .index,
-:root[data-theme='auto'] .index { --index-bg: #000; }
-.index { --index-bg: var(--ink); }
+/* L'index garde son propre fond dans les deux thèmes : en clair il est plus
+   sombre que la page, en sombre légèrement plus sombre encore — jamais noir. */
 
 /* ------------------------------------------------------------------ socle */
 
@@ -113,7 +119,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 
 .skip-link {
   position: fixed; top: -60px; left: 12px; z-index: 999;
-  background: var(--ink); color: var(--bone);
+  background: var(--ink-deep); color: var(--paper);
   padding: 10px 16px; text-decoration: none;
   font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
 }
@@ -210,7 +216,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase;
   color: var(--on-ink-4);
 }
-.index-section .count { color: #4c4b46; font-variant-numeric: tabular-nums; }
+.index-section .count { color: #6b675e; font-variant-numeric: tabular-nums; }
 .index-section .grow { flex: 1; }
 .index-section button { color: var(--on-ink-4); }
 .index-section button:hover { color: #f6f5f1; }
@@ -237,7 +243,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   scrollbar-width: thin; scrollbar-color: #35342f transparent;
 }
 .index-feeds::-webkit-scrollbar { width: 8px; }
-.index-feeds::-webkit-scrollbar-thumb { background: #35342f; }
+.index-feeds::-webkit-scrollbar-thumb { background: #56534b; }
 .index-feeds::-webkit-scrollbar-track { background: transparent; }
 
 .folder-head {
@@ -280,7 +286,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   position: absolute; right: -4px; bottom: -4px;
   width: 11px; height: 11px;
   display: grid; place-items: center;
-  background: #0d0d0c;
+  background: var(--index-bg);
 }
 .feed-badge svg { width: 9px; height: 9px; stroke: none; }
 
@@ -396,14 +402,14 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .une {
   position: relative;
   height: min(60vh, 540px);
-  background: var(--ink);
+  background: var(--ink-deep);
   overflow: hidden;
 }
 .une img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .9s var(--ease); }
 .une:hover img { transform: scale(1.05); }
 .une-voile {
   position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(to top, rgba(13,13,12,.92) 0%, rgba(13,13,12,.55) 34%, rgba(13,13,12,0) 72%);
+  background: linear-gradient(to top, rgba(var(--voile), .9) 0%, rgba(var(--voile), .52) 34%, rgba(var(--voile), 0) 72%);
 }
 .une-tampon {
   position: absolute; left: 0; top: 0;
@@ -485,7 +491,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .wall { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tuile {
   position: relative; height: 340px; overflow: hidden;
-  background: var(--ink);
+  background: var(--ink-deep);
   border-left: 1px solid var(--ink);
   text-align: left;
 }
@@ -494,7 +500,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .tuile:hover img { transform: scale(1.05); }
 .tuile-voile {
   position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(to top, rgba(13,13,12,.9), rgba(13,13,12,.1) 62%);
+  background: linear-gradient(to top, rgba(var(--voile), .88), rgba(var(--voile), .1) 62%);
 }
 .tuile-corps { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 20px 22px; }
 .tuile-sur {
@@ -511,10 +517,10 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   position: absolute; right: 14px; top: 14px;
   padding: 4px 8px;
   font-family: var(--mono); font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase;
-  background: rgba(246,245,241,.9); color: #0d0d0c;
+  background: rgba(246,245,241,.92); color: var(--ink);
 }
 .badge.video { background: var(--accent); color: #fff; }
-.badge.audio { background: #f0a91d; color: #0d0d0c; }
+.badge.audio { background: #f0a91d; color: var(--ink-deep); }
 
 /* --- aplats et plaques typographiques --- */
 .aplats {
@@ -567,14 +573,14 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   text-align: left;
 }
 .plaque.claire { background: var(--bone-2); }
-.plaque.sombre { background: var(--ink); }
+.plaque.sombre { background: var(--ink-deep); }
 .plaque-initiale {
   position: absolute; left: -2%; bottom: -24%;
   font-family: var(--display); font-size: 300px; line-height: 1;
   pointer-events: none; user-select: none;
 }
-.plaque.claire .plaque-initiale { color: rgba(13,13,12,.12); }
-.plaque.sombre .plaque-initiale { color: var(--teinte-douce, rgba(246,245,241,.18)); }
+.plaque.claire .plaque-initiale { color: rgba(36, 35, 31, .13); }
+.plaque.sombre .plaque-initiale { color: var(--teinte-douce, rgba(246,245,241,.2)); }
 
 .plaque-source {
   position: absolute; right: 12px; top: 26px;
@@ -593,7 +599,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   text-wrap: pretty; transition: color .2s ease;
   display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
 }
-.plaque.sombre .plaque-titre { color: #f6f5f1; }
+.plaque.sombre .plaque-titre { color: var(--paper); }
 .plaque:hover .plaque-titre { color: var(--accent); }
 .plaque .wipe { border-top-color: var(--ink); margin-top: auto; }
 .plaque.sombre .wipe { border-top-color: var(--on-ink-4); }
@@ -761,21 +767,20 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   flex: none; height: 52px;
   display: flex; align-items: center; gap: 16px;
   padding: 0 22px;
-  background: var(--ink); color: var(--paper);
+  background: var(--ink-deep); color: var(--paper);
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
 }
-:root[data-theme='dark'] .reader-bar, :root[data-theme='auto'] .reader-bar { color: var(--bone); }
 .reader-bar button, .reader-bar a {
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
   color: #f6f5f1; white-space: nowrap;
   transition: color .2s ease;
 }
 .reader-bar button:hover, .reader-bar a:hover { color: var(--accent); }
-.reader-bar .sep { width: 1px; height: 20px; background: #33322d; flex: none; }
+.reader-bar .sep { width: 1px; height: 20px; background: var(--dark-rule); flex: none; }
 .reader-bar .infos { color: var(--on-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-bar .grow { flex: 1; }
 .reader-bar .original {
-  padding: 6px 12px; background: #f6f5f1; color: #0d0d0c;
+  padding: 6px 12px; background: var(--paper); color: var(--ink-deep);
 }
 .reader-bar .original:hover { background: var(--accent); color: #fff; }
 .reader-bar button.on { color: var(--accent); }
@@ -785,11 +790,11 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .reader-scroll::-webkit-scrollbar-thumb { background: #c6c3b9; }
 
 /* bandeau d'ouverture */
-.reader-hero { position: relative; height: min(52vh, 460px); background: var(--ink); overflow: hidden; }
+.reader-hero { position: relative; height: min(52vh, 460px); background: var(--ink-deep); overflow: hidden; }
 .reader-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .reader-hero .voile {
   position: absolute; inset: 0;
-  background: linear-gradient(to top, rgba(13,13,12,.94) 0%, rgba(13,13,12,.4) 42%, rgba(13,13,12,0) 80%);
+  background: linear-gradient(to top, rgba(var(--voile), .92) 0%, rgba(var(--voile), .4) 42%, rgba(var(--voile), 0) 80%);
 }
 .reader-hero-corps {
   position: absolute; left: 0; right: 0; bottom: 0;
@@ -813,7 +818,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 }
 
 /* le bandeau devient une plaque quand l'article n'a pas d'illustration */
-.reader-hero.plaque-hero { background: var(--teinte, var(--ink)); }
+.reader-hero.plaque-hero { background: var(--teinte, var(--ink-deep)); }
 .reader-hero.plaque-hero .plaque-initiale { font-size: 420px; left: -1%; bottom: -34%; color: rgba(246,245,241,.14); }
 
 .reader-inner { max-width: 66ch; margin: 0 auto; padding: 0 20px 90px; }
@@ -917,7 +922,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 
 /* =========================================================== fenêtres */
 
-.modal-shade { position: fixed; inset: 0; z-index: 70; background: rgba(13,13,12,.55); animation: ed-fade .2s var(--ease); }
+.modal-shade { position: fixed; inset: 0; z-index: 70; background: rgba(var(--voile), .52); animation: ed-fade .2s var(--ease); }
 
 .modal {
   position: fixed; z-index: 71; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -1045,7 +1050,7 @@ kbd {
   display: flex; flex-direction: column-reverse; gap: 8px; align-items: center; pointer-events: none;
 }
 .toast {
-  padding: 10px 18px; background: var(--ink); color: var(--bone);
+  padding: 10px 18px; background: var(--ink-deep); color: var(--paper);
   font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase;
   animation: ed-up .28s var(--ease); pointer-events: auto;
 }

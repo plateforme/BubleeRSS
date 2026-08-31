@@ -63,7 +63,7 @@ function teinte(texte) {
 function contraste(hex) {
   const n = parseInt(String(hex).slice(1), 16);
   const lum = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
-  return lum > 150 ? '#0d0d0c' : '#f6f5f1';
+  return lum > 150 ? '#1b1a17' : '#f6f5f1';
 }
 
 function rgba(hex, alpha) {
@@ -170,9 +170,9 @@ function pastilleType(kind) {
   if (kind === 'podcast') {
     return `<span class="feed-badge"><svg viewBox="0 0 12 12" aria-hidden="true">
       <rect width="12" height="12" fill="#f0a91d"/>
-      <rect x="2.5" y="4.5" width="1.2" height="3" fill="#0d0d0c"/>
-      <rect x="5.4" y="2.6" width="1.2" height="6.8" fill="#0d0d0c"/>
-      <rect x="8.3" y="4.5" width="1.2" height="3" fill="#0d0d0c"/></svg></span>`;
+      <rect x="2.5" y="4.5" width="1.2" height="3" fill="#1b1a17"/>
+      <rect x="5.4" y="2.6" width="1.2" height="6.8" fill="#1b1a17"/>
+      <rect x="8.3" y="4.5" width="1.2" height="3" fill="#1b1a17"/></svg></span>`;
   }
   return '';
 }
@@ -1272,11 +1272,14 @@ function wireEvents() {
   $('#shortcutsBtn').addEventListener('click', () => openModal('#shortcutsModal'));
   $('#openShortcuts').addEventListener('click', () => openModal('#shortcutsModal'));
 
+  // L'accent se garde au clic : sans cela, fermer la fenêtre sans valider
+  // laissait la copie locale et le serveur en désaccord.
   $('#accentChoices').addEventListener('click', (e) => {
     const s = e.target.closest('[data-accent]');
     if (!s) return;
     applyAccent(s.dataset.accent);
     renderAccents();
+    api.settings({ accent: s.dataset.accent }).catch(() => {});
   });
 
   $('#feedForm').addEventListener('submit', ajouterFlux);

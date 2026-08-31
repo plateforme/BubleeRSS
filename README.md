@@ -296,6 +296,30 @@ La carte reçoit alors une **plaque typographique** : l'initiale de l'article
 en gros serif débordant du cadre, le nom de la source en petites capitales,
 et une teinte propre à chaque source. Une composition, pas un trou.
 
+## Couleurs d'attente
+
+Les illustrations n'arrivent pas toutes en même temps, et la grille se
+retrouvait trouée de blancs le temps qu'elles se posent. Chaque emplacement
+porte donc un fond : **deux teintes moyennes de l'image elle-même**, celle du
+haut et celle du bas, en dégradé — soit une version très floue de la photo qui
+va s'y poser. L'image arrive ensuite en fondu par-dessus.
+
+Le serveur n'a pas de décodeur d'image, et en ajouter un pour ça serait cher
+payé. C'est donc **le navigateur qui mesure**, une seule fois : à la première
+image affichée, elle est réduite à 16 × 16 dans un canevas, moyennée par
+moitié, et la paire est renvoyée à l'API — qui vérifie le format avant de
+l'enregistrer, puisqu'elle vient du client. Tous les affichages suivants, sur
+n'importe quel appareil, ont la couleur d'emblée.
+
+Le calcul attend que le navigateur soit libre (`requestIdleCallback`) et ne
+tourne que deux à la fois : il ne doit jamais disputer une image de plus au
+défilement. Les illustrations passent par `/api/image`, donc même origine — le
+canevas n'est pas souillé et reste lisible.
+
+Tant qu'une couleur n'est pas connue, c'est la teinte de la source qui tient la
+place. Et si une image ne charge pas du tout, le fond reste : mieux qu'une
+icône cassée.
+
 ## Sources injoignables
 
 Un export Feedly ancien contient des adresses mortes. « Réparer les sources

@@ -767,7 +767,7 @@ export function deleteTag(id) {
 /* -------------------------------------------------------------- articles */
 
 const ARTICLE_COLUMNS = `
-  a.id, a.feed_id, a.url, a.title, a.author, a.summary, a.image,
+  a.id, a.feed_id, a.url, a.title, a.author, a.summary, a.image, a.image_color,
   a.published_at, a.read_at, a.starred, a.word_count, a.duration, a.dupe_of,
   (a.full_content IS NOT NULL) AS has_full,
   (SELECT GROUP_CONCAT(t.name, CHAR(31)) FROM article_tags at
@@ -883,6 +883,25 @@ function estTronque(row) {
   if (row.duration || /<audio/i.test(row.content || '')) return false;
   const seuil = Number(getSetting('fulltext_min_words', '250'));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
+}
+
+/** Deux teintes hexadecimales separees d'une virgule, rien d'autre. */
+const COULEURS_VALIDES = /^#[0-9a-f]{6},#[0-9a-f]{6}$/i;
+
+/**
+ * Enregistre les couleurs moyennes d'une illustration. Elles sont calculees par
+ * le navigateur au premier affichage — le serveur n'a pas de decodeur d'image —
+ * puis servies a tout le monde ensuite. Comme elles viennent du client, le
+ * format est verifie avant d'entrer en base.
+ */
+export function enregistrerCouleurImage(id, couleurs) {
+  const valeur = String(couleurs || '').toLowerCase();
+  if (!COULEURS_VALIDES.test(valeur)) {
+    throw Object.assign(new Error('Couleurs attendues au format « #rrggbb,#rrggbb ».'), { status: 400 });
+  }
+  const fait = db.prepare('UPDATE articles SET image_color = ? WHERE id = ? AND image IS NOT NULL')
+    .run(valeur, Number(id)).changes > 0;
+  return { ok: fait, image_color: valeur };
 }
 
 export function getArticle(id) {

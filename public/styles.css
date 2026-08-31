@@ -109,6 +109,17 @@ img { border-radius: 0; }
 
 svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
+/* Le fond posé sous une illustration le temps qu'elle arrive : deux teintes
+   moyennes de l'image elle-même, haut et bas, ce qui donne un dégradé qui en
+   est une version très floue. Tant qu'on ne les connaît pas, la teinte de la
+   source prend le relais — jamais de trou blanc dans la grille. */
+:root { --fond-attente: linear-gradient(168deg, var(--f1, var(--bone-2)), var(--f2, var(--bone-2))); }
+
+/* L'image se pose en fondu sur ce fond au lieu d'apparaître d'un bloc. */
+img.fondu { opacity: 0; transition: opacity .45s var(--ease); }
+img.fondu.chargee { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { img.fondu { transition: none; } }
+
 ::selection { background: var(--accent); color: #fff; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -473,7 +484,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .une {
   position: relative;
   height: min(60vh, 540px);
-  background: var(--ink-deep);
+  background: var(--fond-attente);
   overflow: hidden;
 }
 .une img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .9s var(--ease); }
@@ -562,7 +573,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .wall { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tuile {
   position: relative; height: 340px; overflow: hidden;
-  background: var(--ink-deep);
+  background: var(--fond-attente);
   border-left: 1px solid var(--ink);
   text-align: left;
 }
@@ -740,7 +751,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   margin-top: 10px; font-family: var(--body); font-size: 15px; line-height: 1.5; font-weight: 300; color: #4a4841; max-width: 70ch;
 }
 :root[data-theme='dark'] .som-chapo, :root[data-theme='auto'] .som-chapo { color: #b3b0a8; }
-.som-thumb { width: 150px; height: 104px; overflow: hidden; background: var(--teinte, var(--bone-2)); }
+.som-thumb { width: 150px; height: 104px; overflow: hidden; background: var(--fond-attente); }
 .som-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .9s var(--ease); }
 .som:hover .som-thumb img { transform: scale(1.05); }
 
@@ -874,7 +885,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .reader-scroll::-webkit-scrollbar-thumb { background: #c6c3b9; }
 
 /* bandeau d'ouverture */
-.reader-hero { position: relative; height: min(52vh, 460px); background: var(--ink-deep); overflow: hidden; }
+.reader-hero { position: relative; height: min(52vh, 460px); background: var(--fond-attente); overflow: hidden; }
 .reader-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .reader-hero .voile {
   position: absolute; inset: 0;

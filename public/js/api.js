@@ -36,6 +36,7 @@ export const api = {
   patch:    (id, patch) => json('PATCH', '/api/articles/' + id, patch),
   markRead: (payload) => json('POST', '/api/articles/read', payload),
   tag:      (id, action) => json('POST', `/api/articles/${id}/tags`, action),
+  couleur:  (id, color) => json('POST', `/api/articles/${id}/color`, { color }),
   tags:      () => call('/api/tags'),
   createTag: (name) => json('POST', '/api/tags', { name }),
   updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),

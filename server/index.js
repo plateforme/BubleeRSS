@@ -50,6 +50,7 @@ const ROUTES = [
   ['GET',    '/api/tags',                'etiquettes, couleurs et nombre d’articles'],
   ['POST',   '/api/tags',                'creer une etiquette { name }'],
   ['POST',   '/api/articles/:id/tags',   'etiqueter { add | remove | set }'],
+  ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
   ['POST',   '/api/dedupe',              'rechercher les doublons deja en base'],
@@ -208,6 +209,11 @@ app.post('/api/articles/:id/tags', (req, res) => {
 });
 
 // { name } renomme (fusionne si le nom existe deja), { color } reteinte.
+// Les couleurs sont calculees par le navigateur : le format est verifie ici.
+app.post('/api/articles/:id/color', (req, res) => {
+  res.json(store.enregistrerCouleurImage(Number(req.params.id), (req.body || {}).color));
+});
+
 app.patch('/api/tags/:id', (req, res) => {
   res.json(store.updateTag(Number(req.params.id), req.body || {}));
 });

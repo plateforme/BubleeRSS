@@ -330,6 +330,26 @@ function attrs(a) {
 const classeLue = (a) => (a.read_at ? ' read' : '');
 const curseur = (a) => (indexParId.get(a.id) === state.pointer ? ' cursor' : '');
 
+/* ------------------------------------------- couleurs d'attente des images */
+
+/**
+ * Le fond posé derrière une illustration le temps qu'elle arrive. Deux teintes
+ * moyennes de l'image elle-même quand on les connaît — haut et bas, ce qui
+ * donne un dégradé qui ressemble à une version très floue de la photo. Sinon,
+ * la teinte de la source : jamais de trou blanc.
+ */
+function fondImage(a) {
+  const paire = String(a.image_color || '').split(',');
+  const [h, b] = /^#[0-9a-f]{6}$/i.test(paire[0] || '') && /^#[0-9a-f]{6}$/i.test(paire[1] || '')
+    ? paire
+    : [rgba(teinte(a.feed_title), .5), rgba(teinte(a.feed_title), .8)];
+  return `--f1:${h};--f2:${b}`;
+}
+
+/** Les images arrivent en fondu sur ce fond, plutôt que d'apparaître d'un bloc. */
+const imgFondue = (src, extra = '') =>
+  `<img class="fondu" src="${esc(src)}" alt="" loading="lazy"${extra ? ' ' + extra : ''}>`;
+
 /** Les étiquettes d'un article, telles qu'elles s'affichent dans une carte. */
 const pastilles = (a) => (a.tags || [])
   .map((nom) => `<span class="art-etiq" style="background:${esc(couleurTag(nom))}">${esc(nom)}</span>`)
@@ -349,11 +369,11 @@ function majPuces(a) {
 function blocUne(a) {
   const couleur = teinte(a.feed_title);
   const fond = a.image
-    ? `<img src="${esc(relais(a.image))}" alt="" loading="lazy">`
+    ? imgFondue(relais(a.image))
     : `<div class="plaque-initiale" style="color:${rgba(couleur, .2)}">${esc(initialeDe(a))}</div>`;
 
   return `
-    <div class="bloc une art${classeLue(a)}${curseur(a)}" ${attrs(a)} style="--teinte:${couleur}">
+    <div class="bloc une art${classeLue(a)}${curseur(a)}" ${attrs(a)} style="--teinte:${couleur};${fondImage(a)}">
       ${fond}
       <div class="une-voile"></div>
       <div class="une-tampon">La une</div>
@@ -387,8 +407,8 @@ function blocMur(liste) {
         // La pastille ne sert qu'à annoncer ce qui ne se voit pas : une durée.
         : '';
     return `
-      <button class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
-        <img src="${esc(relais(a.image))}" alt="" loading="lazy">
+      <button class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}" style="${fondImage(a)}">
+        ${imgFondue(relais(a.image))}
         <span class="tuile-voile"></span>
         ${badge}
         <span class="tuile-corps">
@@ -536,17 +556,17 @@ function renderFlux() {
 
   $('#endNote').hidden = !state.done;
 
-  // Une illustration qui ne charge pas laisse la place à sa teinte.
+  // Une illustration qui ne charge pas laisse la place à son fond d'attente,
+  // qui devient alors l'illustration : mieux qu'une icône cassée.
   $$('img', flux).forEach((img) => {
     img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
   });
+  rattraperImages(flux);
 }
 
 function ligneSommaire(a, i) {
   const couleur = teinte(a.feed_title);
-  const vignette = a.image
-    ? `<img src="${esc(relais(a.image))}" alt="" loading="lazy">`
-    : '';
+  const vignette = a.image ? imgFondue(relais(a.image)) : '';
   return `
     <button class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
       <span class="som-num">${String(i + 1).padStart(2, '0')}</span>
@@ -556,7 +576,7 @@ function ligneSommaire(a, i) {
         ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
         ${puces(a)}
       </span>
-      <span class="som-thumb" style="--teinte:${couleur}">${vignette}</span>
+      <span class="som-thumb" style="--teinte:${couleur};${fondImage(a)}">${vignette}</span>
     </button>`;
 }
 
@@ -685,8 +705,8 @@ function renderReader(a) {
     .filter(Boolean).join(' · ');
 
   const ouverture = a.image && !video
-    ? `<div class="reader-hero">
-         <img src="${esc(relais(a.image))}" alt="">
+    ? `<div class="reader-hero" style="${fondImage(a)}">
+         ${imgFondue(relais(a.image))}
          <div class="voile"></div>
          <div class="reader-hero-corps"><div class="reader-hero-inner">
            ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
@@ -725,6 +745,7 @@ function renderReader(a) {
     </div>`;
 
   $('#readerScroll').scrollTop = 0;
+  rattraperImages($('#readerScroll'));
   $('#readerProgress').style.width = '0%';
 
   $$('.reader-body img, .reader-hero img').forEach((img) => {
@@ -1499,9 +1520,95 @@ function poigneeIndex() {
   });
 }
 
+/* -------------------------------- calcul des couleurs d'attente au vol --- */
+
+/* Le serveur n'a pas de decodeur d'image : c'est le navigateur qui mesure les
+   couleurs, une seule fois, au premier affichage — puis les renvoie pour que
+   tout le monde en profite ensuite. Les illustrations passent par /api/image,
+   donc meme origine : le canevas n'est pas souille et reste lisible. */
+
+const couleursDemandees = new Set();
+let enCours = 0;
+const FILE = [];
+
+/** Moyenne du haut et du bas d'une image, reduite a 16 x 16. */
+function mesurerCouleurs(img) {
+  const c = document.createElement('canvas');
+  c.width = 16; c.height = 16;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, 16, 16);
+  const d = ctx.getImageData(0, 0, 16, 16).data;
+
+  const moyenne = (debut, fin) => {
+    let r = 0, v = 0, b = 0, n = 0;
+    for (let i = debut; i < fin; i += 4) {
+      if (d[i + 3] < 128) continue;              // on ignore le transparent
+      r += d[i]; v += d[i + 1]; b += d[i + 2]; n++;
+    }
+    if (!n) return null;
+    const deux = (x) => Math.round(x / n).toString(16).padStart(2, '0');
+    return '#' + deux(r) + deux(v) + deux(b);
+  };
+
+  const moitie = 16 * 8 * 4;
+  const haut = moyenne(0, moitie);
+  const bas = moyenne(moitie, d.length);
+  return haut && bas ? haut + ',' + bas : null;
+}
+
+function viderFile() {
+  while (enCours < 2 && FILE.length) {
+    const { id, img } = FILE.shift();
+    enCours++;
+    // Le calcul se fait quand le navigateur est libre : il ne doit jamais
+    // disputer une image de plus au defilement.
+    requestIdleCallback(() => {
+      let couleurs = null;
+      try { couleurs = mesurerCouleurs(img); } catch (e) { /* image inutilisable */ }
+      const fini = () => { enCours--; viderFile(); };
+      if (!couleurs) return fini();
+
+      const local = state.articles.find((a) => a.id === id);
+      if (local) local.image_color = couleurs;
+      api.couleur(id, couleurs).catch(() => {}).finally(fini);
+    }, { timeout: 3000 });
+  }
+}
+
+/** Une image vient d'arriver : elle se montre, et livre ses couleurs si besoin. */
+function imageArrivee(img) {
+  if (!img.classList.contains('fondu') || img.dataset.vue) return;
+  img.dataset.vue = '1';
+  img.classList.add('chargee');
+
+  const id = Number(img.closest('.art')?.dataset.id ?? (img.closest('.reader-hero') ? state.openId : NaN));
+  if (!Number.isFinite(id) || couleursDemandees.has(id)) return;
+
+  const article = articleParId(id);
+  if (article?.image_color) return;              // deja connues, rien a faire
+
+  couleursDemandees.add(id);
+  FILE.push({ id, img });
+  viderFile();
+}
+
+/** Les images deja en cache n'emettent pas d'evenement : on les rattrape. */
+function rattraperImages(racine = document) {
+  $$('img.fondu', racine).forEach((img) => {
+    if (img.complete && img.naturalWidth) imageArrivee(img);
+  });
+}
+
 /* ---------------------------------------------------------- branchements */
 
 function wireEvents() {
+  // `load` ne remonte pas : on l'attrape a la descente. Le premier rendu a lieu
+  // avant ce branchement — une image arrivee entre-temps n'aurait jamais recu
+  // sa classe et serait restee invisible. D'ou le rattrapage juste apres.
+  document.addEventListener('load', (e) => {
+    if (e.target.tagName === 'IMG') imageArrivee(e.target);
+  }, true);
+  rattraperImages();
   // Le logo ramène à la une, comme le titre d'un journal qu'on replie.
   $('#logo').addEventListener('click', () => { closeReader(); setView({ view: 'unread' }); });
   poigneeIndex();

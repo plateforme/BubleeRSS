@@ -93,7 +93,10 @@ export const migrationApplied = [
   addColumn('tags', 'color', 'TEXT'),
   // Toutes les sources ne se lisent pas pareil : certaines se lisent en entier,
   // d'autres se survolent, d'autres ne doivent plus remonter d'elles-memes.
-  addColumn('feeds', 'priority', "TEXT NOT NULL DEFAULT 'suivi'")
+  addColumn('feeds', 'priority', "TEXT NOT NULL DEFAULT 'suivi'"),
+  // Deux couleurs moyennes de l'illustration, « #rrggbb,#rrggbb » : elles
+  // tiennent la place pendant que l'image arrive.
+  addColumn('articles', 'image_color', 'TEXT')
 ].some(Boolean);
 
 db.exec(`

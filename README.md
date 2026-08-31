@@ -4,14 +4,18 @@ Un lecteur RSS maison, pensé comme un magazine : grande une, colonnes,
 titres en serif, lecture au calme. Tout tourne en local, rien ne sort de
 la machine à part les requêtes vers les flux eux-mêmes.
 
-![La vue magazine : une grande une, puis une grille rythmée par des cartes larges](docs/magazine.png)
+<p align="center">
+  <img src="docs/magazine.png" width="720"
+       alt="La vue magazine : une grande une, puis une grille rythmée par des cartes larges">
+  <br><em>La vue magazine.</em>
+</p>
 
-*La vue magazine, thème « papier ».*
-
-![Le lecteur : lettrine, temps de lecture, texte complet récupéré sur la page d'origine](docs/lecteur.png)
-
-*Le lecteur, thème « encre ». L'étiquette « texte complet » signale un article
-que le flux ne publiait qu'en résumé.*
+<p align="center">
+  <img src="docs/lecteur.png" width="720"
+       alt="Le lecteur : lettrine, temps de lecture, texte complet récupéré sur la page d'origine">
+  <br><em>Le lecteur. L'étiquette « texte complet » signale un article que le
+  flux ne publiait qu'en résumé.</em>
+</p>
 
 ## Démarrer
 
@@ -110,6 +114,40 @@ premier démarrage. Pour le rejouer :
 curl -X POST 'http://127.0.0.1:4321/api/dedupe?rebuild=1'
 ```
 
+## Illustrations
+
+Une carte de magazine sans image fait un trou. Bublee cherche l'illustration
+dans cet ordre :
+
+1. `media:content`, `media:thumbnail`, `enclosure`, `itunes:image` — y compris
+   quand le flux **ne déclare pas** que la pièce jointe est une image, ce qui
+   est fréquent (ArchDaily, par exemple, envoie une `<enclosure>` nue) ;
+2. la première image du contenu, hors pixels de suivi ;
+3. à défaut, l'`og:image` de la page de l'article, cherchée en tâche de fond
+   après chaque rafraîchissement, par paquets, et une seule fois par article.
+
+Les images passent ensuite par le relais local, ce qui contourne les
+protections anti-hotlink. Il reste des cas sans issue : un site qui répond 403
+aux robots (le New York Times, par exemple) ne livrera ni image ni texte.
+La carte devient alors une brève typographique — filet, titre plus grand,
+chapô plus long — plutôt qu'un blanc.
+
+## Sources injoignables
+
+Un export Feedly ancien contient des adresses mortes. « Réparer les sources
+injoignables », dans les réglages, interroge pour chacune la page du site,
+puis le domaine, puis l'ancienne adresse (qui redirige parfois).
+
+Un remplacement n'est appliqué **automatiquement** que si le titre du flux
+trouvé concorde vraiment avec l'ancien. Sinon Bublee se contente de proposer,
+avec un pourcentage de ressemblance et un bouton « Adopter » : un site
+n'expose souvent que son flux général, et remplacer en silence
+« Pitchfork — Best New Tracks » par « Pitchfork » serait pire que de laisser
+la source cassée. Chaque candidat est téléchargé et analysé avant d'être
+proposé, et l'ancienne adresse est restaurée si le nouveau flux ne répond pas.
+
+L'adresse reste modifiable à la main dans la fiche de la source.
+
 ## API
 
 Tout ce que fait l'interface passe par une API REST en JSON, utilisable
@@ -150,6 +188,9 @@ CORS est ouvert (avec le jeton), donc une page web tierce peut appeler l'API.
 | `POST`   | `/api/feeds`              | `{ "url": "…", "folder": "…" }` |
 | `DELETE` | `/api/feeds/:id`          | supprimer une source |
 | `POST`   | `/api/refresh`            | rafraîchir toutes les sources |
+| `POST`   | `/api/feeds/repair`       | chercher l'adresse des sources injoignables |
+| `POST`   | `/api/feeds/:id/repair`   | chercher pour une source ; `{ "url": "…" }` adopte une proposition |
+| `POST`   | `/api/articles/images`    | chercher les illustrations manquantes |
 | `POST`   | `/api/dedupe`             | rapprocher les doublons (`?rebuild=1`) |
 | `POST`   | `/api/opml/import`        | corps = XML OPML |
 | `GET`    | `/api/opml/export`        | export OPML |

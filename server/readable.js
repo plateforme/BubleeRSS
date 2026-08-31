@@ -27,6 +27,43 @@ function imageDeLaPage(document, base) {
 }
 
 /**
+ * Recupere seulement l'illustration d'un article, pour les flux qui n'en
+ * fournissent aucune. On lit les metadonnees de partage, sans passer par
+ * Readability : c'est nettement plus leger.
+ */
+export async function extraireImageDeLaPage(url) {
+  const cible = urlPubliqueOuNull(url);
+  if (!cible) return null;
+
+  const { res, buffer } = await httpGet(cible.href, {
+    navigateur: true,
+    timeout: 15000,
+    headers: { accept: ACCEPT_HTML }
+  });
+  if (!res.ok) return null;
+
+  const type = res.headers.get('content-type') || '';
+  if (type && !/text\/html|application\/xhtml/i.test(type)) return null;
+
+  const html = decodeBody(buffer, type);
+  const tete = html.slice(0, html.search(/<\/head>/i) + 1 || 200000);
+
+  const motifs = [
+    /<meta[^>]+(?:property|name)\s*=\s*["'](?:og:image(?::url|:secure_url)?|twitter:image(?::src)?)["'][^>]*>/gi
+  ];
+  for (const motif of motifs) {
+    let m;
+    while ((m = motif.exec(tete))) {
+      const contenu = /content\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(m[0]);
+      if (!contenu) continue;
+      const abs = absolutize(contenu[1].replace(/^["']|["']$/g, ''), res.url || cible.href);
+      if (abs) return abs;
+    }
+  }
+  return null;
+}
+
+/**
  * Telecharge `url` et en extrait l'article principal.
  * Leve une erreur explicite si la page est inaccessible ou illisible.
  */

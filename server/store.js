@@ -2,7 +2,7 @@
 import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
-import { extraireTexteComplet } from './readable.js';
+import { extraireTexteComplet, extraireImageDeLaPage } from './readable.js';
 
 const now = () => Date.now();
 
@@ -80,6 +80,168 @@ export function deleteFeed(id) {
   // Les doublons orphelins redeviennent des articles a part entiere.
   if (supprime) reconcilierDoublons();
   return supprime;
+}
+
+/* ------------------------------------------------ reparation des sources */
+
+/** Mots significatifs d'un titre, pour comparer un candidat a l'ancien flux. */
+function motsClefs(titre) {
+  return new Set((titleKey(titre) || '').split(' ').filter((m) => m.length > 3));
+}
+
+/**
+ * Ressemblance entre le titre du flux casse et celui d'un candidat, entre 0 et 1.
+ * On regarde dans les deux sens : « Le Monde : Technologies » et
+ * « Le Monde : à la une » partagent un mot, mais chacun en a d'autres —
+ * ce sont deux rubriques differentes, pas le meme flux qui a demenage.
+ */
+function ressemblance(titreCandidat, feed) {
+  const anciens = motsClefs(feed.custom_title || feed.title);
+  const nouveaux = motsClefs(titreCandidat);
+  if (!anciens.size || !nouveaux.size) return 0;
+
+  let communs = 0;
+  for (const mot of anciens) if (nouveaux.has(mot)) communs++;
+  return Math.min(communs / anciens.size, communs / nouveaux.size);
+}
+
+/** Au-dela, on considere que c'est le meme flux qui a change d'adresse. */
+const SEUIL_CERTITUDE = 0.75;
+
+/**
+ * Change l'adresse d'un flux en figeant son nom actuel comme libelle.
+ * Sans cela le titre du nouveau flux ecraserait celui d'origine, et une
+ * seconde reparation comparerait le candidat a lui-meme.
+ */
+function appliquerAdresse(id, url, { figerNom = false } = {}) {
+  if (figerNom) {
+    db.prepare(`
+      UPDATE feeds SET
+        url = ?, etag = NULL, last_modified = NULL,
+        custom_title = COALESCE(NULLIF(custom_title, ''), NULLIF(title, ''))
+      WHERE id = ?
+    `).run(url, id);
+    return;
+  }
+  db.prepare('UPDATE feeds SET url = ?, etag = NULL, last_modified = NULL WHERE id = ?').run(url, id);
+}
+
+/**
+ * Cherche l'adresse actuelle d'un flux devenu injoignable : on interroge la
+ * page du site, puis le domaine, puis l'ancienne adresse (qui redirige
+ * parfois, ou renvoie du HTML au lieu du flux).
+ *
+ * Le candidat est verifie par un telechargement reel, mais la base n'est
+ * modifiee que si le titre concorde vraiment. Sinon on se contente de
+ * proposer : remplacer en silence « Best New Tracks » par le flux general
+ * de Pitchfork serait pire que de laisser la source cassee.
+ */
+export async function reparerFlux(id) {
+  const feed = getFeed(id);
+  if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
+
+  const base = { feedId: id, title: feed.title, from: feed.url };
+  let origine = null;
+  try { origine = new URL(feed.url).origin; } catch { /* adresse illisible */ }
+
+  const pistes = [...new Set([feed.site_url, origine, feed.url].filter(Boolean))];
+
+  let candidats = [];
+  for (const piste of pistes) {
+    try {
+      candidats = await discoverFeeds(piste);
+    } catch { candidats = []; }
+    if (candidats.length) break;
+  }
+
+  candidats = candidats.filter((c) => c.url !== feed.url);
+  if (!candidats.length) return { ...base, status: 'introuvable' };
+
+  const propositions = [];
+
+  for (const candidat of candidats) {
+    if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ?').get(candidat.url, id)) {
+      propositions.push({ url: candidat.url, title: candidat.title, deja: true });
+      continue;
+    }
+
+    let parsed;
+    try {
+      const essai = await fetchFeed(candidat.url);
+      if (essai.notModified || !essai.parsed?.items?.length) continue;
+      parsed = essai.parsed;
+    } catch {
+      continue; // candidat injoignable : suivant
+    }
+
+    const titre = parsed.title || candidat.title || '';
+    const confiance = ressemblance(titre, feed);
+
+    if (confiance >= SEUIL_CERTITUDE) {
+      appliquerAdresse(id, candidat.url);
+      const refresh = await refreshFeed(id);
+      if (!refresh.error) {
+        return { ...base, status: 'repare', to: candidat.url, toTitle: titre, added: refresh.added };
+      }
+      appliquerAdresse(id, feed.url);
+    }
+
+    propositions.push({ url: candidat.url, title: titre, confiance: Math.round(confiance * 100) });
+  }
+
+  const utiles = propositions.filter((p) => !p.deja).sort((a, b) => b.confiance - a.confiance);
+  if (utiles.length) return { ...base, status: 'propose', candidates: utiles.slice(0, 4) };
+  return { ...base, status: propositions.length ? 'doublon' : 'introuvable' };
+}
+
+/** Applique une proposition validee par l'utilisateur. */
+export async function accepterReparation(id, url) {
+  const feed = getFeed(id);
+  if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
+  if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ?').get(url, id)) {
+    throw Object.assign(new Error('Ce flux est déjà dans ta bibliothèque.'), { status: 409 });
+  }
+
+  const ancienne = feed.url;
+  appliquerAdresse(id, url);
+  const refresh = await refreshFeed(id);
+  if (refresh.error) {
+    appliquerAdresse(id, ancienne);
+    throw Object.assign(new Error(refresh.error), { status: 502 });
+  }
+  dedupeExistants();
+  return { feed: getFeed(id), added: refresh.added };
+}
+
+/** Passe en revue toutes les sources en erreur. */
+export async function reparerSourcesCassees(concurrency = 5) {
+  const ids = db.prepare('SELECT id FROM feeds WHERE last_error IS NOT NULL ORDER BY id').all().map((r) => r.id);
+  const resultats = [];
+  let curseur = 0;
+
+  async function worker() {
+    while (curseur < ids.length) {
+      const id = ids[curseur++];
+      try {
+        resultats.push(await reparerFlux(id));
+      } catch (error) {
+        resultats.push({ feedId: id, status: 'echec', error: String(error.message) });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
+  if (resultats.some((r) => r.status === 'repare')) {
+    dedupeExistants();
+    setSetting('last_refresh_at', now());
+  }
+
+  return {
+    checked: ids.length,
+    repaired: resultats.filter((r) => r.status === 'repare').length,
+    proposed: resultats.filter((r) => r.status === 'propose').length,
+    results: resultats
+  };
 }
 
 export function listFolders() {
@@ -374,6 +536,40 @@ export async function refreshAll(concurrency = 6) {
     duplicates: results.reduce((sum, r) => sum + r.duplicates, 0),
     errors: results.filter((r) => r.error).map((r) => ({ feedId: r.feedId, error: r.error }))
   };
+}
+
+/**
+ * Certains flux (NYT, Google Actualites, agregateurs) ne joignent aucune
+ * illustration. On va chercher l'image de partage sur la page de l'article,
+ * par petits paquets pour ne pas marteler les sites. Chaque article n'est
+ * essaye qu'une fois.
+ */
+export async function completerImages({ limite = 40, concurrency = 4 } = {}) {
+  const lignes = db.prepare(`
+    SELECT id, url FROM articles
+    WHERE image IS NULL AND image_checked IS NULL AND url LIKE 'http%'
+    ORDER BY published_at DESC LIMIT ?
+  `).all(limite);
+  if (!lignes.length) return { checked: 0, found: 0 };
+
+  const marque = db.prepare('UPDATE articles SET image = ?, image_checked = ? WHERE id = ?');
+  let trouvees = 0;
+  let curseur = 0;
+
+  async function worker() {
+    while (curseur < lignes.length) {
+      const ligne = lignes[curseur++];
+      let image = null;
+      try {
+        image = await extraireImageDeLaPage(ligne.url);
+      } catch { /* page injoignable : on marque quand meme pour ne pas boucler */ }
+      marque.run(image, now(), ligne.id);
+      if (image) trouvees++;
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, lignes.length) }, worker));
+  return { checked: lignes.length, found: trouvees };
 }
 
 /** Supprime les articles lus et anciens ; garde toujours les non-lus et les favoris. */

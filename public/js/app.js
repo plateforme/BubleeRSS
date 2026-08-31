@@ -225,6 +225,27 @@ function renderSkeleton() {
   $('#endNote').hidden = true;
 }
 
+/** Teinte stable par source : une même source garde toujours la sienne. */
+function teinte(texte) {
+  let h = 0;
+  for (const c of String(texte || '')) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return h % 5;
+}
+
+/**
+ * Quand aucune illustration n'existe (l'éditeur n'en fournit pas, ou son
+ * site refuse les robots), on compose une plaque typographique : grande
+ * initiale de l'article, nom de la source, teinte de la source.
+ */
+function plaque(article) {
+  const initiale = (String(article.title).match(/[\p{L}\p{N}]/u)?.[0] || '§').toUpperCase();
+  return `
+    <div class="card-media plate" data-plate="${teinte(article.feed_title)}" aria-hidden="true">
+      <span class="plate-mark">${esc(initiale)}</span>
+      <span class="plate-source">${esc(article.feed_title)}</span>
+    </div>`;
+}
+
 function carte(article, index) {
   const classes = ['card'];
   if (article.read_at) classes.push('read');
@@ -234,7 +255,7 @@ function carte(article, index) {
 
   const media = article.image
     ? `<div class="card-media"><img src="${esc(relais(article.image))}" alt="" loading="lazy"></div>`
-    : '';
+    : plaque(article);
 
   const lecture = tempsLecture(article.word_count);
 
@@ -272,9 +293,15 @@ function renderFlux() {
   flux.innerHTML = state.articles.map(carte).join('');
   $('#endNote').hidden = !state.done;
 
-  // Une image cassee ne doit pas laisser un cadre gris.
+  // Une image qui ne charge pas cede la place a la plaque typographique.
   $$('.card-media img', flux).forEach((img) => {
-    img.addEventListener('error', () => img.closest('.card-media')?.remove(), { once: true });
+    img.addEventListener('error', () => {
+      const carteParente = img.closest('.card');
+      const media = img.closest('.card-media');
+      const article = state.articles.find((a) => a.id === Number(carteParente?.dataset.id));
+      if (!media || !article) return;
+      media.outerHTML = plaque(article);
+    }, { once: true });
   });
 }
 
@@ -794,6 +821,42 @@ function wireEvents() {
   $('#feedEditForm').addEventListener('submit', enregistrerFlux);
   $('#deleteFeed').addEventListener('click', supprimerFlux);
 
+  $('#repairAll').addEventListener('click', reparerTout);
+  $('#repairFeed').addEventListener('click', async (event) => {
+    const id = Number($('#editFeedId').value);
+    event.target.disabled = true;
+    event.target.textContent = 'Recherche…';
+    try {
+      afficherRapport(await api.repairFeed(id));
+      await reloadState();
+    } catch (error) {
+      toast('Réparation impossible : ' + error.message, 'bad');
+    } finally {
+      event.target.disabled = false;
+      event.target.textContent = 'Réparer';
+    }
+  });
+  $('#repairList').addEventListener('click', (event) => {
+    const bouton = event.target.closest('[data-accept]');
+    if (bouton) adopterAdresse(Number(bouton.dataset.accept), bouton.dataset.url, bouton);
+  });
+
+  $('#dedupeAll').addEventListener('click', async (event) => {
+    event.target.disabled = true;
+    try {
+      const resultat = await api.dedupe(true);
+      await reloadState();
+      toast(resultat.linked
+        ? `${pluriel(resultat.linked, 'doublon')} regroupé${resultat.linked > 1 ? 's' : ''}`
+        : 'Aucun doublon trouvé');
+      loadArticles(true);
+    } catch (error) {
+      toast('Échec : ' + error.message, 'bad');
+    } finally {
+      event.target.disabled = false;
+    }
+  });
+
   document.addEventListener('keydown', onKey);
 }
 
@@ -867,7 +930,9 @@ function ouvrirEditionFlux(id) {
   $('#editFeedId').value = id;
   $('#editFeedTitle').value = feed.custom_title || feed.title;
   $('#editFeedFolder').value = feed.folder || '';
-  $('#editFeedUrl').textContent = (feed.last_error ? '⚠ ' + feed.last_error + ' — ' : '') + feed.url;
+  $('#editFeedUrl').value = feed.url;
+  $('#editFeedError').textContent = feed.last_error ? '⚠ ' + feed.last_error : '';
+  $('#repairFeed').hidden = !feed.last_error;
   openModal('#feedEditModal');
   $('#editFeedTitle').focus();
 }
@@ -876,12 +941,20 @@ async function enregistrerFlux(event) {
   event.preventDefault();
   const id = Number($('#editFeedId').value);
   try {
+    const feed = state.feeds.find((f) => f.id === id);
+    const url = $('#editFeedUrl').value.trim();
+
     await api.updateFeed(id, {
       custom_title: $('#editFeedTitle').value.trim(),
-      folder: $('#editFeedFolder').value.trim()
+      folder: $('#editFeedFolder').value.trim(),
+      ...(url && url !== feed?.url ? { url } : {})
     });
+    // Adresse changée à la main : on va voir tout de suite si elle répond.
+    if (url && url !== feed?.url) await api.refreshFeed(id);
+
     await reloadState();
     closeModals();
+    loadArticles(true);
     toast('Source mise à jour');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
@@ -900,6 +973,99 @@ async function supprimerFlux() {
     else loadArticles(true);
     toast('Source supprimée');
   } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* --------------------------------------------- reparation des sources */
+
+const LIBELLES = {
+  repare: ['ok', 'réparée'],
+  propose: ['nok', 'à confirmer'],
+  doublon: ['nok', 'déjà présente'],
+  introuvable: ['nok', 'introuvable'],
+  echec: ['nok', 'échec']
+};
+
+function ligneReparation(r) {
+  const [ton, libelle] = LIBELLES[r.status] || LIBELLES.echec;
+
+  const detail = r.status === 'repare'
+    ? `Nouvelle adresse : <b>${esc(r.toTitle || '')}</b><br><span class="repair-url">${esc(r.to)}</span>`
+    : r.status === 'propose'
+      ? r.candidates.map((c) => `
+          <div class="repair-cand">
+            <button class="ghost-btn" data-accept="${r.feedId}" data-url="${esc(c.url)}">Adopter</button>
+            <span><b>${esc(c.title || 'sans titre')}</b> · ${c.confiance}% de ressemblance
+              <br><span class="repair-url">${esc(c.url)}</span></span>
+          </div>`).join('')
+      : `<span class="repair-url">${esc(r.from || '')}</span>`;
+
+  return `
+    <div class="repair-row" data-feed-row="${r.feedId}">
+      <div>
+        <div class="repair-name">${esc(r.title || 'Source ' + r.feedId)}</div>
+        <div class="repair-detail">${detail}</div>
+      </div>
+      <span class="repair-tag ${ton}">${libelle}</span>
+    </div>`;
+}
+
+function afficherRapport(rapport) {
+  const resultats = rapport.results || [rapport];
+  const auto = resultats.filter((r) => r.status === 'repare').length;
+  const props = resultats.filter((r) => r.status === 'propose').length;
+
+  $('#repairSummary').innerHTML = auto || props
+    ? `${auto ? pluriel(auto, 'source réparée', 'sources réparées') + ' automatiquement' : 'Aucune réparation automatique'}`
+      + `${props ? ` · ${pluriel(props, 'proposition')} à confirmer` : ''}.`
+      + ' Une proposition n’est appliquée que si tu l’adoptes : le flux trouvé peut être'
+      + ' celui du site entier plutôt que la rubrique d’origine.'
+    : 'Aucune adresse de remplacement trouvée pour ces sources.';
+
+  // Les cas actionnables d'abord.
+  const ordre = { propose: 0, repare: 1, doublon: 2, introuvable: 3, echec: 4 };
+  $('#repairList').innerHTML = resultats
+    .slice()
+    .sort((a, b) => (ordre[a.status] ?? 9) - (ordre[b.status] ?? 9))
+    .map(ligneReparation).join('');
+
+  openModal('#repairModal');
+}
+
+async function reparerTout() {
+  const btn = $('#repairAll');
+  btn.disabled = true;
+  btn.textContent = 'Recherche en cours…';
+  try {
+    afficherRapport(await api.repairAll());
+    await reloadState();
+  } catch (error) {
+    toast('Réparation impossible : ' + error.message, 'bad');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Réparer les sources injoignables';
+  }
+}
+
+async function adopterAdresse(feedId, url, bouton) {
+  bouton.disabled = true;
+  bouton.textContent = 'Adoption…';
+  try {
+    const resultat = await api.repairFeed(feedId, url);
+    await reloadState();
+    const ligne = $(`[data-feed-row="${feedId}"]`);
+    if (ligne) {
+      $('.repair-detail', ligne).innerHTML =
+        `Nouvelle adresse : <b>${esc(resultat.feed.title)}</b><br><span class="repair-url">${esc(url)}</span>`;
+      $('.repair-tag', ligne).className = 'repair-tag ok';
+      $('.repair-tag', ligne).textContent = 'réparée';
+    }
+    toast(`« ${resultat.feed.title} » · ${pluriel(resultat.added || 0, 'article')}`);
+    if (state.feedId === feedId || !state.feedId) loadArticles(true);
+  } catch (error) {
+    bouton.disabled = false;
+    bouton.textContent = 'Adopter';
     toast('Échec : ' + error.message, 'bad');
   }
 }

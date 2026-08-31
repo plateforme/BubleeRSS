@@ -39,7 +39,6 @@
     <div class="rail-search">
       <svg class="search-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input type="search" id="search" placeholder="Rechercher…" autocomplete="off" aria-label="Rechercher dans les articles">
-      <kbd class="search-kbd">/</kbd>
     </div>
 
     <nav class="rail-nav" aria-label="Vues">
@@ -202,6 +201,12 @@
       <button type="submit" class="accent-btn">Enregistrer</button>
     </div>
   </form>
+  <div class="modal-sep"><span>entretien</span></div>
+  <div class="modal-io">
+    <button class="ghost-btn" id="repairAll">Réparer les sources injoignables</button>
+    <button class="ghost-btn" id="dedupeAll">Rechercher les doublons</button>
+  </div>
+
   <div class="modal-sep"><span>raccourcis</span></div>
   <ul class="shortcuts">
     <li><kbd>J</kbd><kbd>K</kbd> naviguer</li>
@@ -228,14 +233,28 @@
       <span>Dossier</span>
       <input type="text" id="editFeedFolder" list="folderOptions" autocomplete="off">
     </label>
-    <p class="field-note" id="editFeedUrl"></p>
+    <label class="field">
+      <span>Adresse du flux</span>
+      <input type="text" id="editFeedUrl" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="field-note" id="editFeedError"></p>
     <div class="modal-actions spread">
       <button type="button" class="danger-btn" id="deleteFeed">Supprimer</button>
+      <button type="button" class="ghost-btn" id="repairFeed" hidden>Réparer</button>
       <span class="grow"></span>
       <button type="button" class="ghost-btn" data-close>Annuler</button>
       <button type="submit" class="accent-btn">Enregistrer</button>
     </div>
   </form>
+</div>
+
+<div class="modal wide" id="repairModal" hidden role="dialog" aria-modal="true" aria-labelledby="repairTitle">
+  <h2 id="repairTitle">Sources injoignables</h2>
+  <p class="modal-hint" id="repairSummary"></p>
+  <div class="repair-list" id="repairList"></div>
+  <div class="modal-actions">
+    <button type="button" class="ghost-btn" data-close>Fermer</button>
+  </div>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>

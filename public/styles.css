@@ -157,14 +157,17 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 }
 .rail-search input {
   width: 100%;
-  padding: 9px 34px 9px 34px;
+  padding: 9px 14px 9px 34px;
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: 999px;
   font-size: 13.5px;
   transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
 }
-.rail-search input::-webkit-search-cancel-button { display: none; }
+/* Le navigateur ajoute ses propres ornements dans un champ `search`. */
+.rail-search input::-webkit-search-cancel-button,
+.rail-search input::-webkit-search-decoration,
+.rail-search input::-webkit-search-results-button { display: none; -webkit-appearance: none; }
 .rail-search input:focus {
   outline: none;
   border-color: var(--accent);
@@ -174,13 +177,6 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
   position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
   width: 15px; height: 15px; color: var(--ink-mute); pointer-events: none;
 }
-.search-kbd {
-  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-  font-family: var(--sans); font-size: 10.5px; color: var(--ink-mute);
-  border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px;
-  pointer-events: none;
-}
-.rail-search input:focus ~ .search-kbd { opacity: 0; }
 
 /* navigation */
 .rail-nav { display: flex; flex-direction: column; gap: 1px; padding: 0 12px; }
@@ -477,6 +473,66 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
   transition: transform .7s var(--ease), filter .4s var(--ease);
 }
 .card:hover .card-media img { transform: scale(1.035); }
+
+/* ------------------------------------------- plaque typographique -------- */
+/* Utilisee quand l'article n'a aucune illustration : plutot qu'un blanc,
+   une composition sobre — grande initiale, nom de la source, teinte propre
+   a chaque source. */
+
+.card-media.plate {
+  position: relative;
+  container-type: size;
+  overflow: hidden;
+  background: var(--plate-bg);
+  border: 1px solid var(--plate-line);
+}
+
+.plate[data-plate='0'] { --plate-bg: color-mix(in srgb, var(--accent) 7%, var(--paper-deep));  --plate-fg: var(--accent); }
+.plate[data-plate='1'] { --plate-bg: color-mix(in srgb, var(--gold) 12%, var(--paper-deep));   --plate-fg: var(--gold); }
+.plate[data-plate='2'] { --plate-bg: color-mix(in srgb, var(--ink) 7%, var(--paper-deep));     --plate-fg: var(--ink-soft); }
+.plate[data-plate='3'] { --plate-bg: color-mix(in srgb, var(--accent) 16%, var(--paper-deep)); --plate-fg: var(--accent-ink); }
+.plate[data-plate='4'] { --plate-bg: color-mix(in srgb, var(--gold) 6%, var(--surface-2));     --plate-fg: var(--ink-mute); }
+.plate { --plate-line: color-mix(in srgb, var(--plate-fg) 22%, transparent); }
+
+/* L'initiale deborde volontairement du cadre : c'est un signe, pas un logo. */
+.plate-mark {
+  position: absolute;
+  left: 6cqw; bottom: -16cqh;
+  font-family: var(--serif);
+  font-size: 130px;
+  font-size: 98cqh;
+  font-weight: 500;
+  font-variation-settings: 'opsz' 144;
+  line-height: 1;
+  color: var(--plate-fg);
+  opacity: .28;
+  user-select: none;
+}
+
+.plate-source {
+  position: absolute;
+  right: 7cqw; top: 10cqh;
+  max-width: 64%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--sans);
+  font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--plate-fg);
+  opacity: .8;
+}
+
+/* Un filet discret rappelle la mise en page du magazine. */
+.plate::after {
+  content: '';
+  position: absolute; right: 7cqw; top: 24cqh; width: 26cqw;
+  border-top: 1px solid var(--plate-fg);
+  opacity: .35;
+}
+
+.card:hover .card-media.plate { border-color: color-mix(in srgb, var(--plate-fg) 45%, transparent); }
+
+/* En liste la vignette est petite : on centre l'initiale et on allege. */
+.flux.list .plate-source, .flux.list .plate::after { display: none; }
+.flux.list .plate-mark { left: 50%; bottom: 50%; transform: translate(-50%, 50%); font-size: 60cqh; }
 
 .card-kicker {
   display: flex; align-items: center; gap: 7px;
@@ -901,6 +957,38 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 }
 @keyframes pop { from { opacity: 0; transform: translate(-50%, -46%) scale(.97); } }
 
+.modal.wide { width: min(640px, calc(100vw - 32px)); }
+
+/* --------------------------------------------- rapport de reparation */
+
+.repair-list { display: flex; flex-direction: column; gap: 2px; }
+
+.repair-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.repair-row:last-child { border-bottom: 0; }
+
+.repair-name {
+  font-size: 13.5px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.repair-detail { margin-top: 3px; font-size: 12px; color: var(--ink-mute); line-height: 1.45; }
+.repair-detail b { color: var(--ink-soft); font-weight: 600; }
+.repair-url { word-break: break-all; font-size: 11.5px; color: var(--ink-mute); }
+
+.repair-cand { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.repair-cand .ghost-btn { padding: 4px 10px; font-size: 12px; }
+
+.repair-tag {
+  flex: none;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+}
+.repair-tag.ok  { background: var(--accent-wash); color: var(--accent-ink); }
+.repair-tag.nok { background: var(--rule-soft); color: var(--ink-mute); }
+
 .modal h2 {
   margin: 0 0 6px;
   font-family: var(--serif); font-size: 23px; font-weight: 600; letter-spacing: -.02em;
@@ -923,7 +1011,8 @@ svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width:
 .field input:focus, .field select:focus {
   outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash);
 }
-.field-note { margin: 6px 0 0; font-size: 12px; color: var(--ink-mute); word-break: break-all; }
+/* `break-all` couperait les mots ordinaires ; `anywhere` ne casse que ce qui deborde. */
+.field-note { margin: 6px 0 0; font-size: 12px; color: var(--ink-mute); overflow-wrap: anywhere; }
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .modal-actions.spread { justify-content: flex-start; }

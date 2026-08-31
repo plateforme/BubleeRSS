@@ -21,6 +21,9 @@ const parser = new XMLParser({
     maxEntityCount: 4000
   },
   htmlEntities: true,
+  // Certains flux collent du HTML mal ferme hors CDATA : la limite par
+  // defaut (100) les rejette alors qu'ils restent lisibles.
+  maxNestedTags: 500,
   isArray: (name) => ['item', 'entry', 'link', 'category', 'enclosure', 'media:content', 'media:thumbnail'].includes(name)
 });
 
@@ -83,6 +86,11 @@ function atomLink(links, rels = ['alternate']) {
   return plain ? String(plain).trim() : '';
 }
 
+/** Beaucoup de flux joignent l'image sans dire que c'en est une. */
+function ressembleAUneImage(url) {
+  return /\.(jpe?g|png|gif|webp|avif|bmp)(\?|#|$)/i.test(String(url || ''));
+}
+
 function mediaImage(node) {
   const candidates = [];
   const push = (v) => { if (v) candidates.push(v); };
@@ -93,7 +101,8 @@ function mediaImage(node) {
     for (const entry of Array.isArray(entries) ? entries : [entries]) {
       if (!entry || typeof entry !== 'object') continue;
       const type = String(entry['@_type'] || entry['@_medium'] || '');
-      if (type && !/^image/i.test(type) && type !== 'image') continue;
+      // Type absent : on se fie a l'extension plutot que d'ecarter l'image.
+      if (type ? !/^image/i.test(type) : !ressembleAUneImage(entry['@_url'])) continue;
       push(entry['@_url']);
     }
   }
@@ -101,13 +110,18 @@ function mediaImage(node) {
   if (node['media:group']) push(mediaImage(node['media:group']));
 
   for (const enclosure of Array.isArray(node.enclosure) ? node.enclosure : [node.enclosure].filter(Boolean)) {
-    if (enclosure && typeof enclosure === 'object' && /^image\//i.test(String(enclosure['@_type'] || ''))) {
+    if (!enclosure || typeof enclosure !== 'object') continue;
+    const type = String(enclosure['@_type'] || '');
+    if (type ? /^image\//i.test(type) : ressembleAUneImage(enclosure['@_url'])) {
       push(enclosure['@_url']);
     }
   }
 
-  push(pick(node, 'itunes:image'));
   if (node['itunes:image'] && node['itunes:image']['@_href']) push(node['itunes:image']['@_href']);
+  push(pick(node, 'itunes:image'));
+
+  // <image> dans l'entree, plus rare mais utilise par quelques CMS.
+  if (node.image) push(typeof node.image === 'object' ? pick(node.image, 'url', 'href') : node.image);
 
   return candidates.find(Boolean) || null;
 }
@@ -193,7 +207,8 @@ export function parseFeed(xml, feedUrl) {
 const ACCEPT_FLUX =
   'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8, */*;q=0.5';
 
-const getFlux = (url, headers = {}) => httpGet(url, { headers: { accept: ACCEPT_FLUX, ...headers } });
+const getFlux = (url, headers = {}, timeout) =>
+  httpGet(url, { headers: { accept: ACCEPT_FLUX, ...headers }, ...(timeout ? { timeout } : {}) });
 
 /**
  * Telecharge un flux en respectant ETag / Last-Modified.
@@ -241,7 +256,7 @@ export async function discoverFeeds(input) {
   let body = '';
   let finalUrl = url;
   try {
-    const { res, buffer } = await getFlux(url);
+    const { res, buffer } = await getFlux(url, {}, 10000);
     if (res.ok) {
       body = decodeBody(buffer, res.headers.get('content-type'));
       finalUrl = res.url || url;
@@ -282,7 +297,7 @@ export async function discoverFeeds(input) {
     for (const path of COMMON_PATHS) {
       const candidate = origin + path;
       try {
-        const { res, buffer } = await getFlux(candidate);
+        const { res, buffer } = await getFlux(candidate, {}, 6000);
         if (!res.ok) continue;
         const text = decodeBody(buffer, res.headers.get('content-type'));
         if (!looksLikeFeed(text)) continue;

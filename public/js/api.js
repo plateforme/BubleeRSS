@@ -40,6 +40,9 @@ export const api = {
   updateFeed:  (id, patch) => json('PATCH', '/api/feeds/' + id, patch),
   deleteFeed:  (id) => json('DELETE', '/api/feeds/' + id),
   refreshFeed: (id) => json('POST', `/api/feeds/${id}/refresh`),
+  repairFeed:  (id, url) => json('POST', `/api/feeds/${id}/repair`, url ? { url } : {}),
+  repairAll:   () => json('POST', '/api/feeds/repair'),
+  dedupe:      (rebuild = false) => json('POST', `/api/dedupe${rebuild ? '?rebuild=1' : ''}`),
   refreshAll:  () => json('POST', '/api/refresh'),
 
   importOpml: (xml) => call('/api/opml/import', {

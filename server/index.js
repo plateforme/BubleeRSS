@@ -39,11 +39,14 @@ const ROUTES = [
   ['DELETE', '/api/feeds/:id',           'supprimer une source'],
   ['POST',   '/api/feeds/:id/refresh',   'rafraichir une source'],
   ['POST',   '/api/refresh',             'rafraichir toutes les sources'],
+  ['POST',   '/api/feeds/repair',        'retrouver l’adresse des sources injoignables'],
+  ['POST',   '/api/feeds/:id/repair',    'reparer une source precise'],
   ['GET',    '/api/articles',            'articles ; parametres view, feed, folder, q, limit, before'],
   ['GET',    '/api/articles/:id',        'un article avec son contenu'],
   ['PATCH',  '/api/articles/:id',        'marquer lu / favori { read?, starred? }'],
   ['POST',   '/api/articles/:id/full',   'recuperer le texte complet (?force=1 pour relancer)'],
   ['POST',   '/api/articles/read',       'marquer lu en masse { ids | feedId | folder | all }'],
+  ['POST',   '/api/articles/images',     'chercher les illustrations manquantes'],
   ['POST',   '/api/dedupe',              'rechercher les doublons deja en base'],
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
@@ -140,7 +143,27 @@ app.post('/api/feeds/:id/refresh', wrap(async (req, res) => {
 }));
 
 app.post('/api/refresh', wrap(async (req, res) => {
-  res.json(await store.refreshAll());
+  const resultat = await store.refreshAll();
+  res.json(resultat);
+  // Les illustrations manquantes se cherchent apres coup, sans faire attendre.
+  store.completerImages().catch(() => {});
+}));
+
+// Retrouve l'adresse actuelle des flux devenus injoignables.
+app.post('/api/feeds/repair', wrap(async (req, res) => {
+  res.json(await store.reparerSourcesCassees());
+}));
+
+// Sans corps : on cherche. Avec { url } : on applique la proposition retenue.
+app.post('/api/feeds/:id/repair', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const url = req.body?.url;
+  res.json(url ? await store.accepterReparation(id, String(url)) : await store.reparerFlux(id));
+}));
+
+// Va chercher l'illustration sur la page des articles qui n'en ont pas.
+app.post('/api/articles/images', wrap(async (req, res) => {
+  res.json(await store.completerImages({ limite: Number(req.body?.limit) || 60 }));
 }));
 
 /* -------------------------------------------------------------- articles */
@@ -250,7 +273,10 @@ function scheduleRefresh() {
   if (!Number.isFinite(minutes) || minutes <= 0) return;
   refreshTimer = setInterval(() => {
     store.refreshAll()
-      .then((r) => { if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`); })
+      .then((r) => {
+        if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`);
+        return store.completerImages();
+      })
       .catch((error) => console.error('[bublee] refresh auto :', error.message));
   }, minutes * 60 * 1000);
   refreshTimer.unref?.();
@@ -280,5 +306,5 @@ app.listen(PORT, HOST, () => {
   scheduleRefresh();
   openBrowser(url);
   // Un rafraichissement au demarrage, en tache de fond.
-  setTimeout(() => store.refreshAll().catch(() => {}), 2000);
+  setTimeout(() => store.refreshAll().then(() => store.completerImages()).catch(() => {}), 2000);
 });

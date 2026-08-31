@@ -71,7 +71,8 @@ export const migrationApplied = [
   addColumn('articles', 'dupe_of', 'INTEGER REFERENCES articles(id) ON DELETE SET NULL'),
   addColumn('articles', 'full_content', 'TEXT'),
   addColumn('articles', 'full_fetched_at', 'INTEGER'),
-  addColumn('articles', 'full_error', 'TEXT')
+  addColumn('articles', 'full_error', 'TEXT'),
+  addColumn('articles', 'image_checked', 'INTEGER')
 ].some(Boolean);
 
 db.exec(`

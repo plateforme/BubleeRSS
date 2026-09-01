@@ -1726,11 +1726,10 @@ function rattraperImages(racine = document) {
 
 const SEUIL_GLISSE = 64;        // en deçà, c'est une hésitation, pas une intention
 const PENTE_GLISSE = 1.4;       // l'horizontale doit l'emporter franchement
-const SORTIE = 0.42;            // part de l'écran parcourue avant de basculer
-const T_SORTIE = 200;
-const T_ENTREE = 260;
+const T_PASSAGE = 240;
 
 const douceur = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Vrai si le doigt est parti dans une zone qui défile déjà horizontalement —
     un tableau, un bloc de code : elle garde la priorité. */
@@ -1744,41 +1743,69 @@ function dansUnDefilementHorizontal(cible) {
   return false;
 }
 
-const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
-
 /**
- * Le passage d'un article à l'autre : celui qu'on quitte s'en va du côté du
- * geste, le suivant arrive de l'autre bord. Le chargement court en même temps
- * que la sortie — sinon on attendrait le réseau devant un panneau vide.
+ * Le passage d'un article à l'autre.
+ *
+ * Deux principes, chacun contre un défaut qu'on a vu à l'usage. Seul le contenu
+ * bouge : déplacer le panneau entier découvrait le fond derrière lui, et faisait
+ * bouger jusqu'à la barre, qui n'a aucune raison de suivre le doigt. Et l'article
+ * qu'on quitte est photographié avant de partir : sa copie glisse par-dessus le
+ * suivant, déjà rendu en dessous — sans elle, il y avait un vide le temps du
+ * chargement.
  */
-async function glisserVers(article, sens) {
-  const lecteur = $('#reader');
-  if (!douceur()) { await openArticle(article.id, { enchaine: true }); return; }
+async function glisserVers(article, sens, depart) {
+  const scroll = $('#readerScroll');
+  const barre = $('.reader-bar');
 
-  lecteur.style.transition = `transform ${T_SORTIE}ms var(--ease), opacity ${T_SORTIE}ms linear`;
-  lecteur.style.transform = `translateX(${sens * SORTIE * 100}%)`;
-  lecteur.style.opacity = '0';
+  if (!douceur()) {
+    scroll.style.transform = '';
+    await openArticle(article.id, { enchaine: true });
+    return;
+  }
 
-  await Promise.all([attendre(T_SORTIE), openArticle(article.id, { enchaine: true })]);
+  // La photographie de l'article qu'on quitte, posée là où le doigt l'a laissé.
+  const fantome = scroll.cloneNode(true);
+  fantome.removeAttribute('id');
+  fantome.className = 'reader-fantome';
+  fantome.style.top = barre.offsetHeight + 'px';
+  fantome.style.transform = `translateX(${depart}px)`;
+  scroll.parentElement.append(fantome);
+  fantome.scrollTop = scroll.scrollTop;
 
-  // Reposé de l'autre côté sans transition, puis ramené : c'est ce saut muet
-  // qui donne l'impression que le nouvel article vient de derrière.
-  lecteur.style.transition = 'none';
-  lecteur.style.transform = `translateX(${-sens * SORTIE * 100}%)`;
-  void lecteur.offsetWidth;
-  lecteur.style.transition = `transform ${T_ENTREE}ms var(--ease), opacity ${T_ENTREE}ms linear`;
-  lecteur.style.transform = '';
-  lecteur.style.opacity = '';
+  // Le vrai panneau reprend sa place, invisible sous la photographie.
+  scroll.style.transition = 'none';
+  scroll.style.transform = '';
+
+  await openArticle(article.id, { enchaine: true });
+
+  // Le sortant s'en va, le suivant se pose : ils se croisent, il n'y a jamais
+  // de trou entre les deux.
+  fantome.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
+  fantome.style.transform = `translateX(${sens * 100}%)`;
+  fantome.style.opacity = '0';
+
+  scroll.style.transform = `translateX(${-sens * 14}%)`;
+  void scroll.offsetWidth;
+  scroll.style.transition = `transform ${T_PASSAGE}ms var(--ease)`;
+  scroll.style.transform = '';
+
+  await attendre(T_PASSAGE);
+  fantome.remove();
+  scroll.style.transition = '';
+  scroll.style.transform = '';
 }
 
-/** Fermer par le geste : le panneau s'en va vers la droite, il ne disparaît pas. */
+/** Fermer par le geste : le panneau entier s'en va, lui, puisqu'il disparaît. */
 async function glisserDehors() {
   const lecteur = $('#reader');
+  const scroll = $('#readerScroll');
+  scroll.style.transition = 'none';
+  scroll.style.transform = '';
   if (!douceur()) { closeReader(); return; }
-  lecteur.style.transition = `transform ${T_SORTIE}ms var(--ease), opacity ${T_SORTIE}ms linear`;
+  lecteur.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
   lecteur.style.transform = 'translateX(100%)';
   lecteur.style.opacity = '0';
-  await attendre(T_SORTIE);
+  await attendre(T_PASSAGE);
   closeReader();
   lecteur.style.transition = 'none';
   lecteur.style.transform = '';
@@ -1792,10 +1819,10 @@ function glisseLecteur() {
   const auDoigt = () => matchMedia('(max-width: 860px)').matches;
 
   const relacher = () => {
+    const scroll = $('#readerScroll');
     // Retour au repos : un ressort plutôt qu'un rappel sec.
-    lecteur.style.transition = 'transform .32s cubic-bezier(.22, 1.2, .36, 1), opacity .2s linear';
-    lecteur.style.transform = '';
-    lecteur.style.opacity = '';
+    scroll.style.transition = 'transform .3s cubic-bezier(.22, 1.2, .36, 1)';
+    scroll.style.transform = '';
     actif = false; horizontal = null;
   };
 
@@ -1807,7 +1834,7 @@ function glisseLecteur() {
     // clés l'emportent sur le style en ligne : un doigt posé aussitôt ne
     // déplacerait rien. On la coupe net.
     lecteur.style.animation = 'none';
-    lecteur.style.transition = 'none';
+    $('#readerScroll').style.transition = 'none';
   }, { passive: true });
 
   lecteur.addEventListener('touchmove', (e) => {
@@ -1816,21 +1843,19 @@ function glisseLecteur() {
     const dy = e.touches[0].clientY - y0;
 
     // On tranche une fois pour toutes au premier mouvement franc : sans ça, un
-    // défilement vertical un peu oblique ferait trembler le panneau.
+    // défilement vertical un peu oblique ferait trembler le contenu.
     if (horizontal === null) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       horizontal = Math.abs(dx) > Math.abs(dy) * PENTE_GLISSE;
       if (!horizontal) { relacher(); return; }
     }
 
-    // Le panneau suit le doigt au point près, sauf là où le geste ne mène nulle
+    // Le contenu suit le doigt au point près, sauf là où le geste ne mène nulle
     // part : vers la gauche sans article suivant, il résiste comme un élastique
     // au lieu de promettre un passage qui n'aura pas lieu.
     const impasse = dx < 0 && !articleSuivant();
     const suivi = impasse ? Math.sign(dx) * Math.pow(Math.abs(dx), 0.62) : dx;
-    const largeur = lecteur.getBoundingClientRect().width || 1;
-    lecteur.style.transform = `translateX(${suivi}px)`;
-    lecteur.style.opacity = String(Math.max(0.45, 1 - Math.abs(suivi) / largeur));
+    $('#readerScroll').style.transform = `translateX(${suivi}px)`;
   }, { passive: true });
 
   lecteur.addEventListener('touchend', async (e) => {
@@ -1847,11 +1872,11 @@ function glisseLecteur() {
     occupe = true;
     try {
       if (dx < 0) {
-        if (suivant) await glisserVers(suivant, -1);
+        if (suivant) await glisserVers(suivant, -1, dx);
         else { relacher(); toast('Dernier article de la liste'); }
       } else if (precedent) {
         const restant = state.profondeur - 1;
-        await glisserVers(precedent, 1);
+        await glisserVers(precedent, 1, dx);
         state.profondeur = restant;
       } else {
         await glisserDehors();
@@ -1861,8 +1886,7 @@ function glisseLecteur() {
     }
   }, { passive: true });
 
-  // Un doigt interrompu (appel entrant, geste système) ne laisse pas le
-  // panneau de travers.
+  // Un doigt interrompu (appel entrant, geste système) ne laisse rien de travers.
   lecteur.addEventListener('touchcancel', () => { if (actif) relacher(); }, { passive: true });
 }
 

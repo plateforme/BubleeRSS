@@ -250,12 +250,16 @@ une fois revenu à celui qu'on avait ouvert depuis la liste, pour refermer. C'es
 le geste « retour » du téléphone, et il évite d'aller chercher une croix en haut
 de l'écran à chaque article.
 
-Le panneau suit le doigt **au point près** et s'estompe à mesure : le geste se
-voit avant d'aboutir. Au relâchement il ne revient pas au centre pour laisser le
-contenu changer d'un coup — l'article s'en va du côté du geste, et le suivant
-arrive de l'autre bord. Le chargement court pendant la sortie, sinon on
-attendrait le réseau devant un panneau vide. Un geste abandonné revient au repos
-sur un ressort plutôt que sur un rappel sec.
+**Seul le contenu bouge.** Déplacer le panneau entier découvrait le fond
+derrière lui — un écran noir sur le côté — et faisait bouger jusqu'à la barre,
+qui n'a aucune raison de suivre le doigt. Le cadre reste donc en place ; c'est
+l'article qui glisse, au point près.
+
+Et l'article qu'on quitte est **photographié avant de partir** : sa copie glisse
+par-dessus le suivant, déjà rendu en dessous. Les deux se croisent, il n'y a
+jamais de trou entre eux — sans cette photographie, le chargement laissait un
+vide de quelques dixièmes. Un geste abandonné revient au repos sur un ressort
+plutôt que sur un rappel sec.
 
 Un article enchaîné ne rejoue pas l'entrée du panneau : il est déjà là, seul son
 contenu change. Et le geste coupe net l'animation d'ouverture — tant qu'elle

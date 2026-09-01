@@ -1433,3 +1433,15 @@ kbd {
   white-space: nowrap;
 }
 .une-sur .art-dossier, .tuile-sur .art-dossier { opacity: .85; }
+
+/* La photographie de l'article qu'on quitte pendant un glissé. Elle se pose
+   par-dessus le suivant, déjà rendu en dessous : c'est ce qui supprime le vide
+   entre les deux. Fond plein, sinon on verrait au travers. */
+.reader-fantome {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  background: var(--bone);
+  z-index: 2;
+  pointer-events: none;
+  will-change: transform, opacity;
+}

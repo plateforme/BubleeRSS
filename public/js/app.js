@@ -768,6 +768,36 @@ function applyAccent(accent) {
  * plutôt que de la liste. C'est ce qui distingue « revenir en arrière » de
  * « fermer » quand on glisse vers la droite.
  */
+/* Les voisins, demandés d'avance.
+   Au relâchement du doigt il ne doit plus rester que l'animation à faire. Tant
+   que l'article suivant se téléchargeait à cet instant précis, le geste se
+   figeait à mi-course, le temps d'un aller-retour réseau. On le demande donc
+   pendant la lecture, avant que le doigt ne parte. */
+
+const VOISINS_MAX = 12;
+const enMain = new Map();   // id -> Promise<article>
+
+function retenir(id, promesse) {
+  enMain.delete(id);                       // le remettre en queue : les plus
+  enMain.set(id, promesse);                // anciens sortent les premiers
+  while (enMain.size > VOISINS_MAX) enMain.delete(enMain.keys().next().value);
+  promesse.catch(() => enMain.delete(id)); // un échec ne se garde pas
+  return promesse;
+}
+
+function chargerArticle(id) {
+  return retenir(id, enMain.get(id) || api.article(id));
+}
+
+/** Vrai si l'article est déjà en main : le passage se fera sans attendre. */
+const dejaEnMain = (id) => enMain.has(id);
+
+function preparerVoisins() {
+  for (const v of [articleSuivant(), articlePrecedent()]) {
+    if (v && !enMain.has(v.id)) chargerArticle(v.id);
+  }
+}
+
 async function openArticle(id, { enchaine = false } = {}) {
   state.profondeur = enchaine ? state.profondeur + 1 : 0;
   const index = indexParId.get(id);
@@ -785,11 +815,15 @@ async function openArticle(id, { enchaine = false } = {}) {
   document.body.style.overflow = 'hidden';
 
   try {
-    const article = await api.article(id);
+    const article = await chargerArticle(id);
     if (state.openId !== id) return;
     renderReader(article);
-    if (!article.read_at) await marquerLu(id, true);
-    if (article.should_fetch_full) completerArticle(article);
+    // Les voisins pendant qu'on lit — après le passage, pour ne pas lui disputer
+    // le fil au moment où il compte.
+    setTimeout(preparerVoisins, 260);
+    if (!article.read_at) { await marquerLu(id, true); article.read_at = Date.now(); }
+    // Le texte complet remplacera le corps : la version courte ne vaut plus.
+    if (article.should_fetch_full) { enMain.delete(id); completerArticle(article); }
   } catch (error) {
     toast('Article illisible : ' + error.message, 'bad');
     closeReader();
@@ -1746,53 +1780,68 @@ function dansUnDefilementHorizontal(cible) {
 /**
  * Le passage d'un article à l'autre.
  *
- * Deux principes, chacun contre un défaut qu'on a vu à l'usage. Seul le contenu
+ * Trois principes, chacun contre un défaut qu'on a vu à l'usage. Seul le contenu
  * bouge : déplacer le panneau entier découvrait le fond derrière lui, et faisait
- * bouger jusqu'à la barre, qui n'a aucune raison de suivre le doigt. Et l'article
- * qu'on quitte est photographié avant de partir : sa copie glisse par-dessus le
- * suivant, déjà rendu en dessous — sans elle, il y avait un vide le temps du
- * chargement.
+ * bouger jusqu'à la barre, qui n'a aucune raison de suivre le doigt. L'article
+ * qu'on quitte reste à l'écran pendant que le suivant se pose dessous, si bien
+ * qu'il n'y a jamais de trou entre les deux. Et surtout : au relâchement du
+ * doigt, il ne reste plus rien à calculer. Rien n'est cloné — le sortant garde
+ * son propre corps, sa mise en page et ses images déjà décodées — et rien n'est
+ * téléchargé, les voisins ayant été demandés pendant la lecture.
  */
 async function glisserVers(article, sens, depart) {
-  const scroll = $('#readerScroll');
+  const ancien = $('#readerScroll');
   const barre = $('.reader-bar');
 
   if (!douceur()) {
-    scroll.style.transform = '';
+    ancien.style.transform = '';
+    ancien.style.willChange = '';
     await openArticle(article.id, { enchaine: true });
     return;
   }
 
-  // La photographie de l'article qu'on quitte, posée là où le doigt l'a laissé.
-  const fantome = scroll.cloneNode(true);
-  fantome.removeAttribute('id');
-  fantome.className = 'reader-fantome';
-  fantome.style.top = barre.offsetHeight + 'px';
-  fantome.style.transform = `translateX(${depart}px)`;
-  scroll.parentElement.append(fantome);
-  fantome.scrollTop = scroll.scrollTop;
+  // L'article qu'on quitte ne devient pas une copie de lui-même : on lui retire
+  // son rôle, il reste tel quel là où le doigt l'a laissé. Cloner tout un
+  // article à cet instant précis coûtait le tiers de l'animation.
+  const classes = ancien.className;
+  const lu = ancien.scrollTop;
+  ancien.removeAttribute('id');
+  ancien.classList.add('reader-fantome');
+  ancien.style.top = barre.offsetHeight + 'px';
+  ancien.style.transition = 'none';
+  ancien.style.transform = `translateX(${depart}px)`;
 
-  // Le vrai panneau reprend sa place, invisible sous la photographie.
-  scroll.style.transition = 'none';
-  scroll.style.transform = '';
+  // Le suivant prend sa place dans le flux, dessous.
+  const neuf = document.createElement('div');
+  neuf.id = 'readerScroll';
+  neuf.className = classes;
+  neuf.style.willChange = 'transform';
+  ancien.after(neuf);
 
-  await openArticle(article.id, { enchaine: true });
+  // Sortir du flux lui fait oublier où on en était de sa lecture : on le lui
+  // rappelle, sans le défilement doux qui transformerait le rappel en voyage.
+  ancien.style.scrollBehavior = 'auto';
+  ancien.scrollTop = lu;
 
-  // Le sortant s'en va, le suivant se pose : ils se croisent, il n'y a jamais
-  // de trou entre les deux.
-  fantome.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
-  fantome.style.transform = `translateX(${sens * 100}%)`;
-  fantome.style.opacity = '0';
+  // Déjà en main : le rendu tient dans le même souffle, avant la première image
+  // de l'animation. Sinon on part quand même — le sortant couvre l'attente.
+  const ouverture = openArticle(article.id, { enchaine: true });
+  if (dejaEnMain(article.id)) await ouverture;
 
-  scroll.style.transform = `translateX(${-sens * 14}%)`;
-  void scroll.offsetWidth;
-  scroll.style.transition = `transform ${T_PASSAGE}ms var(--ease)`;
-  scroll.style.transform = '';
+  ancien.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
+  ancien.style.transform = `translateX(${sens * 100}%)`;
+  ancien.style.opacity = '0';
+
+  neuf.style.transform = `translateX(${-sens * 14}%)`;
+  void neuf.offsetWidth;
+  neuf.style.transition = `transform ${T_PASSAGE}ms var(--ease)`;
+  neuf.style.transform = '';
 
   await attendre(T_PASSAGE);
-  fantome.remove();
-  scroll.style.transition = '';
-  scroll.style.transform = '';
+  ancien.remove();
+  neuf.style.transition = '';
+  neuf.style.transform = '';
+  neuf.style.willChange = '';
 }
 
 /** Fermer par le geste : le panneau entier s'en va, lui, puisqu'il disparaît. */
@@ -1823,6 +1872,7 @@ function glisseLecteur() {
     // Retour au repos : un ressort plutôt qu'un rappel sec.
     scroll.style.transition = 'transform .3s cubic-bezier(.22, 1.2, .36, 1)';
     scroll.style.transform = '';
+    setTimeout(() => { if (!actif) scroll.style.willChange = ''; }, 320);
     actif = false; horizontal = null;
   };
 
@@ -1848,6 +1898,7 @@ function glisseLecteur() {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       horizontal = Math.abs(dx) > Math.abs(dy) * PENTE_GLISSE;
       if (!horizontal) { relacher(); return; }
+      $('#readerScroll').style.willChange = 'transform';
     }
 
     // Le contenu suit le doigt au point près, sauf là où le geste ne mène nulle

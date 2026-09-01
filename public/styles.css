@@ -1439,9 +1439,11 @@ kbd {
    entre les deux. Fond plein, sinon on verrait au travers. */
 .reader-fantome {
   position: absolute; left: 0; right: 0; bottom: 0;
-  overflow: hidden;
   background: var(--bone);
   z-index: 2;
   pointer-events: none;
+  overscroll-behavior: none;
+  scrollbar-width: none;
   will-change: transform, opacity;
 }
+.reader-fantome::-webkit-scrollbar { width: 0; }

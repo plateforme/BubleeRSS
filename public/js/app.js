@@ -397,8 +397,19 @@ function laDuree(a) {
   return tempsLecture(a.word_count);
 }
 
+/**
+ * La pastille de dossier, dans les vues d'ensemble seulement. Sur « Non lus »,
+ * « Tout » et « Favoris », les articles viennent de partout et rien ne dit d'où
+ * — alors que dans un dossier ou une source précise, ce serait se répéter.
+ */
+function pastilleDossier(a) {
+  if (state.feedId || state.folder) return '';
+  const nom = (a.feed_folder || '').trim();
+  return nom ? `<span class="art-dossier">${esc(nom)}</span>` : '';
+}
+
 function surtitre(a, { avecDuree = true } = {}) {
-  const bouts = [`<b>${esc(a.feed_title)}</b>`, esc(quand(a.published_at))];
+  const bouts = [`${pastilleDossier(a)}<b>${esc(a.feed_title)}</b>`, esc(quand(a.published_at))];
   const d = avecDuree ? laDuree(a) : '';
   if (d) bouts.push(esc(d));
   return bouts.join(' · ');
@@ -479,7 +490,7 @@ function blocUne(a) {
 function blocColonnes(liste) {
   return `<div class="bloc cols">${liste.map((a) => `
     <button class="col art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
-      <div class="sur">${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
+      <div class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
       <h3 class="col-titre">${esc(a.title)}</h3>
       <div class="wipe"></div>
       ${a.summary ? `<p class="chapo">${esc(a.summary)}</p>` : ''}
@@ -502,7 +513,7 @@ function blocMur(liste) {
         <span class="tuile-voile"></span>
         ${badge}
         <span class="tuile-corps">
-          <span class="tuile-sur">${esc(a.feed_title)} · ${esc(quand(a.published_at))}</span>
+          <span class="tuile-sur">${pastilleDossier(a)}${esc(a.feed_title)} · ${esc(quand(a.published_at))}</span>
           <span class="tuile-titre">${esc(a.title)}</span>
           ${puces(a)}
         </span>
@@ -523,7 +534,7 @@ function blocAplats(liste) {
     <button class="aplat art${classeLue(large)}${curseur(large)}" ${attrs(large)} data-open="${large.id}"
             style="--teinte:${couleur};color:${contraste(couleur)}">
       <span class="aplat-initiale">${esc(initialeDe(large))}</span>
-      <span class="sur">${esc(large.feed_title)} · ${esc(quand(large.published_at))}
+      <span class="sur">${pastilleDossier(large)}${esc(large.feed_title)} · ${esc(quand(large.published_at))}
         ${large.has_full ? '<span class="aplat-badge">Texte complet</span>' : ''}</span>
       <span class="aplat-titre">${esc(large.title)}</span>
       <span class="aplat-pied">
@@ -544,7 +555,7 @@ function blocPlaque(a, i = 0) {
       <span class="plaque-initiale">${esc(initialeDe(a))}</span>
       <span class="plaque-source">${esc(a.feed_title)}</span>
       <span class="plaque-corps">
-        <span class="sur">${esc(quand(a.published_at))} · sans illustration</span>
+        <span class="sur">${pastilleDossier(a)}${esc(quand(a.published_at))} · sans illustration</span>
         <span class="plaque-titre">${esc(a.title)}</span>
         <span class="wipe"></span>
         <span class="plaque-pied">${esc(laDuree(a) || 'texte indisponible')}${puces(a)}</span>
@@ -661,7 +672,7 @@ function ligneSommaire(a, i) {
     <button class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
       <span class="som-num">${String(i + 1).padStart(2, '0')}</span>
       <span>
-        <span class="sur">${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
+        <span class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
         <span class="som-titre">${esc(a.title)}</span>
         ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
         ${puces(a)}

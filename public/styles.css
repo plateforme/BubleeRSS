@@ -1282,6 +1282,12 @@ kbd {
      le panneau prend tout, on referme par ✕ ou Échap. */
   .reader { width: 100vw; border-left: 0; }
 
+  /* Le panneau couvre tout l'écran : le voile derrière lui n'a plus à laisser
+     deviner la liste, il devient un fond plein. Sans ça, le glissé découvre la
+     liste par en dessous et le passage perd sa netteté — on voit deux choses à
+     la fois au lieu d'une carte qui s'en va. */
+  .reader-shade { background: var(--ink-deep); }
+
   /* Le bandeau tient sur une ligne en se délestant. Partent : la méta, que le
      titre juste en dessous répète ; « Texte complet », qui se récupère de toute
      façon tout seul à l'ouverture ; et « Non lu », qui ne sert qu'à revenir en
@@ -1414,3 +1420,16 @@ kbd {
 }
 .compte-neuf input:first-child { grid-column: 1 / -1; }
 .compte-neuf .btn { grid-column: 1 / -1; }
+
+/* La pastille de dossier, sur les vues d'ensemble. Un contour plutôt qu'un
+   aplat : les étiquettes posées à la main sont pleines, et ces deux marques ne
+   doivent pas se confondre — l'une dit d'où vient l'article, l'autre ce qu'on
+   en a décidé. */
+.art-dossier {
+  display: inline-block; margin-right: 7px; padding: 1px 5px;
+  border: 1px solid currentColor; border-radius: 0;
+  font-family: var(--mono); font-size: 8px; letter-spacing: .12em; text-transform: uppercase;
+  font-weight: 400; opacity: .72; vertical-align: 1px;
+  white-space: nowrap;
+}
+.une-sur .art-dossier, .tuile-sur .art-dossier { opacity: .85; }

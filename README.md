@@ -202,6 +202,13 @@ Trois mises en page, indépendantes de la vue :
 - **Dépêches** — lignes denses ; le survol inverse la ligne en encre, c'est le
   seul renversement de la page et il sert de curseur.
 
+Dans les vues d'ensemble — « Non lus », « Tout », « Favoris » —, chaque carte
+porte la **pastille de son dossier** : les articles y viennent de partout et
+rien d'autre ne dit d'où. Elle disparaît dans un dossier ou sur une source
+précise, où elle se répéterait. C'est un contour, pas un aplat : les étiquettes
+posées à la main sont pleines, et les deux marques ne doivent pas se confondre —
+l'une dit d'où vient l'article, l'autre ce qu'on en a décidé.
+
 Dans l'index, la **pastille de type** distingue les sources : rien pour un
 article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
 de niveau pour un podcast.

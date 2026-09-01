@@ -3,3 +3,6 @@ data/
 *.log
 .DS_Store
 Thumbs.db
+
+# Sortie de scripts/tester-flux.mjs : un résultat de session, pas du source.
+candidats-valides.json

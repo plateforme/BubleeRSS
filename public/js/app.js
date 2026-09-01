@@ -765,6 +765,10 @@ async function openArticle(id, { enchaine = false } = {}) {
   history.replaceState(null, '', '#/article/' + id);
 
   $('#readerShade').hidden = false;
+  // Le panneau ne s'annonce qu'en venant de la liste. Enchaîné — glissé, touche
+  // J, lien « suivant » — il est déjà là : seul son contenu change, et rejouer
+  // son entrée écraserait l'animation du passage.
+  $('#reader').style.animation = enchaine ? 'none' : '';
   $('#reader').hidden = false;
   $('#readerScroll').innerHTML = '';
   document.body.style.overflow = 'hidden';
@@ -1709,8 +1713,13 @@ function rattraperImages(racine = document) {
    droite revient au précédent — ou referme, quand on est revenu à celui qu'on
    avait ouvert depuis la liste. C'est le geste « retour » du téléphone. */
 
-const SEUIL_GLISSE = 70;        // en deçà, c'est une hésitation, pas une intention
+const SEUIL_GLISSE = 64;        // en deçà, c'est une hésitation, pas une intention
 const PENTE_GLISSE = 1.4;       // l'horizontale doit l'emporter franchement
+const SORTIE = 0.42;            // part de l'écran parcourue avant de basculer
+const T_SORTIE = 200;
+const T_ENTREE = 260;
+
+const douceur = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** Vrai si le doigt est parti dans une zone qui défile déjà horizontalement —
     un tableau, un bloc de code : elle garde la priorité. */
@@ -1724,21 +1733,69 @@ function dansUnDefilementHorizontal(cible) {
   return false;
 }
 
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Le passage d'un article à l'autre : celui qu'on quitte s'en va du côté du
+ * geste, le suivant arrive de l'autre bord. Le chargement court en même temps
+ * que la sortie — sinon on attendrait le réseau devant un panneau vide.
+ */
+async function glisserVers(article, sens) {
+  const lecteur = $('#reader');
+  if (!douceur()) { await openArticle(article.id, { enchaine: true }); return; }
+
+  lecteur.style.transition = `transform ${T_SORTIE}ms var(--ease), opacity ${T_SORTIE}ms linear`;
+  lecteur.style.transform = `translateX(${sens * SORTIE * 100}%)`;
+  lecteur.style.opacity = '0';
+
+  await Promise.all([attendre(T_SORTIE), openArticle(article.id, { enchaine: true })]);
+
+  // Reposé de l'autre côté sans transition, puis ramené : c'est ce saut muet
+  // qui donne l'impression que le nouvel article vient de derrière.
+  lecteur.style.transition = 'none';
+  lecteur.style.transform = `translateX(${-sens * SORTIE * 100}%)`;
+  void lecteur.offsetWidth;
+  lecteur.style.transition = `transform ${T_ENTREE}ms var(--ease), opacity ${T_ENTREE}ms linear`;
+  lecteur.style.transform = '';
+  lecteur.style.opacity = '';
+}
+
+/** Fermer par le geste : le panneau s'en va vers la droite, il ne disparaît pas. */
+async function glisserDehors() {
+  const lecteur = $('#reader');
+  if (!douceur()) { closeReader(); return; }
+  lecteur.style.transition = `transform ${T_SORTIE}ms var(--ease), opacity ${T_SORTIE}ms linear`;
+  lecteur.style.transform = 'translateX(100%)';
+  lecteur.style.opacity = '0';
+  await attendre(T_SORTIE);
+  closeReader();
+  lecteur.style.transition = 'none';
+  lecteur.style.transform = '';
+  lecteur.style.opacity = '';
+}
+
 function glisseLecteur() {
   const lecteur = $('#reader');
-  let x0 = 0, y0 = 0, actif = false, horizontal = null;
+  let x0 = 0, y0 = 0, actif = false, horizontal = null, occupe = false;
 
   const auDoigt = () => matchMedia('(max-width: 860px)').matches;
-  const fin = (transition) => {
-    lecteur.style.transition = transition || '';
+
+  const relacher = () => {
+    // Retour au repos : un ressort plutôt qu'un rappel sec.
+    lecteur.style.transition = 'transform .32s cubic-bezier(.22, 1.2, .36, 1), opacity .2s linear';
     lecteur.style.transform = '';
+    lecteur.style.opacity = '';
     actif = false; horizontal = null;
   };
 
   lecteur.addEventListener('touchstart', (e) => {
-    if (!auDoigt() || e.touches.length !== 1 || dansUnDefilementHorizontal(e.target)) return;
+    if (occupe || !auDoigt() || e.touches.length !== 1 || dansUnDefilementHorizontal(e.target)) return;
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
     actif = true; horizontal = null;
+    // L'animation d'ouverture dure 340 ms et, tant qu'elle court, ses images
+    // clés l'emportent sur le style en ligne : un doigt posé aussitôt ne
+    // déplacerait rien. On la coupe net.
+    lecteur.style.animation = 'none';
     lecteur.style.transition = 'none';
   }, { passive: true });
 
@@ -1750,44 +1807,52 @@ function glisseLecteur() {
     // On tranche une fois pour toutes au premier mouvement franc : sans ça, un
     // défilement vertical un peu oblique ferait trembler le panneau.
     if (horizontal === null) {
-      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       horizontal = Math.abs(dx) > Math.abs(dy) * PENTE_GLISSE;
-      if (!horizontal) { fin(); return; }
+      if (!horizontal) { relacher(); return; }
     }
 
-    // Le panneau suit le doigt, amorti : le geste se voit avant d'aboutir.
-    const amorti = Math.sign(dx) * Math.min(Math.abs(dx), 140) * 0.55;
-    lecteur.style.transform = `translateX(${amorti}px)`;
+    // Le panneau suit le doigt au point près, sauf là où le geste ne mène nulle
+    // part : vers la gauche sans article suivant, il résiste comme un élastique
+    // au lieu de promettre un passage qui n'aura pas lieu.
+    const impasse = dx < 0 && !articleSuivant();
+    const suivi = impasse ? Math.sign(dx) * Math.pow(Math.abs(dx), 0.62) : dx;
+    const largeur = lecteur.getBoundingClientRect().width || 1;
+    lecteur.style.transform = `translateX(${suivi}px)`;
+    lecteur.style.opacity = String(Math.max(0.45, 1 - Math.abs(suivi) / largeur));
   }, { passive: true });
 
-  lecteur.addEventListener('touchend', (e) => {
+  lecteur.addEventListener('touchend', async (e) => {
     if (!actif) return;
     const dx = (e.changedTouches[0]?.clientX ?? x0) - x0;
     const franchi = horizontal && Math.abs(dx) >= SEUIL_GLISSE;
-    fin('transform .2s var(--ease)');
-    if (!franchi) return;
+    actif = false; horizontal = null;
 
-    if (dx < 0) {
-      const suivant = articleSuivant();
-      if (suivant) openArticle(suivant.id, { enchaine: true });
-      else toast('Dernier article de la liste');
-      return;
-    }
-    // Vers la droite : on remonte la pile, et on referme une fois revenu au
-    // point de départ.
-    const precedent = state.profondeur > 0 ? articlePrecedent() : null;
-    if (precedent) {
-      const restant = state.profondeur - 1;
-      openArticle(precedent.id, { enchaine: true });
-      state.profondeur = restant;
-    } else {
-      closeReader();
+    if (!franchi) { relacher(); return; }
+
+    const suivant = dx < 0 ? articleSuivant() : null;
+    const precedent = dx > 0 && state.profondeur > 0 ? articlePrecedent() : null;
+
+    occupe = true;
+    try {
+      if (dx < 0) {
+        if (suivant) await glisserVers(suivant, -1);
+        else { relacher(); toast('Dernier article de la liste'); }
+      } else if (precedent) {
+        const restant = state.profondeur - 1;
+        await glisserVers(precedent, 1);
+        state.profondeur = restant;
+      } else {
+        await glisserDehors();
+      }
+    } finally {
+      occupe = false;
     }
   }, { passive: true });
 
   // Un doigt interrompu (appel entrant, geste système) ne laisse pas le
   // panneau de travers.
-  lecteur.addEventListener('touchcancel', () => { if (actif) fin('transform .2s var(--ease)'); }, { passive: true });
+  lecteur.addEventListener('touchcancel', () => { if (actif) relacher(); }, { passive: true });
 }
 
 /* ---------------------------------------------------------- branchements */

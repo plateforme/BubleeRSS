@@ -243,8 +243,20 @@ une fois revenu à celui qu'on avait ouvert depuis la liste, pour refermer. C'es
 le geste « retour » du téléphone, et il évite d'aller chercher une croix en haut
 de l'écran à chaque article.
 
-Le panneau suit le doigt en s'amortissant, ce qui donne à voir le geste avant
-qu'il n'aboutisse. Trois garde-fous : sous 70 px c'est une hésitation et rien ne
+Le panneau suit le doigt **au point près** et s'estompe à mesure : le geste se
+voit avant d'aboutir. Au relâchement il ne revient pas au centre pour laisser le
+contenu changer d'un coup — l'article s'en va du côté du geste, et le suivant
+arrive de l'autre bord. Le chargement court pendant la sortie, sinon on
+attendrait le réseau devant un panneau vide. Un geste abandonné revient au repos
+sur un ressort plutôt que sur un rappel sec.
+
+Un article enchaîné ne rejoue pas l'entrée du panneau : il est déjà là, seul son
+contenu change. Et le geste coupe net l'animation d'ouverture — tant qu'elle
+court, ses images clés l'emportent sur le style en ligne, et un doigt posé
+aussitôt ne déplacerait rien.
+
+Vers la gauche sans article suivant, le panneau résiste comme un élastique au
+lieu de promettre un passage qui n'aura pas lieu. Trois garde-fous : sous 70 px c'est une hésitation et rien ne
 bouge ; l'horizontale doit l'emporter franchement sur la verticale, sinon un
 défilement un peu oblique ferait trembler le panneau ; et un geste parti dans un
 tableau ou un bloc de code qui défile déjà horizontalement lui laisse la

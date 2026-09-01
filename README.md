@@ -237,6 +237,19 @@ en laissant voir la liste par-dessous — cliquer dedans referme, comme `Échap`
 Sous 1100 px la lisière tombe à 72 px, et sous 720 px le panneau prend tout
 l'écran : une lisière de 72 px, au doigt, se toucherait par accident.
 
+Au doigt, il se parcourt au **glissé**, puisqu'il occupe tout l'écran : vers la
+gauche pour l'article suivant, vers la droite pour revenir au précédent — et,
+une fois revenu à celui qu'on avait ouvert depuis la liste, pour refermer. C'est
+le geste « retour » du téléphone, et il évite d'aller chercher une croix en haut
+de l'écran à chaque article.
+
+Le panneau suit le doigt en s'amortissant, ce qui donne à voir le geste avant
+qu'il n'aboutisse. Trois garde-fous : sous 70 px c'est une hésitation et rien ne
+bouge ; l'horizontale doit l'emporter franchement sur la verticale, sinon un
+défilement un peu oblique ferait trembler le panneau ; et un geste parti dans un
+tableau ou un bloc de code qui défile déjà horizontalement lui laisse la
+priorité.
+
 À cette largeur, son bandeau se déleste pour tenir sur une seule ligne. Partent
 la méta — que le titre juste en dessous répète —, « Texte complet » et
 « Non lu ». Le premier n'est pas une perte : le texte se récupère tout seul à

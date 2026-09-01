@@ -21,6 +21,7 @@ const state = {
   openId: null,
   ouvert: null,          // l'article affiche dans le lecteur, liste ou non
   moi: null,             // le compte connecte
+  profondeur: 0,         // articles enchaines depuis celui ouvert depuis la liste
   feeds: [],
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
@@ -751,7 +752,13 @@ function applyAccent(accent) {
 
 /* --------------------------------------------------------------- lecteur */
 
-async function openArticle(id) {
+/**
+ * `enchaine` : on vient d'un autre article (touche J, lien « suivant », glissé)
+ * plutôt que de la liste. C'est ce qui distingue « revenir en arrière » de
+ * « fermer » quand on glisse vers la droite.
+ */
+async function openArticle(id, { enchaine = false } = {}) {
+  state.profondeur = enchaine ? state.profondeur + 1 : 0;
   const index = indexParId.get(id);
   if (index !== undefined) setPointer(index, false);
   state.openId = id;
@@ -1120,6 +1127,11 @@ function articleSuivant() {
   return i >= 0 ? state.articles[i + 1] : null;
 }
 
+function articlePrecedent() {
+  const i = state.articles.findIndex((a) => a.id === state.openId);
+  return i > 0 ? state.articles[i - 1] : null;
+}
+
 function closeReader() {
   fermerPopTags();
   fermerPartage();
@@ -1221,7 +1233,7 @@ function onKey(event) {
 
   if (key === 'j' || key === 'ArrowDown') {
     event.preventDefault();
-    if (state.openId) { const s = articleSuivant(); if (s) openArticle(s.id); return; }
+    if (state.openId) { const s = articleSuivant(); if (s) openArticle(s.id, { enchaine: true }); return; }
     setPointer(state.pointer + 1);
     return;
   }
@@ -1690,9 +1702,99 @@ function rattraperImages(racine = document) {
   });
 }
 
+/* ------------------------------------------------ le glissé, au doigt --- */
+
+/* Au téléphone, le lecteur occupe tout l'écran : le doigt est le seul moyen
+   naturel d'aller et venir. Glisser à gauche avance d'un article ; glisser à
+   droite revient au précédent — ou referme, quand on est revenu à celui qu'on
+   avait ouvert depuis la liste. C'est le geste « retour » du téléphone. */
+
+const SEUIL_GLISSE = 70;        // en deçà, c'est une hésitation, pas une intention
+const PENTE_GLISSE = 1.4;       // l'horizontale doit l'emporter franchement
+
+/** Vrai si le doigt est parti dans une zone qui défile déjà horizontalement —
+    un tableau, un bloc de code : elle garde la priorité. */
+function dansUnDefilementHorizontal(cible) {
+  for (let el = cible; el && el !== document.body; el = el.parentElement) {
+    if (el.scrollWidth > el.clientWidth + 1) {
+      const debordement = getComputedStyle(el).overflowX;
+      if (debordement === 'auto' || debordement === 'scroll') return true;
+    }
+  }
+  return false;
+}
+
+function glisseLecteur() {
+  const lecteur = $('#reader');
+  let x0 = 0, y0 = 0, actif = false, horizontal = null;
+
+  const auDoigt = () => matchMedia('(max-width: 860px)').matches;
+  const fin = (transition) => {
+    lecteur.style.transition = transition || '';
+    lecteur.style.transform = '';
+    actif = false; horizontal = null;
+  };
+
+  lecteur.addEventListener('touchstart', (e) => {
+    if (!auDoigt() || e.touches.length !== 1 || dansUnDefilementHorizontal(e.target)) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    actif = true; horizontal = null;
+    lecteur.style.transition = 'none';
+  }, { passive: true });
+
+  lecteur.addEventListener('touchmove', (e) => {
+    if (!actif) return;
+    const dx = e.touches[0].clientX - x0;
+    const dy = e.touches[0].clientY - y0;
+
+    // On tranche une fois pour toutes au premier mouvement franc : sans ça, un
+    // défilement vertical un peu oblique ferait trembler le panneau.
+    if (horizontal === null) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      horizontal = Math.abs(dx) > Math.abs(dy) * PENTE_GLISSE;
+      if (!horizontal) { fin(); return; }
+    }
+
+    // Le panneau suit le doigt, amorti : le geste se voit avant d'aboutir.
+    const amorti = Math.sign(dx) * Math.min(Math.abs(dx), 140) * 0.55;
+    lecteur.style.transform = `translateX(${amorti}px)`;
+  }, { passive: true });
+
+  lecteur.addEventListener('touchend', (e) => {
+    if (!actif) return;
+    const dx = (e.changedTouches[0]?.clientX ?? x0) - x0;
+    const franchi = horizontal && Math.abs(dx) >= SEUIL_GLISSE;
+    fin('transform .2s var(--ease)');
+    if (!franchi) return;
+
+    if (dx < 0) {
+      const suivant = articleSuivant();
+      if (suivant) openArticle(suivant.id, { enchaine: true });
+      else toast('Dernier article de la liste');
+      return;
+    }
+    // Vers la droite : on remonte la pile, et on referme une fois revenu au
+    // point de départ.
+    const precedent = state.profondeur > 0 ? articlePrecedent() : null;
+    if (precedent) {
+      const restant = state.profondeur - 1;
+      openArticle(precedent.id, { enchaine: true });
+      state.profondeur = restant;
+    } else {
+      closeReader();
+    }
+  }, { passive: true });
+
+  // Un doigt interrompu (appel entrant, geste système) ne laisse pas le
+  // panneau de travers.
+  lecteur.addEventListener('touchcancel', () => { if (actif) fin('transform .2s var(--ease)'); }, { passive: true });
+}
+
 /* ---------------------------------------------------------- branchements */
 
 function wireEvents() {
+  glisseLecteur();
+
   /* --- compte et administration --- */
   $('#compteNouveau').addEventListener('input', (e) => {
     // Changer son mot de passe exige l'ancien : le champ n'apparaît qu'alors.
@@ -1924,7 +2026,7 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
     if (jump) { closeReader(); setView({ view: 'all', tag: jump.dataset.gotoTag }); return; }
     if (e.target.closest('[data-retry]') && state.openId) { completerArticle({ id: state.openId }, true); return; }
     const next = e.target.closest('[data-next]');
-    if (next) openArticle(Number(next.dataset.next));
+    if (next) openArticle(Number(next.dataset.next), { enchaine: true });
   });
   $('#readerScroll').addEventListener('scroll', () => {
     // Un popover ancré à la ligne d'étiquettes ne doit pas rester en l'air.

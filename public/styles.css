@@ -1444,6 +1444,6 @@ kbd {
   pointer-events: none;
   overscroll-behavior: none;
   scrollbar-width: none;
-  will-change: transform, opacity;
+  will-change: transform;
 }
 .reader-fantome::-webkit-scrollbar { width: 0; }

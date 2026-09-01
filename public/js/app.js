@@ -774,7 +774,7 @@ function applyAccent(accent) {
    figeait à mi-course, le temps d'un aller-retour réseau. On le demande donc
    pendant la lecture, avant que le doigt ne parte. */
 
-const VOISINS_MAX = 12;
+const VOISINS_MAX = 16;
 const enMain = new Map();   // id -> Promise<article>
 
 function retenir(id, promesse) {
@@ -792,9 +792,29 @@ function chargerArticle(id) {
 /** Vrai si l'article est déjà en main : le passage se fera sans attendre. */
 const dejaEnMain = (id) => enMain.has(id);
 
+/** L'image d'ouverture, mise au chaud dans le cache du navigateur. Avoir le
+    texte en main ne sert à rien si la photo, elle, se télécharge encore
+    pendant le passage : c'est elle qui occupe la moitié haute de l'écran. */
+function prechargerImage(a) {
+  if (!a || !a.image) return;
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = relais(a.image);
+}
+
+/** Deux articles d'avance plutôt qu'un : à lire vite, on rattrapait la
+    préparation, et le glissé retombait sur une attente. */
+const AVANCE = 2;
+
 function preparerVoisins() {
-  for (const v of [articleSuivant(), articlePrecedent()]) {
-    if (v && !enMain.has(v.id)) chargerArticle(v.id);
+  const i = state.articles.findIndex((a) => a.id === state.openId);
+  if (i < 0) return;
+  const autour = [];
+  for (let n = 1; n <= AVANCE; n++) if (state.articles[i + n]) autour.push(state.articles[i + n]);
+  if (i > 0) autour.push(state.articles[i - 1]);
+  for (const v of autour) {
+    if (enMain.has(v.id)) continue;
+    chargerArticle(v.id).then(prechargerImage, () => {});
   }
 }
 
@@ -818,9 +838,11 @@ async function openArticle(id, { enchaine = false } = {}) {
     const article = await chargerArticle(id);
     if (state.openId !== id) return;
     renderReader(article);
-    // Les voisins pendant qu'on lit — après le passage, pour ne pas lui disputer
-    // le fil au moment où il compte.
-    setTimeout(preparerVoisins, 260);
+    // Sans attendre : la requête part maintenant, son aller-retour recouvre une
+    // animation qui de toute façon ne fait rien d'autre, et la lecture du JSON à
+    // l'arrivée se compte en millisecondes. Différer était l'erreur inverse : à
+    // lire vite, on rattrapait la préparation et le glissé butait sur elle.
+    preparerVoisins();
     if (!article.read_at) { await marquerLu(id, true); article.read_at = Date.now(); }
     // Le texte complet remplacera le corps : la version courte ne vaut plus.
     if (article.should_fetch_full) { enMain.delete(id); completerArticle(article); }
@@ -1760,7 +1782,25 @@ function rattraperImages(racine = document) {
 
 const SEUIL_GLISSE = 64;        // en deçà, c'est une hésitation, pas une intention
 const PENTE_GLISSE = 1.4;       // l'horizontale doit l'emporter franchement
-const T_PASSAGE = 240;
+const T_PASSAGE = 240;          // la durée d'un glissé posé, sans élan
+const T_MIN = 150, T_MAX = 320; // une chiquenaude vive ; un glissé lent
+const DEBORD = 1.12;            // le sortant va un peu au-delà du bord
+const ENTREE = 8;               // en %, le retard du suivant sur le sortant
+
+/**
+ * Combien de temps donner au passage.
+ *
+ * Une durée fixe ignore la main : après une chiquenaude vive, le contenu
+ * ralentissait brutalement au relâchement, et l'animation devenait plus lente
+ * que le doigt qui venait de la lancer. C'est ce décalage-là qu'on ressent
+ * comme une résistance à l'arrivée. On prolonge donc l'élan plutôt que de le
+ * remplacer : la durée est celle qu'il faudrait pour finir le chemin à la
+ * vitesse du doigt, encadrée pour rester lisible.
+ */
+function dureePassage(reste, vitesse) {
+  if (!vitesse) return T_PASSAGE;
+  return Math.round(Math.min(T_MAX, Math.max(T_MIN, reste / vitesse)));
+}
 
 const douceur = () => !matchMedia('(prefers-reduced-motion: reduce)').matches;
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1789,7 +1829,7 @@ function dansUnDefilementHorizontal(cible) {
  * son propre corps, sa mise en page et ses images déjà décodées — et rien n'est
  * téléchargé, les voisins ayant été demandés pendant la lecture.
  */
-async function glisserVers(article, sens, depart) {
+async function glisserVers(article, sens, depart, vitesse = 0) {
   const ancien = $('#readerScroll');
   const barre = $('.reader-bar');
 
@@ -1828,16 +1868,23 @@ async function glisserVers(article, sens, depart) {
   const ouverture = openArticle(article.id, { enchaine: true });
   if (dejaEnMain(article.id)) await ouverture;
 
-  ancien.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
-  ancien.style.transform = `translateX(${sens * 100}%)`;
-  ancien.style.opacity = '0';
+  // Le sortant vise un peu au-delà du bord. Visant le bord pile, la courbe le
+  // laissait traîner : elle fait 98 % du chemin en deux tiers du temps, et le
+  // dernier tiers ne servait qu'à ramener les six derniers pixels — un liseré
+  // de l'ancien article restait suspendu sur le côté. Avec ce débord il a
+  // franchement quitté l'écran au tiers de l'animation. Et il ne s'efface plus :
+  // il s'en va, c'est assez, et un plein écran translucide coûte à composer
+  // autant qu'il se voyait mal.
+  const duree = dureePassage(Math.max(80, innerWidth - Math.abs(depart)), vitesse);
+  ancien.style.transition = `transform ${duree}ms var(--ease)`;
+  ancien.style.transform = `translateX(${sens * 100 * DEBORD}%)`;
 
-  neuf.style.transform = `translateX(${-sens * 14}%)`;
+  neuf.style.transform = `translateX(${-sens * ENTREE}%)`;
   void neuf.offsetWidth;
-  neuf.style.transition = `transform ${T_PASSAGE}ms var(--ease)`;
+  neuf.style.transition = `transform ${duree}ms var(--ease)`;
   neuf.style.transform = '';
 
-  await attendre(T_PASSAGE);
+  await attendre(duree);
   ancien.remove();
   neuf.style.transition = '';
   neuf.style.transform = '';
@@ -1845,16 +1892,17 @@ async function glisserVers(article, sens, depart) {
 }
 
 /** Fermer par le geste : le panneau entier s'en va, lui, puisqu'il disparaît. */
-async function glisserDehors() {
+async function glisserDehors(depart = 0, vitesse = 0) {
   const lecteur = $('#reader');
   const scroll = $('#readerScroll');
   scroll.style.transition = 'none';
   scroll.style.transform = '';
   if (!douceur()) { closeReader(); return; }
-  lecteur.style.transition = `transform ${T_PASSAGE}ms var(--ease), opacity ${T_PASSAGE}ms linear`;
-  lecteur.style.transform = 'translateX(100%)';
+  const duree = dureePassage(Math.max(80, innerWidth - Math.abs(depart)), vitesse);
+  lecteur.style.transition = `transform ${duree}ms var(--ease), opacity ${duree}ms linear`;
+  lecteur.style.transform = `translateX(${100 * DEBORD}%)`;
   lecteur.style.opacity = '0';
-  await attendre(T_PASSAGE);
+  await attendre(duree);
   closeReader();
   lecteur.style.transition = 'none';
   lecteur.style.transform = '';
@@ -1864,6 +1912,27 @@ async function glisserDehors() {
 function glisseLecteur() {
   const lecteur = $('#reader');
   let x0 = 0, y0 = 0, actif = false, horizontal = null, occupe = false;
+  // L'élan du doigt, tenu à jour d'une image à l'autre. Le lissage retient un
+  // peu du passé : sans lui, un dernier relevé un peu court — le doigt qui
+  // décolle — ferait passer une chiquenaude vive pour un glissé mou. Et on
+  // écarte les intervalles trop brefs pour dire quoi que ce soit : la toute
+  // première image après le contact rapporte parfois un saut franc en une
+  // fraction de milliseconde, soit une vitesse absurde que le lissage
+  // traînerait ensuite jusqu'au relâchement.
+  const PAS_MESURABLE = 12;   // en ms
+  let repere = { x: 0, t: 0 }, vitesse = 0, mesure = false;
+
+  const suivreElan = (x, t) => {
+    const dt = t - repere.t;
+    if (dt < PAS_MESURABLE) return;   // le repère tient : l'écart s'accumulera
+    const v = Math.min(4, Math.abs(x - repere.x) / dt);
+    vitesse = mesure ? vitesse * 0.6 + v * 0.4 : v;
+    mesure = true;
+    repere = { x, t };
+  };
+
+  /** Un doigt arrêté avant de se lever ne lance rien : il n'a plus d'élan. */
+  const elan = (t) => (!mesure || t - repere.t > 90 ? 0 : vitesse);
 
   const auDoigt = () => matchMedia('(max-width: 860px)').matches;
 
@@ -1880,6 +1949,7 @@ function glisseLecteur() {
     if (occupe || !auDoigt() || e.touches.length !== 1 || dansUnDefilementHorizontal(e.target)) return;
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
     actif = true; horizontal = null;
+    repere = { x: x0, t: e.timeStamp }; vitesse = 0; mesure = false;
     // L'animation d'ouverture dure 340 ms et, tant qu'elle court, ses images
     // clés l'emportent sur le style en ligne : un doigt posé aussitôt ne
     // déplacerait rien. On la coupe net.
@@ -1907,11 +1977,15 @@ function glisseLecteur() {
     const impasse = dx < 0 && !articleSuivant();
     const suivi = impasse ? Math.sign(dx) * Math.pow(Math.abs(dx), 0.62) : dx;
     $('#readerScroll').style.transform = `translateX(${suivi}px)`;
+    suivreElan(e.touches[0].clientX, e.timeStamp);
   }, { passive: true });
 
   lecteur.addEventListener('touchend', async (e) => {
     if (!actif) return;
-    const dx = (e.changedTouches[0]?.clientX ?? x0) - x0;
+    const fin = e.changedTouches[0]?.clientX ?? x0;
+    const dx = fin - x0;
+    suivreElan(fin, e.timeStamp);
+    const lance = elan(e.timeStamp);
     const franchi = horizontal && Math.abs(dx) >= SEUIL_GLISSE;
     actif = false; horizontal = null;
 
@@ -1923,14 +1997,14 @@ function glisseLecteur() {
     occupe = true;
     try {
       if (dx < 0) {
-        if (suivant) await glisserVers(suivant, -1, dx);
+        if (suivant) await glisserVers(suivant, -1, dx, lance);
         else { relacher(); toast('Dernier article de la liste'); }
       } else if (precedent) {
         const restant = state.profondeur - 1;
-        await glisserVers(precedent, 1, dx);
+        await glisserVers(precedent, 1, dx, lance);
         state.profondeur = restant;
       } else {
-        await glisserDehors();
+        await glisserDehors(dx, lance);
       }
     } finally {
       occupe = false;

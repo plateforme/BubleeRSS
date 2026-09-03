@@ -18,6 +18,7 @@ import { entetes } from './entetes.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
 import { listerRegles, creerRegle, modifierRegle, supprimerRegle } from './regles.js';
+import { abonner, annoncer, nombreAbonnes, toutFermer } from './evenements.js';
 
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -154,6 +155,7 @@ app.use('/api', (req, res, next) => {
 
 const ROUTES = [
   ['GET',    '/api/ping',                'vie du service, sans compte'],
+  ['GET',    '/api/events',              'flux d evenements : compteurs, import (SSE)'],
   ['GET',    '/api/auth/etat',           'installe ? qui suis-je ?'],
   ['POST',   '/api/auth/installer',      'creer le premier compte (super)'],
   ['POST',   '/api/auth/login',          'ouvrir une session { email, motDePasse }'],
@@ -225,6 +227,7 @@ app.get('/api/health', wrap(async (req, res) => {
   res.json({
     ok: true, version: VERSION, uptime: Math.round(process.uptime()),
     ...counts,
+    ecoutes: nombreAbonnes(),
     cacheImages: await cacheImages.etat()
   });
 }));
@@ -426,11 +429,20 @@ app.post('/api/opml/import', wrap(async (req, res) => {
   const xml = typeof req.body === 'string' ? req.body : req.body?.opml;
   if (!xml) return res.status(400).json({ error: 'Fichier OPML vide.' });
 
-  const result = importOpml(xml, { defaultFolder: req.query.folder || '' }, moi(req));
+  const compte = moi(req);
+  const result = importOpml(xml, { defaultFolder: req.query.folder || '' }, compte);
   res.json(result);
 
-  // Le premier telechargement peut durer : on le lance apres avoir repondu.
-  store.refreshAll().catch((error) => console.error('[bublee] refresh apres import :', error.message));
+  /* Le premier telechargement de quatre-vingt-dix-huit sources peut durer une
+     minute. La page attendait huit secondes au hasard avant de recharger ; on
+     lui dit maintenant quand c'est fini. */
+  annoncer(compte, 'import', { etat: 'en-cours', sources: result.added });
+  store.refreshAll()
+    .then((r) => annoncerCompteurs(compte, { added: r.added, import: 'fini' }))
+    .catch((error) => {
+      console.error('[bublee] refresh apres import :', error.message);
+      annoncer(compte, 'import', { etat: 'echec', error: error.message });
+    });
 }));
 
 app.get('/api/opml/export', (req, res) => {
@@ -438,6 +450,19 @@ app.get('/api/opml/export', (req, res) => {
     'Content-Disposition',
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
+});
+
+/* ---------------------------------------------------------- evenements */
+
+// Le serveur pousse ce qu'il a a dire : compteurs apres un rafraichissement,
+// progression d'un import. La page n'a plus a redemander pour savoir.
+app.get('/api/events', (req, res) => abonner(req, res));
+
+/** Les compteurs d'un compte, tels qu'on les annonce. */
+const annoncerCompteurs = (userId, extra = {}) => annoncer(userId, 'compteurs', {
+  ...extra,
+  counts: store.counts(userId),
+  feeds: store.compteursSources(userId)
 });
 
 /* ------------------------------------------------------------ dossiers */
@@ -622,6 +647,8 @@ export function scheduleRefresh() {
       for (const c of comptes.listerComptes()) {
         await store.completerImages({}, c.id).catch(() => {});
         await store.precharger({}, c.id).catch(() => {});
+        // Chacun apprend ce qui est entre chez lui, sans avoir a demander.
+        annoncerCompteurs(c.id, { added: r.added });
       }
     } catch (error) {
       console.error('[bublee] refresh auto :', error.message);
@@ -636,8 +663,10 @@ export function scheduleRefresh() {
   armer();
 }
 
-/** Desarme le rafraichissement, pour un arret propre ou un test. */
+/** Desarme le rafraichissement et ferme les flux d'evenements, pour un arret
+    propre ou un test : une connexion SSE ne se termine jamais d'elle-meme. */
 export function stopRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = null;
+  toutFermer();
 }

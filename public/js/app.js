@@ -185,6 +185,53 @@ async function renderComptes() {
     </div>`).join('');
 }
 
+/* --------------------------------------------- ce que le serveur annonce */
+
+/* Le rafraîchissement automatique arrivait en silence : les compteurs de
+   l'index restaient ceux du chargement, et rien ne disait que quatorze
+   articles venaient d'entrer. Le serveur pousse maintenant ce qu'il a à dire.
+
+   On ne réordonne jamais la liste sous les yeux de qui lit : on pose un
+   bandeau, et c'est le lecteur qui décide de le suivre. */
+
+let entrants = 0;
+
+function annoncerNouveautes(n) {
+  entrants += n;
+  const bandeau = $('#nouveautes');
+  bandeau.hidden = !entrants;
+  bandeau.textContent = `${nombre(entrants)} ${entrants > 1 ? 'nouveaux articles' : 'nouvel article'} — afficher`;
+}
+
+function ecouterLeServeur() {
+  if (!('EventSource' in window)) return;
+  // EventSource se reconnecte tout seul : rien à tenir ici.
+  const flux = new EventSource('/api/events');
+
+  flux.addEventListener('compteurs', (e) => {
+    let d;
+    try { d = JSON.parse(e.data); } catch { return; }
+    majCompteurs(d);
+    // Dans une vue d'ensemble seulement : sur une source précise ou une
+    // recherche, ce qui arrive ailleurs ne regarde pas la page ouverte.
+    const ensemble = !state.feedId && !state.folder && !state.tag && !state.q;
+    if (d.added && ensemble) annoncerNouveautes(d.added);
+    if (d.import === 'fini') {
+      toast('Import terminé');
+      // Les sources importées doivent entrer dans l'index, pas seulement
+      // leurs articles dans la liste.
+      reloadState().then(() => loadArticles(true)).catch(() => {});
+    }
+  });
+
+  flux.addEventListener('import', (e) => {
+    let d;
+    try { d = JSON.parse(e.data); } catch { return; }
+    if (d.etat === 'en-cours') toast(`${pluriel(d.sources, 'source ajoutée', 'sources ajoutées')} — téléchargement en cours`);
+    if (d.etat === 'echec') toast('Téléchargement interrompu : ' + d.error, 'bad');
+  });
+}
+
 /* ------------------------------------------------- l'ordre des sources */
 
 /* L'index rangeait les sources par titre, sans recours : une source qu'on lit
@@ -701,6 +748,10 @@ async function loadArticles(reset = false) {
     state.cursor = null;
     state.done = false;
     state.pointer = -1;
+    // La liste qu'on recharge contient ce qui vient d'arriver : le bandeau
+    // n'a plus rien à annoncer.
+    entrants = 0;
+    $('#nouveautes').hidden = true;
     $('#scroller').scrollTop = 0;
     renderSkeleton();
   }
@@ -2247,8 +2298,11 @@ async function importerOpml(event) {
     const r = await api.importOpml(await file.text());
     await reloadState();
     closeModals();
-    toast(`${r.added} sources ajoutées — téléchargement en cours`);
-    setTimeout(() => reloadState().then(() => loadArticles(true)), 8000);
+    // Le serveur annoncera la fin du téléchargement : plus d'attente au jugé.
+    if (!('EventSource' in window)) {
+      toast(`${pluriel(r.added, 'source ajoutée', 'sources ajoutées')} — téléchargement en cours`);
+      setTimeout(() => reloadState().then(() => loadArticles(true)), 8000);
+    }
   } catch (error) {
     toast('Import impossible : ' + error.message, 'bad');
   }
@@ -2695,6 +2749,14 @@ function wireEvents() {
   glisseLecteur();
   brancherBaladeur();
   brancherLecture();
+  ecouterLeServeur();
+
+  $('#nouveautes').addEventListener('click', () => {
+    entrants = 0;
+    $('#nouveautes').hidden = true;
+    $('#scroller').scrollTop = 0;
+    loadArticles(true);
+  });
 
   /* --- compte et administration --- */
   $('#compteNouveau').addEventListener('input', (e) => {

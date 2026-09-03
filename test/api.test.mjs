@@ -374,3 +374,37 @@ test('un message d’erreur voulu passe, une panne reste muette', async () => {
   assert.equal(r.statut, 422);
   assert.match(r.json.error, /lien vers sa source/, 'le message voulu arrive au client');
 });
+
+/* --------------------------------------------------------- évènements */
+
+test('le flux d’évènements s’ouvre, bat, et n’est servi qu’à son compte', async () => {
+  assert.equal((await appel('GET', '/api/events')).statut, 401, 'sans compte, rien');
+
+  const { annoncer, nombreAbonnes } = await import('../server/evenements.js');
+  const [greg] = db.prepare('SELECT id FROM users ORDER BY id').all().map((r) => r.id);
+
+  const stop = new AbortController();
+  const flux = await fetch(base + '/api/events', { headers: { cookie: cookieGreg }, signal: stop.signal });
+  assert.equal(flux.status, 200);
+  assert.match(flux.headers.get('content-type'), /text\/event-stream/);
+  assert.equal(flux.headers.get('cache-control'), 'no-cache, no-transform');
+
+  const lecteur = flux.body.getReader();
+  const suivant = async () => new TextDecoder().decode((await lecteur.read()).value || new Uint8Array());
+  assert.match(await suivant(), /bienvenue/, 'la connexion s’ouvre sur un premier octet');
+
+  // L'abonnement est enregistré : on peut lui parler.
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(nombreAbonnes() >= 1);
+
+  annoncer(greg, 'compteurs', { added: 3 });
+  const recu = await suivant();
+  assert.match(recu, /^event: compteurs/m);
+  assert.match(recu, /"added":3/);
+
+  // Ce qui est annoncé à un autre compte ne passe pas ici.
+  assert.equal(annoncer(greg + 999, 'compteurs', { added: 1 }), 0);
+
+  stop.abort();
+  await new Promise((r) => setTimeout(r, 150));
+});

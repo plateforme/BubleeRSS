@@ -1282,6 +1282,18 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* Ce qui est arrivé pendant qu'on lisait. Un filet à l'accent, pas une
+   fenêtre : c'est une nouvelle, pas une interruption. */
+.nouveautes {
+  display: block; width: 100%;
+  margin: 0 0 2px; padding: 11px var(--gut);
+  background: var(--accent); color: #f6f5f1;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+  text-align: left;
+  animation: ed-rise .3s var(--ease);
+}
+.nouveautes:hover { filter: brightness(1.12); }
+
 /* ---------------------------------------------------------- les cartes */
 
 /* Une carte est un <article>, plus un <button> : c'est le titre qui porte le

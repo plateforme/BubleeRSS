@@ -13,7 +13,12 @@
 // Rien n'est mis en cache avant que la réponse ne soit là : on ne garde
 // jamais une redirection vers la page de connexion à la place d'un article.
 
-const VERSION = 'bublee-v2';
+// À monter à chaque changement de l'habillage (app.js, glisse.js, styles.css,
+// index.html…). Sans ça, le service worker continue de servir les anciens
+// fichiers depuis son cache — un correctif poussé n'atteint pas le téléphone,
+// ou seulement « un chargement en retard ». Changer ce numéro force la
+// réinstallation : tout l'habillage est repris du réseau, les vieux caches effacés.
+const VERSION = 'bublee-v3';
 const COQUILLE = VERSION + '-coquille';
 const LECTURE = VERSION + '-lecture';
 const IMAGES = VERSION + '-images';

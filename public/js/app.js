@@ -255,6 +255,20 @@ function brancherLecture() {
 function poserLeServiceWorker() {
   if (!('serviceWorker' in navigator) || !isSecureContext) return;
   navigator.serviceWorker.register('/sw.js').catch(() => { /* tant pis, on reste en ligne */ });
+  // Quand une version plus récente prend la main — un nouvel habillage vient
+  // d'être mis en cache —, on recharge une fois pour l'adopter aussitôt, au lieu
+  // d'attendre la prochaine ouverture (et de tourner un chargement en retard).
+  // Seulement si une version contrôlait déjà la page : au tout premier passage,
+  // rien n'est périmé, et recharger serait un clignotement inutile. Le drapeau
+  // borne à un seul rechargement : pas de boucle.
+  if (navigator.serviceWorker.controller) {
+    let recharge = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (recharge) return;
+      recharge = true;
+      location.reload();
+    });
+  }
 }
 
 /**

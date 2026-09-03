@@ -149,6 +149,11 @@ export function sanitizeHtml(input, base = null) {
     if (tag === 'iframe') {
       const src = attrs.src ? absolutize(attrs.src, base) : null;
       if (!src || !isEmbeddable(src)) continue;
+      // Le site entier est en « no-referrer », ce qui convient aux images et aux
+      // liens. Mais un lecteur video verifie qui l'integre : sans referent,
+      // YouTube refuse de jouer et affiche son erreur 153. On rend donc l'origine
+      // — et elle seule, jamais l'adresse de l'article — a ces lecteurs-la.
+      kept.push('referrerpolicy="strict-origin-when-cross-origin"');
     }
 
     const attrStr = kept.length ? ' ' + kept.join(' ') : '';

@@ -62,3 +62,19 @@ test('parseFeed transforme une vidéo en article lisible', () => {
   // Le media:content en Flash ne doit pas être pris pour une illustration.
   assert.ok(!video.image.includes('shockwave'));
 });
+
+test('le lecteur vidéo rend son origine à YouTube, sinon il refuse de jouer', async () => {
+  const { contenuVideo } = await import('../server/youtube.js');
+  const { sanitizeHtml } = await import('../server/html.js');
+
+  // Le site entier est en « no-referrer ». Un lecteur vidéo, lui, vérifie qui
+  // l'intègre : sans référent, YouTube refuse et affiche son erreur 153. On lui
+  // rend l'origine — et elle seule, jamais l'adresse de l'article.
+  assert.match(contenuVideo('VID123', ''), /referrerpolicy="strict-origin-when-cross-origin"/,
+    'le lecteur composé par Bublee');
+
+  const garde = sanitizeHtml('<iframe src="https://www.youtube.com/embed/VID123"></iframe>', 'https://exemple.fr/');
+  assert.match(garde, /referrerpolicy="strict-origin-when-cross-origin"/,
+    'une iframe conservée depuis un article');
+  assert.doesNotMatch(garde, /referrerpolicy="no-referrer"/, 'jamais no-referrer sur un lecteur');
+});

@@ -65,9 +65,13 @@ export function contenuVideo(videoId, description) {
   const echappe = (t) => String(t)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  // Le referent : le site est en « no-referrer », mais YouTube verifie qui
+  // l'integre et, sans lui, refuse de jouer — c'est son erreur 153. On rend
+  // l'origine, et elle seule : jamais l'adresse de l'article.
   const lecteur = `<p><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}"`
     + ' width="560" height="315" allowfullscreen'
     + ' allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture"'
+    + ' referrerpolicy="strict-origin-when-cross-origin"'
     + ' title="Lecteur vidéo"></iframe></p>';
 
   if (!description || !String(description).trim()) return lecteur;

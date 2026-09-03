@@ -383,6 +383,53 @@ if (migrationApplied) {
 }
 
 /**
+ * Rend son referent a chaque lecteur video deja en base.
+ *
+ * Le nettoyage du HTML a lieu a l'enregistrement : un article rentre avant le
+ * correctif porte une <iframe> sans referrerpolicy. Le site etant en
+ * « no-referrer », YouTube ne recoit alors rien, refuse de jouer et affiche son
+ * erreur 153. On repare donc une fois ce qui est deja la — ce qui arrive
+ * ensuite est correct des l'ecriture. Le texte des articles n'en est pas
+ * change : seul un attribut s'ajoute, l'index de recherche reste juste.
+ */
+function backfillReferentLecteurs() {
+  // On ne peut pas poser la question en SQL : des qu'un article porte une image,
+  // il contient deja « referrerpolicy=no-referrer » quelque part, ce qui
+  // masquerait son lecteur video. Il faut regarder balise par balise — d'ou la
+  // lecture, par tranches pour ne pas charger la bibliotheque en memoire.
+  const SANS_REFERENT = /<iframe\b(?![^>]*\breferrerpolicy=)/gi;
+  const AVEC = '<iframe referrerpolicy="strict-origin-when-cross-origin"';
+  let n = 0;
+
+  for (const colonne of ['content', 'full_content']) {
+    const lire = db.prepare(
+      `SELECT id, ${colonne} AS texte FROM articles
+       WHERE id > ? AND ${colonne} LIKE '%<iframe%' ORDER BY id LIMIT 500`
+    );
+    const ecrire = db.prepare(`UPDATE articles SET ${colonne} = ? WHERE id = ?`);
+    const tranche = db.transaction((lot) => {
+      for (const ligne of lot) {
+        const repare = ligne.texte.replace(SANS_REFERENT, AVEC);
+        if (repare !== ligne.texte) { ecrire.run(repare, ligne.id); n++; }
+      }
+    });
+
+    for (let dernier = 0; ;) {
+      const lot = lire.all(dernier);
+      if (!lot.length) break;
+      tranche(lot);
+      dernier = lot[lot.length - 1].id;
+    }
+  }
+  return n;
+}
+
+{
+  const n = backfillReferentLecteurs();
+  if (n) console.log(`[bublee] ${n} lecteur(s) video ont retrouve leur referent.`);
+}
+
+/**
  * Rattache au premier compte tout ce qui existait avant les comptes. Sans ca,
  * la bibliotheque d'origine n'appartiendrait a personne et resterait invisible.
  */

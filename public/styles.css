@@ -936,7 +936,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .reader-hero.hero-video { height: min(30vh, 230px); }
 .reader-hero.hero-video .plaque-initiale { font-size: 230px; bottom: -30%; }
 
-.reader-inner { max-width: 66ch; margin: 0 auto; padding: 0 20px 90px; }
+.reader-inner { max-width: var(--colonne, 66ch); margin: 0 auto; padding: 0 20px 90px; }
 
 /* étiquettes du lecteur */
 .tag-editor {
@@ -1059,7 +1059,11 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 /* corps de l'article */
 .reader-body {
   margin-top: 40px;
-  font-family: var(--body); font-size: 19.5px; line-height: 1.68; font-weight: 400;
+  /* Trois réglages de lecture, posés sur :root par l'amorce avant le premier
+     rendu. Un lecteur qu'on utilise une heure par jour doit se régler à l'œil
+     de chacun — et c'est un réglage d'écran, pas de compte, comme le thème. */
+  font-family: var(--body); font-size: var(--corps, 19.5px); line-height: var(--interligne, 1.68);
+  font-weight: 400;
   color: #1a1917;
   overflow-wrap: break-word;
 }
@@ -1262,6 +1266,152 @@ kbd {
 }
 .toast.bad { background: #d63a2a; color: #fff; }
 .toast.out { animation: ed-fade .28s var(--ease) reverse forwards; }
+
+/* « Annuler », après un marquage en masse : un filet posé dans le message
+   lui-même, séparé du texte par un filet et souligné comme un lien. */
+.toast-action {
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  color: inherit; margin-left: 14px; padding-left: 14px;
+  border-left: 1px solid rgba(246, 245, 241, .3);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.toast-action:hover { color: var(--accent); }
+
+/* ------------------------------------------------ réglages de lecture */
+
+.curseurs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.curseurs label { display: grid; grid-template-columns: 78px minmax(0, 1fr) 74px; gap: 10px; align-items: center; }
+.curseurs label > span, .curseurs output {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.curseurs output { text-align: right; font-variant-numeric: tabular-nums; }
+.curseurs input[type="range"] { -webkit-appearance: none; appearance: none; background: none; height: 14px; }
+.curseurs input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--rule-col); }
+.curseurs input[type="range"]::-moz-range-track { height: 1px; background: var(--rule-col); }
+.curseurs input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 10px; margin-top: -4.5px; background: var(--ink); border: 0;
+}
+.curseurs input[type="range"]::-moz-range-thumb { width: 10px; height: 10px; background: var(--ink); border: 0; border-radius: 0; }
+
+.lien-sobre { font: inherit; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; }
+.lien-sobre:hover { color: var(--accent); }
+
+/* ------------------------------------------------------------ baladeur */
+
+/* Un seul lecteur, en pied de page : fermer l'article ne coupe pas l'écoute. */
+.baladeur {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(90px, 240px) auto auto auto;
+  gap: 14px; align-items: center;
+  padding: 9px 16px;
+  background: var(--ink-deep); color: var(--paper);
+  border-top: 1px solid var(--dark-rule);
+}
+.baladeur button { color: var(--paper); font-family: var(--mono); font-size: 11px; }
+.baladeur button:hover { color: var(--accent); }
+#baladeurJouer { font-size: 14px; text-align: left; }
+.baladeur-quoi { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.baladeur-titre {
+  font-family: var(--body); font-size: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.baladeur-source, .baladeur-temps {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--on-ink-3);
+}
+.baladeur-temps { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* La jauge : un filet, un curseur carré — pas de pilule. */
+.baladeur-barre { -webkit-appearance: none; appearance: none; background: none; height: 14px; }
+.baladeur-barre::-webkit-slider-runnable-track { height: 2px; background: var(--dark-rule); }
+.baladeur-barre::-moz-range-track { height: 2px; background: var(--dark-rule); }
+.baladeur-barre::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 9px; height: 9px; margin-top: -3.5px; background: var(--accent); border: 0;
+}
+.baladeur-barre::-moz-range-thumb { width: 9px; height: 9px; background: var(--accent); border: 0; border-radius: 0; }
+
+/* La scène rend la hauteur du baladeur, pour que rien ne passe dessous. */
+.app.avec-baladeur .scroller { padding-bottom: 58px; }
+
+/* Dans le lecteur, l'épisode s'écoute par un bouton : c'est le baladeur qui joue. */
+.btn.ecouter { margin: 4px 0 18px; }
+
+@media (max-width: 720px) {
+  /* Au doigt, la vitesse et le temps cèdent la place au titre. */
+  .baladeur { grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 10px; padding: 8px 12px; }
+  .baladeur-barre, .baladeur-temps { display: none; }
+}
+
+/* ---------------------------------------------------------------- débit */
+
+.debit { display: flex; flex-direction: column; margin: 10px 0 12px; max-height: 320px; overflow-y: auto; }
+.debit-ligne {
+  display: grid; grid-template-columns: minmax(0, 1fr) 64px auto 64px;
+  gap: 10px; align-items: center;
+  padding: 7px 0; border-top: 1px solid var(--rule-list);
+}
+.debit-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.debit-etat, .debit-chiffres {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+/* La part lue, en clair : une barre courte est une source qu'on ne lit pas. */
+.debit-barre { display: block; height: 3px; background: var(--rule-col); }
+.debit-barre span { display: block; height: 100%; background: var(--accent); }
+.debit-ligne.propose .debit-nom { font-weight: 600; }
+.debit-ligne button {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent); text-align: right;
+}
+.debit-ligne button:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* --------------------------------------------------------------- règles */
+
+.regles-liste { display: flex; flex-direction: column; margin-bottom: 12px; }
+.regle {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px; align-items: center;
+  padding: 9px 0; border-top: 1px solid var(--rule-list);
+}
+.regle.eteinte { opacity: .45; }
+.regle-quoi { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.regle-quoi b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.regle-ou, .regle-compte {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.regle button {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.regle button:hover { color: var(--ink); }
+.regle .lien-danger:hover { color: #d63a2a; }
+
+.regle-neuve { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.regle-neuve input[type="text"] { flex: 1 1 190px; min-width: 0; }
+/* Bornés : sans ça, « de toutes les sources » et les noms de sources longs
+   poussaient le menu sur toute la largeur et cassaient la ligne. */
+.regle-neuve select { flex: 0 1 auto; max-width: 170px; }
+.regle-neuve .btn { flex: 0 0 auto; }
+
+/* Le classement des résultats : deux mots, celui qui tient étant souligné.
+   Pas de boutons dessinés — c'est une nuance de lecture, pas une commande. */
+.tri { display: inline-flex; gap: 12px; }
+.tri button {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--mute);
+}
+.tri button.on { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.tri button:hover { color: var(--accent); }
+
+/* Le mot cherché, dans l'extrait d'un résultat. */
+mark {
+  background: none; color: inherit; font-weight: 600;
+  box-shadow: inset 0 -.45em 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
 
 /* ============================================================ responsive */
 

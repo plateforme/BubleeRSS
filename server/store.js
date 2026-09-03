@@ -2,8 +2,10 @@
 import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
-import { extraireTexteComplet, extraireImageDeLaPage } from './readable.js';
+import { extraireTexteComplet, extraireImageDeLaPage, extraireIconeDuSite } from './readable.js';
 import { estYouTube } from './youtube.js';
+import { purgerSessionsExpirees } from './comptes.js';
+import { reglesActives, verdict, crediter, correspond } from './regles.js';
 
 const now = () => Date.now();
 
@@ -38,10 +40,17 @@ function articleDuCompte(id, u) {
 
 /* ------------------------------------------------------------------ flux */
 
+/* Les trois sous-requetes correlees ci-dessous ont l'air couteuses — trois
+   comptages par source — et on a essaye de les remplacer par un seul
+   regroupement joint. Mesure faite sur la vraie bibliotheque (98 sources,
+   3 012 articles) : 1,8 ms pour les sous-requetes, 4,5 ms pour le
+   regroupement. L'index (feed_id, published_at) fait de chaque comptage un
+   parcours d'intervalle, la ou le GROUP BY construit un arbre temporaire.
+   On garde donc cette forme-ci ; elle n'est pas naive, elle est mesuree. */
 export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
-           f.last_fetched_at, f.last_error, f.error_count, f.created_at,
+           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
            -- Le type de source porte sa propre marque dans l'index : on ne lit
@@ -63,13 +72,31 @@ export function getFeed(id, u) {
   return fluxDuCompte(id, u);
 }
 
-function iconFor(siteUrl) {
+/**
+ * Les seuls chiffres de l'index : non lus et total par source. Marquer un
+ * article comme lu rechargeait tout l'etat — quatre-vingt-dix-huit sources
+ * avec leur titre, leur icone et leur description — pour rafraichir deux
+ * nombres. Ceci suffit, et tient en trois kilo-octets.
+ */
+export function compteursSources(u) {
+  return db.prepare(`
+    SELECT f.id,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
+    FROM feeds f WHERE f.user_id = ?
+  `).all(exigeCompte(u));
+}
+
+/**
+ * L'icone d'une source, cherchee une seule fois : l'avatar d'une chaine
+ * YouTube (le favicon de youtube.com ne distingue pas deux chaines), sinon
+ * l'icone que le site declare. Autrefois demandee a google.com/s2, ce qui
+ * disait a Google quelles sources on lit : plus maintenant.
+ */
+async function trouverIcone(feed, siteUrl) {
   if (!siteUrl) return null;
-  try {
-    return 'https://www.google.com/s2/favicons?sz=64&domain=' + new URL(siteUrl).hostname;
-  } catch {
-    return null;
-  }
+  if (estYouTube(feed.url)) return extraireImageDeLaPage(siteUrl).catch(() => null);
+  return extraireIconeDuSite(siteUrl).catch(() => null);
 }
 
 /** Ajoute un flux depuis une URL (page d'accueil acceptee : on cherche le flux). */
@@ -100,6 +127,10 @@ export async function addFeed(u, input, folder = '', title = '') {
     archive seulement, on n'y va que par la source, l'etiquette ou la recherche. */
 export const PRIORITES = new Set(['suivi', 'survol', 'muet']);
 
+/** Le texte complet, source par source : le seuil global ne peut pas avoir
+    raison sur toutes — certaines ne publient jamais qu'un resume. */
+export const TEXTES_COMPLETS = new Set(['auto', 'toujours', 'jamais']);
+
 export function updateFeed(id, patch, u) {
   const feed = fluxDuCompte(id, u);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
@@ -113,11 +144,23 @@ export function updateFeed(id, patch, u) {
     fields.push('priority = ?');
     values.push(patch.priority);
   }
+  if (patch.fulltext !== undefined) {
+    if (!TEXTES_COMPLETS.has(patch.fulltext)) {
+      throw Object.assign(new Error('Réglage de texte complet inconnu : ' + patch.fulltext), { status: 400 });
+    }
+    fields.push('fulltext = ?');
+    values.push(patch.fulltext);
+  }
   for (const key of ['custom_title', 'folder', 'url']) {
     if (patch[key] !== undefined) {
       fields.push(key + ' = ?');
       values.push(patch[key] === '' && key === 'custom_title' ? null : patch[key]);
     }
+  }
+  // Une nouvelle adresse repart de zero : l'ETag de l'ancienne ne vaut rien
+  // chez le nouveau serveur, et pourrait lui faire repondre 304 a tort.
+  if (patch.url !== undefined && patch.url !== feed.url) {
+    fields.push('etag = NULL', 'last_modified = NULL');
   }
   if (!fields.length) return feed;
   values.push(id, feed.user_id);
@@ -212,7 +255,7 @@ export async function reparerFlux(id, u) {
 
   for (const candidat of candidats) {
     if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ? AND user_id = ?')
-        .get(candidat.url, id, feed.user_id)) {
+      .get(candidat.url, id, feed.user_id)) {
       propositions.push({ url: candidat.url, title: candidat.title, deja: true });
       continue;
     }
@@ -297,6 +340,91 @@ export async function reparerSourcesCassees(u, concurrency = 5) {
     proposed: resultats.filter((r) => r.status === 'propose').length,
     results: resultats
   };
+}
+
+/* ------------------------------------------------- le debit, par source */
+
+/** En deca, une source n'a pas assez publie pour qu'on juge. */
+const ASSEZ_PUBLIE = 15;
+/** Au-dela, on lit assez cette source pour la laisser tranquille. */
+const PART_LUE_SUFFISANTE = 0.12;
+
+/**
+ * Ce que chaque source a reellement apporte sur la periode, et ce qu'on en a
+ * fait. La base sait tout : il suffisait de le demander.
+ *
+ * Une source qui envoie beaucoup et qu'on ne lit jamais merite « survol » —
+ * elle reste collectee, indexee, consultable, mais cesse d'appeler. C'est le
+ * chainon qui manquait a la priorite par source : elle se reglait a la main,
+ * source par source, sur une intuition.
+ */
+export function statistiquesSources(u, { jours = 90 } = {}) {
+  const compte = exigeCompte(u);
+  const depuis = now() - jours * 86400000;
+
+  const lignes = db.prepare(`
+    SELECT f.id, f.priority,
+           COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
+           COUNT(a.id)                                   AS recus,
+           SUM(a.read_at IS NOT NULL)                    AS lus,
+           SUM(a.starred = 1)                            AS favoris
+    FROM feeds f
+    LEFT JOIN articles a ON a.feed_id = f.id AND a.published_at >= ?
+    WHERE f.user_id = ?
+    GROUP BY f.id
+    ORDER BY recus DESC
+  `).all(depuis, compte);
+
+  const recusEnTout = lignes.reduce((n, l) => n + (l.recus || 0), 0);
+  const lusEnTout = lignes.reduce((n, l) => n + (l.lus || 0), 0);
+
+  /* Comparer une source aux autres suppose qu'on lise quelque part. Sur une
+     bibliotheque a peine ouverte — un import OPML de la veille — tout parait
+     ignore, et proposer de mettre les deux tiers en survol serait un conseil
+     tire d'un dossier vide. On se tait alors, et on le dit. */
+  const partGlobale = recusEnTout ? lusEnTout / recusEnTout : 0;
+  const assezDeRecul = partGlobale >= 0.15;
+
+  const sources = lignes.map((l) => {
+    const recus = l.recus || 0;
+    const lus = l.lus || 0;
+    const part = recus ? lus / recus : 0;
+    return {
+      ...l,
+      recus,
+      lus,
+      favoris: l.favoris || 0,
+      parJour: Math.round((recus / jours) * 10) / 10,
+      partLue: Math.round(part * 100),
+      // On ne propose que ce qui change quelque chose : une source deja en
+      // survol ou muette ne remonte plus d'elle-meme.
+      suggestion: assezDeRecul && l.priority === 'suivi'
+        && recus >= ASSEZ_PUBLIE && part < PART_LUE_SUFFISANTE ? 'survol' : null
+    };
+  });
+
+  return {
+    jours,
+    sources,
+    suggestions: sources.filter((s) => s.suggestion).map((s) => s.id),
+    recus: recusEnTout,
+    lus: lusEnTout,
+    partGlobale: Math.round(partGlobale * 100),
+    assezDeRecul
+  };
+}
+
+/** Change la priorite de plusieurs sources d'un coup. */
+export function changerPriorites(ids, priorite, u) {
+  const compte = exigeCompte(u);
+  if (!PRIORITES.has(priorite)) {
+    throw Object.assign(new Error('Priorite inconnue : ' + priorite), { status: 400 });
+  }
+  const liste = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite);
+  if (!liste.length) return 0;
+  return db.prepare(
+    `UPDATE feeds SET priority = ? WHERE user_id = ? AND id IN (${liste.map(() => '?').join(',')})`
+  ).run(priorite, compte, ...liste).changes;
 }
 
 export function listFolders(u) {
@@ -497,6 +625,13 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
   let ajoutes = 0;
   let doublons = 0;
 
+  // Les regles du compte, chargees une fois pour tout le lot. Elles decident
+  // avant l'insertion : un article n'existe jamais, meme brievement, sans
+  // etre passe devant elles.
+  const regles = proprietaire ? reglesActives(proprietaire) : [];
+  const marques = new Map();
+  const posees = [];
+
   for (const item of items) {
     const guid = String(item.guid).slice(0, 512);
     const cleUrl = urlKey(item.url);
@@ -533,7 +668,9 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
 
     // 3. Autre flux : on garde la ligne (le flux reste complet) mais elle est
     //    rattachee a l'original et reprend son etat de lecture.
-    insertArticle.run({
+    const decide = regles.length ? verdict(item, feedId, regles) : null;
+
+    const info = insertArticle.run({
       feed_id: feedId,
       guid,
       url: item.url,
@@ -541,16 +678,42 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
       published_at: item.published_at,
       fetched_at: now(),
       dupe_of: original ? original.id : null,
-      read_at: original ? original.read_at : null,
-      starred: original ? original.starred : 0,
+      // Une regle qui marque comme lu l'emporte : c'est ce qu'on lui demande.
+      read_at: decide?.lu ? now() : original ? original.read_at : null,
+      starred: decide?.favori || original?.starred ? 1 : 0,
       ...commun
     });
+
+    if (decide) {
+      for (const id of decide.touchees) marques.set(id, (marques.get(id) || 0) + 1);
+      if (decide.etiquettes) posees.push([Number(info.lastInsertRowid), decide.etiquettes]);
+    }
 
     if (original) doublons++; else ajoutes++;
   }
 
-  return { ajoutes, doublons };
+  // Les etiquettes des regles, apres les insertions : elles s'appliquent au
+  // groupe de doublons, comme celles posees a la main.
+  for (const [articleId, noms] of posees) {
+    tagArticle(articleId, { add: noms }, proprietaire);
+  }
+  if (marques.size) crediter([...marques]);
+
+  return { ajoutes, doublons, filtres: [...marques.values()].reduce((n, x) => n + x, 0) };
 });
+
+/**
+ * Le recul apres une erreur : trente minutes, doublees a chaque echec, une
+ * journee au plus. Une source en panne depuis six mois etait retelechargee
+ * toutes les demi-heures comme les autres, alors que error_count comptait
+ * ses echecs sans que personne ne les lise.
+ */
+const RECUL_BASE_MS = 30 * 60 * 1000;
+const RECUL_MAX_MS = 24 * 3600 * 1000;
+
+export function reculApres(echecs) {
+  return Math.min(RECUL_MAX_MS, RECUL_BASE_MS * Math.pow(2, Math.max(0, echecs - 1)));
+}
 
 /* Tache du service : elle rafraichit un flux quel que soit son proprietaire,
    et lit celui-ci dans la ligne plutot que de l'exiger de l'appelant. */
@@ -562,21 +725,25 @@ export async function refreshFeed(id) {
     const result = await fetchFeed(feed.url, { etag: feed.etag, lastModified: feed.last_modified });
 
     if (result.notModified) {
-      db.prepare('UPDATE feeds SET last_fetched_at = ?, last_error = NULL, error_count = 0 WHERE id = ?')
+      // Une source deja a jour peut encore attendre son icone.
+      if (!feed.icon && !feed.icon_checked) {
+        const icone = await trouverIcone(feed, feed.site_url);
+        db.prepare('UPDATE feeds SET icon = COALESCE(?, icon), icon_checked = ? WHERE id = ?').run(icone, now(), id);
+      }
+      db.prepare('UPDATE feeds SET last_fetched_at = ?, last_error = NULL, error_count = 0, next_fetch_at = NULL WHERE id = ?')
         .run(now(), id);
       return { feedId: id, added: 0, duplicates: 0, notModified: true };
     }
 
     const { ajoutes, doublons } = saveItems(id, result.parsed.items, feed.user_id);
 
-    // L'avatar d'une chaine YouTube vaut mieux que le logo generique du site.
-    // Une seule fois : ensuite la colonne icon est renseignee.
-    // Le logo generique de youtube.com ne distingue pas deux chaines : on le
-    // remplace des qu'on peut par l'avatar de la chaine elle-meme.
-    let avatar = null;
-    const iconeGenerique = !feed.icon || /s2\/favicons/.test(feed.icon);
-    if (iconeGenerique && estYouTube(feed.url) && result.parsed.siteUrl) {
-      avatar = await extraireImageDeLaPage(result.parsed.siteUrl).catch(() => null);
+    // L'icone se cherche une fois, au premier rafraichissement reussi : la
+    // colonne icon_checked retient qu'on a essaye, trouve ou pas.
+    let icone = null;
+    let cherchee = feed.icon_checked;
+    if (!feed.icon && !feed.icon_checked) {
+      icone = await trouverIcone(feed, result.parsed.siteUrl || feed.site_url);
+      cherchee = now();
     }
 
     db.prepare(`
@@ -584,31 +751,57 @@ export async function refreshFeed(id) {
         title = CASE WHEN ? <> '' THEN ? ELSE title END,
         site_url = COALESCE(?, site_url),
         description = COALESCE(NULLIF(?, ''), description),
-        -- l'avatar trouvé gagne ; sinon on garde l'icône en place ; sinon le favicon
-        icon = COALESCE(?, icon, ?),
+        icon = COALESCE(?, icon), icon_checked = ?,
         etag = ?, last_modified = ?, last_fetched_at = ?,
-        last_error = NULL, error_count = 0
+        last_error = NULL, error_count = 0, next_fetch_at = NULL
       WHERE id = ?
     `).run(
       result.parsed.title, result.parsed.title,
       result.parsed.siteUrl,
       result.parsed.description || '',
-      avatar, iconFor(result.parsed.siteUrl || feed.url),
+      icone, cherchee,
       result.etag, result.lastModified, now(), id
     );
 
     return { feedId: id, added: ajoutes, duplicates: doublons };
   } catch (error) {
+    // Le serveur qui dit « reviens dans N secondes » a le dernier mot ;
+    // sinon on recule tout seul, de plus en plus loin.
+    const echecs = feed.error_count + 1;
+    const attente = error.retryAfterMs ?? reculApres(echecs);
     db.prepare(`
-      UPDATE feeds SET last_fetched_at = ?, last_error = ?, error_count = error_count + 1 WHERE id = ?
-    `).run(now(), String(error.message).slice(0, 300), id);
+      UPDATE feeds SET last_fetched_at = ?, last_error = ?, error_count = ?, next_fetch_at = ? WHERE id = ?
+    `).run(now(), String(error.message).slice(0, 300), echecs, now() + attente, id);
     return { feedId: id, added: 0, duplicates: 0, error: String(error.message) };
   }
 }
 
-/** Rafraichit tous les flux, six a la fois. */
-export async function refreshAll(concurrency = 6) {
-  const ids = db.prepare('SELECT id FROM feeds ORDER BY COALESCE(last_fetched_at, 0)').all().map((r) => r.id);
+/* Une seule passe a la fois. Le minuteur, la touche R, un import OPML et
+   chaque compte pouvaient la lancer : deux passes simultanees telechargeaient
+   les memes flux et se disputaient les memes lignes. Celui qui arrive pendant
+   qu'une passe tourne attend son resultat plutot que d'en lancer une autre. */
+let passeEnCours = null;
+
+/**
+ * Rafraichit les flux, six a la fois.
+ * `force` ignore le recul : c'est ce que fait un rafraichissement demande a
+ * la main, qui doit reessayer meme une source en panne.
+ */
+export function refreshAll({ concurrency = 6, force = false } = {}) {
+  if (passeEnCours) return passeEnCours;
+  passeEnCours = passe(concurrency, force).finally(() => { passeEnCours = null; });
+  return passeEnCours;
+}
+
+async function passe(concurrency, force) {
+  // Une source qui a recule n'est pas reprise avant son heure — sauf demande
+  // explicite. Les plus anciennement vues passent les premieres.
+  const ids = db.prepare(`
+    SELECT id FROM feeds
+    WHERE ? OR next_fetch_at IS NULL OR next_fetch_at <= ?
+    ORDER BY COALESCE(last_fetched_at, 0)
+  `).all(force ? 1 : 0, now()).map((r) => r.id);
+
   const results = [];
   let cursor = 0;
 
@@ -623,9 +816,14 @@ export async function refreshAll(concurrency = 6) {
   for (const { id } of db.prepare('SELECT id FROM users').all()) reconcilierDoublons(id);
   setSetting('last_refresh_at', now());
   pruneArticles();
+  // Meme rythme pour les sessions : sans ca, une session n'etait effacee que
+  // si son porteur revenait apres l'expiration, et la table grossissait sans fin.
+  purgerSessionsExpirees();
 
+  const reportes = db.prepare('SELECT COUNT(*) n FROM feeds WHERE next_fetch_at > ?').get(now()).n;
   return {
     feeds: ids.length,
+    skipped: reportes,
     added: results.reduce((sum, r) => sum + r.added, 0),
     duplicates: results.reduce((sum, r) => sum + r.duplicates, 0),
     errors: results.filter((r) => r.error).map((r) => ({ feedId: r.feedId, error: r.error }))
@@ -666,8 +864,11 @@ export async function completerImages({ limite = 40, concurrency = 4 } = {}, u) 
   return { checked: lignes.length, found: trouvees };
 }
 
-/** Supprime les articles lus et anciens ; garde toujours les non-lus et les favoris. */
 /**
+ * Supprime les articles lus et anciens ; garde toujours les non-lus, les
+ * favoris et les articles etiquetes — poser une etiquette, c'est vouloir
+ * retrouver l'article, et la retention n'a pas a defaire ce choix.
+ *
  * Tache du service : elle traverse les comptes, mais la duree de retention est
  * propre a chacun — on purge donc compte par compte, avec son reglage a lui.
  */
@@ -681,6 +882,7 @@ export function pruneArticles() {
       DELETE FROM articles
       WHERE starred = 0 AND read_at IS NOT NULL AND published_at < ?
         AND feed_id IN (SELECT id FROM feeds WHERE user_id = ?)
+        AND id NOT IN (SELECT article_id FROM article_tags)
     `).run(now() - jours * 24 * 3600 * 1000, compte).changes;
   }
   return supprimes;
@@ -750,15 +952,6 @@ export function createTag(nom, u) {
   const id = Number(db.prepare('INSERT INTO tags (name, color, created_at, user_id) VALUES (?, ?, ?, ?)')
     .run(propre, couleurLibre(compte), now(), compte).lastInsertRowid);
   return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
-}
-
-function tagsDe(articleId) {
-  return db.prepare(`
-    SELECT t.name FROM tags t
-    JOIN article_tags at ON at.tag_id = t.id
-    WHERE at.article_id = ?
-    ORDER BY t.name COLLATE NOCASE
-  `).all(articleId).map((r) => r.name);
 }
 
 function idDuTag(nom, u, creer = true) {
@@ -882,7 +1075,14 @@ export function expressionFts(q) {
   return mots.map((m, i) => (i === mots.length - 1 ? `"${m}"*` : `"${m}"`)).join(' AND ');
 }
 
-export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}, u) {
+/* FTS5 sait montrer le passage qui correspond. Les marques d'encadrement sont
+   deux caracteres de controle plutot que des balises : le navigateur echappe
+   le texte d'abord, et ne remplace qu'ensuite — sinon un article contenant
+   « <b> » ouvrirait une balise pour de bon. */
+const DEBUT_MARQUE = String.fromCharCode(2);
+const FIN_MARQUE = String.fromCharCode(3);
+
+export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before, sort } = {}, u) {
   // Le cloisonnement passe avant tout le reste : aucune vue ne peut le lever.
   const where = ['f.user_id = @compte'];
   const params = { compte: exigeCompte(u) };
@@ -917,11 +1117,19 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   if (ensemble && view === 'unread') where.push("f.priority = 'suivi'");
   if (ensemble && view === 'all') where.push("f.priority <> 'muet'");
 
+  // Une recherche plein texte joint l'index : c'est ce qui permet d'en tirer
+  // l'extrait qui correspond, et le classement par pertinence.
+  let jointureFts = '';
+  let colonneExtrait = 'NULL AS extrait';
+  const expr = q ? expressionFts(q) : null;
+
   if (q) {
-    const expr = expressionFts(q);
     if (expr) {
-      where.push('a.id IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH @fts)');
+      jointureFts = 'JOIN articles_fts ON articles_fts.rowid = a.id';
+      where.push('articles_fts MATCH @fts');
       params.fts = expr;
+      // -1 : la colonne qui correspond le mieux, titre ou corps.
+      colonneExtrait = `snippet(articles_fts, -1, '${DEBUT_MARQUE}', '${FIN_MARQUE}', '…', 14) AS extrait`;
     } else {
       // Une recherche qui ne contient aucun mot (de la ponctuation seule) n'a
       // rien a donner a FTS : on retombe sur la comparaison litterale.
@@ -929,7 +1137,12 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
       params.q = '%' + q + '%';
     }
   }
-  if (before) {
+  // Classer par pertinence n'a de sens que sur une recherche, et la
+  // pagination par curseur suit la date : on la coupe alors, la liste tenant
+  // dans une page de resultats.
+  const parPertinence = Boolean(expr) && sort === 'pertinence';
+
+  if (before && !parPertinence) {
     const [ts, id] = String(before).split(',').map(Number);
     if (Number.isFinite(ts) && Number.isFinite(id)) {
       where.push('(a.published_at < @beforeTs OR (a.published_at = @beforeTs AND a.id < @beforeId))');
@@ -941,17 +1154,19 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   params.limit = Math.min(Number(limit) || 30, 200);
 
   const rows = db.prepare(`
-    SELECT ${ARTICLE_COLUMNS}
-    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    SELECT ${ARTICLE_COLUMNS}, ${colonneExtrait}
+    FROM articles a JOIN feeds f ON f.id = a.feed_id ${jointureFts}
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY a.published_at DESC, a.id DESC
+    ORDER BY ${parPertinence ? 'bm25(articles_fts, 8.0, 2.0, 1.0, 1.0)' : 'a.published_at DESC, a.id DESC'}
     LIMIT @limit
   `).all(params);
 
   const last = rows[rows.length - 1];
   return {
     articles: rows.map(avecTags),
-    nextCursor: rows.length === params.limit && last ? last.published_at + ',' + last.id : null
+    nextCursor: !parPertinence && rows.length === params.limit && last
+      ? last.published_at + ',' + last.id
+      : null
   };
 }
 
@@ -962,8 +1177,41 @@ function estTronque(row, u) {
   if (estYouTube(row.url)) return false;
   // Un episode de podcast non plus : son contenu, c'est l'audio.
   if (row.duration || /<audio/i.test(row.content || '')) return false;
+  // La source a le dernier mot : certaines ne publient jamais qu'un resume,
+  // d'autres publient tout, et un seuil global se trompe sur les unes ou les
+  // autres.
+  if (row.feed_fulltext === 'jamais') return false;
+  if (row.feed_fulltext === 'toujours') return true;
   const seuil = Number(getSetting('fulltext_min_words', '250', u));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
+}
+
+/**
+ * Va chercher d'avance le texte des sources reglees sur « toujours ».
+ * L'ouverture est alors instantanee, au lieu d'attendre un aller-retour chez
+ * l'editeur au moment precis ou on veut lire.
+ */
+export async function precharger({ limite = 20, concurrency = 3 } = {}, u) {
+  const compte = exigeCompte(u);
+  const lignes = db.prepare(`
+    SELECT a.id FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND f.fulltext = 'toujours'
+      AND a.full_content IS NULL AND a.full_error IS NULL
+      AND a.url LIKE 'http%' AND a.read_at IS NULL
+    ORDER BY a.published_at DESC LIMIT ?
+  `).all(compte, limite);
+  if (!lignes.length) return { cherches: 0, obtenus: 0 };
+
+  let obtenus = 0;
+  let curseur = 0;
+  async function worker() {
+    while (curseur < lignes.length) {
+      const { id } = lignes[curseur++];
+      try { await fetchFullText(id, {}, compte); obtenus++; } catch { /* l'echec est deja note en base */ }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, lignes.length) }, worker));
+  return { cherches: lignes.length, obtenus };
 }
 
 /** Deux teintes hexadecimales separees d'une virgule, rien d'autre. */
@@ -991,7 +1239,7 @@ export function getArticle(id, u) {
   const compte = exigeCompte(u);
   const row = db.prepare(`
     SELECT ${ARTICLE_COLUMNS}, a.content, a.full_content, a.full_error, a.full_fetched_at,
-           f.site_url AS feed_site_url
+           f.site_url AS feed_site_url, f.fulltext AS feed_fulltext
     FROM articles a JOIN feeds f ON f.id = a.feed_id
     WHERE a.id = ? AND f.user_id = ?
   `).get(id, compte);
@@ -1075,7 +1323,6 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
   // Quelle que soit la selection, elle est bornee aux articles du compte.
   const where = ['read_at IS NULL', `id IN ${ARTICLES_DU_COMPTE}`];
   const params = [stamp, compte];
-  let changed = 0;
 
   if (Array.isArray(ids) && ids.length) {
     where.push(`id IN (${ids.map(() => '?').join(',')})`);
@@ -1090,11 +1337,91 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
     if (!feedId && !folder && !all && !olderThan) return 0;
   }
 
-  changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
+  const changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
 
   // Les copies de la meme histoire suivent, dans les autres flux aussi.
   if (changed) reconcilierDoublons(compte);
-  return changed;
+  // L'horodatage est le meme pour tout le lot : c'est ce qui rend l'annulation
+  // possible sans tenir la liste des identifiants.
+  return { changed, stamp };
+}
+
+/**
+ * Annule un marquage en masse. Tous les articles d'un lot portent le meme
+ * `read_at` a la milliseconde : il suffit de le rendre a NULL. Un article lu
+ * a un autre moment, avant ou apres, n'est pas touche.
+ */
+export function annulerLecture(stamp, u) {
+  const compte = exigeCompte(u);
+  const quand = Number(stamp);
+  if (!Number.isFinite(quand)) return 0;
+  return db.prepare(`
+    UPDATE articles SET read_at = NULL
+    WHERE read_at = ? AND id IN ${ARTICLES_DU_COMPTE}
+  `).run(quand, compte).changes;
+}
+
+/**
+ * Rejoue les regles sur ce qui est deja en base. Une regle ecrite aujourd'hui
+ * doit pouvoir nettoyer la pile d'hier — sinon elle ne sert qu'aux articles
+ * a venir, et on garde la corvee sur les bras.
+ *
+ * Ne touche jamais un article deja lu : ce serait defaire une decision prise.
+ */
+export function rejouerRegles(u, { regleId = null } = {}) {
+  const compte = exigeCompte(u);
+  const regles = reglesActives(compte).filter((r) => !regleId || r.id === Number(regleId));
+  if (!regles.length) return { examines: 0, lus: 0, favoris: 0, etiquetes: 0 };
+
+  const lignes = db.prepare(`
+    SELECT a.id, a.feed_id, a.title, a.author, a.summary, a.content, a.read_at, a.starred
+    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND a.read_at IS NULL
+  `).all(compte);
+
+  const lus = [];
+  const favoris = [];
+  const etiquettes = [];
+  const marques = new Map();
+
+  for (const ligne of lignes) {
+    const decide = verdict(ligne, ligne.feed_id, regles);
+    if (!decide) continue;
+    for (const id of decide.touchees) marques.set(id, (marques.get(id) || 0) + 1);
+    if (decide.lu) lus.push(ligne.id);
+    if (decide.favori && !ligne.starred) favoris.push(ligne.id);
+    if (decide.etiquettes) etiquettes.push([ligne.id, decide.etiquettes]);
+  }
+
+  const stamp = now();
+  db.transaction(() => {
+    for (const id of lus) db.prepare('UPDATE articles SET read_at = ? WHERE id = ?').run(stamp, id);
+    for (const id of favoris) db.prepare('UPDATE articles SET starred = 1 WHERE id = ?').run(id);
+    if (marques.size) crediter([...marques]);
+  })();
+  for (const [id, noms] of etiquettes) tagArticle(id, { add: noms }, compte);
+  if (lus.length) reconcilierDoublons(compte);
+
+  return { examines: lignes.length, lus: lus.length, favoris: favoris.length, etiquetes: etiquettes.length, stamp };
+}
+
+/** Ce qu'une regle attraperait, sans rien changer : on regarde avant d'agir. */
+export function essayerRegle(u, regle, limite = 8) {
+  const compte = exigeCompte(u);
+  const candidate = { ...regle, feed_id: regle.feedId ? Number(regle.feedId) : null };
+  const lignes = db.prepare(`
+    SELECT a.id, a.feed_id, a.title, a.author, a.summary, a.content, a.published_at,
+           COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS feed_title
+    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND a.read_at IS NULL
+    ORDER BY a.published_at DESC
+  `).all(compte);
+
+  const pris = lignes.filter((l) => (!candidate.feed_id || l.feed_id === candidate.feed_id) && correspond(l, candidate));
+  return {
+    total: pris.length,
+    exemples: pris.slice(0, limite).map((a) => ({ id: a.id, title: a.title, feed_title: a.feed_title }))
+  };
 }
 
 export function counts(u) {

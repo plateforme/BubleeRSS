@@ -50,12 +50,23 @@ export const api = {
   full:     (id, force = false) => json('POST', `/api/articles/${id}/full${force ? '?force=1' : ''}`),
   patch:    (id, patch) => json('PATCH', '/api/articles/' + id, patch),
   markRead: (payload) => json('POST', '/api/articles/read', payload),
+  annulerLecture: (stamp) => json('POST', '/api/articles/unread', { stamp }),
   tag:      (id, action) => json('POST', `/api/articles/${id}/tags`, action),
   couleur:  (id, color) => json('POST', `/api/articles/${id}/color`, { color }),
   tags:      () => call('/api/tags'),
   createTag: (name) => json('POST', '/api/tags', { name }),
   updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),
   deleteTag: (id) => json('DELETE', '/api/tags/' + id),
+
+  statsSources:  (jours = 90) => call('/api/feeds/stats?jours=' + jours),
+  priorites:     (ids, priority) => json('POST', '/api/feeds/priorites', { ids, priority }),
+
+  regles:        () => call('/api/rules'),
+  creerRegle:    (regle) => json('POST', '/api/rules', regle),
+  essayerRegle:  (regle) => json('POST', '/api/rules/essai', regle),
+  majRegle:      (id, patch) => json('PATCH', '/api/rules/' + id, patch),
+  supprimerRegle: (id) => json('DELETE', '/api/rules/' + id),
+  rejouerRegles: (id = null) => json('POST', '/api/rules/rejouer', id ? { id } : {}),
 
   addFeed:     (url, folder, title) => json('POST', '/api/feeds', { url, folder, title }),
   updateFeed:  (id, patch) => json('PATCH', '/api/feeds/' + id, patch),

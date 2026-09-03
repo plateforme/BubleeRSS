@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { sanitizeHtml, toPlainText, firstImage, decodeEntities, countWords, absolutize } from './html.js';
 import { httpGet, decodeBody, MAX_BYTES } from './http.js';
 import { estYouTube, resoudreFluxYouTube, contenuVideo } from './youtube.js';
+import { fluxDePlateforme } from './plateformes.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -253,6 +254,15 @@ export function parseFeed(xml, feedUrl) {
   };
 }
 
+/** Retry-After vaut des secondes ou une date HTTP ; null si absent ou illisible. */
+export function retryAfterEnMs(valeur) {
+  if (!valeur) return null;
+  const brut = String(valeur).trim();
+  if (/^\d+$/.test(brut)) return Number(brut) * 1000;
+  const date = Date.parse(brut);
+  return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
+}
+
 const ACCEPT_FLUX =
   'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8, */*;q=0.5';
 
@@ -270,7 +280,12 @@ export async function fetchFeed(url, { etag, lastModified } = {}) {
 
   const { res, buffer } = await getFlux(url, headers);
   if (res.status === 304) return { notModified: true };
-  if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+  if (!res.ok) {
+    const erreur = new Error('HTTP ' + res.status + ' ' + res.statusText);
+    // « Reviens dans N secondes » : on le respecte, c'est le serveur qui parle.
+    if (res.status === 429 || res.status === 503) erreur.retryAfterMs = retryAfterEnMs(res.headers.get('retry-after'));
+    throw erreur;
+  }
 
   const body = decodeBody(buffer, res.headers.get('content-type'));
   const parsed = parseFeed(body, res.url || url);
@@ -300,19 +315,28 @@ export async function discoverFeeds(input) {
   let url = String(input).trim();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
+  /** Un candidat deduit n'est retenu que s'il repond vraiment. */
+  const verifier = async (candidat) => {
+    if (!candidat) return null;
+    try {
+      const { res, buffer } = await getFlux(candidat);
+      if (!res.ok) return null;
+      const parsed = parseFeed(decodeBody(buffer, res.headers.get('content-type')), candidat);
+      return parsed.items?.length ? [{ url: candidat, title: parsed.title }] : null;
+    } catch {
+      return null;   // on retombe sur la decouverte classique
+    }
+  };
+
   // YouTube n'annonce pas son flux dans la page : on le deduit de l'adresse.
   if (estYouTube(url)) {
-    const fluxYT = await resoudreFluxYouTube(url);
-    if (fluxYT) {
-      try {
-        const { res, buffer } = await getFlux(fluxYT);
-        if (res.ok) {
-          const parsed = parseFeed(decodeBody(buffer, res.headers.get('content-type')), fluxYT);
-          return [{ url: fluxYT, title: parsed.title }];
-        }
-      } catch { /* on retombe sur la decouverte classique */ }
-    }
+    const trouve = await verifier(await resoudreFluxYouTube(url).catch(() => null));
+    if (trouve) return trouve;
   }
+
+  // Mastodon, Bluesky, Reddit, GitHub : meme silence, meme deduction.
+  const dePlateforme = await verifier(fluxDePlateforme(input));
+  if (dePlateforme) return dePlateforme;
 
   const found = new Map();
 
@@ -357,19 +381,25 @@ export async function discoverFeeds(input) {
 
   if (found.size === 0) {
     const origin = new URL(finalUrl).origin;
-    for (const path of COMMON_PATHS) {
+    const essayer = async (path) => {
       const candidate = origin + path;
-      try {
-        const { res, buffer } = await getFlux(candidate, {}, 6000);
-        if (!res.ok) continue;
-        const text = decodeBody(buffer, res.headers.get('content-type'));
-        if (!looksLikeFeed(text)) continue;
-        const parsed = parseFeed(text, candidate);
-        found.set(candidate, { url: candidate, title: parsed.title });
-        break;
-      } catch { /* candidat suivant */ }
+      const { res, buffer } = await getFlux(candidate, {}, 6000);
+      if (!res.ok) return null;
+      const text = decodeBody(buffer, res.headers.get('content-type'));
+      if (!looksLikeFeed(text)) return null;
+      return { url: candidate, title: parseFeed(text, candidate).title };
+    };
+    // Par vagues de quatre plutot qu'un a un : en serie, onze chemins a six
+    // secondes faisaient attendre plus d'une minute un site sans flux. L'ordre
+    // des chemins reste celui de la liste a l'interieur d'une vague.
+    for (let i = 0; i < COMMON_PATHS.length && found.size === 0; i += VAGUE) {
+      const vague = await Promise.allSettled(COMMON_PATHS.slice(i, i + VAGUE).map(essayer));
+      const trouve = vague.find((r) => r.status === 'fulfilled' && r.value)?.value;
+      if (trouve) found.set(trouve.url, trouve);
     }
   }
 
   return [...found.values()];
 }
+
+const VAGUE = 4;

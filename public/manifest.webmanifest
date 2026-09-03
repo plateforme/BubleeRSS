@@ -1,0 +1,28 @@
+{
+  "name": "Bublee",
+  "short_name": "Bublee",
+  "description": "Un lecteur RSS maison, composé comme une première page de journal.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/#/unread",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e9e7e0",
+  "theme_color": "#24231f",
+  "icons": [
+    { "src": "/icones/bublee-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icones/bublee-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icones/bublee-masquable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "/partage",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "shortcuts": [
+    { "name": "Non lus", "url": "/#/unread" },
+    { "name": "Favoris", "url": "/#/starred" },
+    { "name": "Ajouter une source", "url": "/#/ajouter" }
+  ]
+}

@@ -6,22 +6,18 @@
 <title>Bublee</title>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -6 32 32'><defs><clipPath id='l'><circle cx='20.2' cy='10' r='8.2'/></clipPath></defs><circle cx='9.8' cy='10' r='8.2' fill='%2310604a' clip-path='url(%23l)'/><g fill='none' stroke='%2324231f' stroke-width='2'><circle cx='9.8' cy='10' r='8.2'/><circle cx='20.2' cy='10' r='8.2'/></g></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#24231f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bublee">
+<link rel="apple-touch-icon" href="/icones/bublee-192.png">
+<!-- Les polices sont servies d'ici : rien ne part chez Google, et l'app
+     s'ouvre hors ligne. scripts/telecharger-polices.mjs les rapatrie. -->
+<link rel="stylesheet" href="/fonts/polices.css">
 <link rel="stylesheet" href="/styles.css">
-<script>
-  // Thème et accent avant le premier rendu, pour éviter le flash.
-  try {
-    document.documentElement.dataset.theme = localStorage.getItem('bublee.theme') || 'auto';
-    const accent = localStorage.getItem('bublee.accent');
-    if (accent) document.documentElement.style.setProperty('--accent', accent);
-    const largeur = localStorage.getItem('bublee.indexWidth');
-    if (largeur) document.documentElement.style.setProperty('--index-w', largeur + 'px');
-    // Posé sur <html> avant le rendu ; app.js le reporte sur .app au démarrage.
-    if (localStorage.getItem('bublee.indexPlie') === '1') document.documentElement.dataset.plie = '1';
-  } catch (e) {}
-</script>
+<!-- Thème et accent avant le premier rendu, pour éviter le flash. Un fichier
+     plutôt qu'un script inline : la CSP n'a aucun hash à tenir à jour. -->
+<script src="/js/amorce.js"></script>
 </head>
 <body>
 
@@ -211,6 +207,12 @@
           <div class="masthead-meta">
             <span id="mastheadDate"></span>
             <span id="stageSub"></span>
+            <!-- N'apparaît que pendant une recherche : le reste du temps,
+                 il n'y a rien à classer autrement que par date. -->
+            <span class="tri" id="triRecherche" hidden>
+              <button type="button" data-tri="date" class="on">Récents</button>
+              <button type="button" data-tri="pertinence">Pertinents</button>
+            </span>
           </div>
         </div>
       </header>
@@ -260,6 +262,18 @@
   <div class="tagpop-list" id="tagPopList"></div>
   <input class="tagpop-input" id="tagPopInput" list="tagOptions" autocomplete="off"
          placeholder="Nouvelle étiquette" aria-label="Créer une étiquette" maxlength="60">
+</div>
+
+<!-- « Tout lire » ouvre le choix de la portée : la pile entière, ou seulement
+     ce qui a déjà vieilli. Annuler reste possible depuis le toast. -->
+<div class="tagpop" id="lirePop" hidden role="dialog" aria-label="Marquer comme lu">
+  <p class="tagpop-titre" id="lirePopTitre">Marquer comme lu</p>
+  <div class="tagpop-list">
+    <button type="button" class="tagpop-row" data-lire="tout"><span class="tagpop-nom">Tout</span></button>
+    <button type="button" class="tagpop-row" data-lire="1"><span class="tagpop-nom">Avant hier</span></button>
+    <button type="button" class="tagpop-row" data-lire="7"><span class="tagpop-nom">Avant la semaine dernière</span></button>
+    <button type="button" class="tagpop-row" data-lire="30"><span class="tagpop-nom">Avant le mois dernier</span></button>
+  </div>
 </div>
 
 <div class="tagpop" id="sharePop" hidden role="dialog" aria-label="Partager l’article">
@@ -349,6 +363,25 @@
         <option value="off">Ne pas récupérer</option>
       </select>
     </label>
+    <!-- Réglages d'écran, comme le thème : ils vivent dans le navigateur et
+         ne partent pas au serveur. -->
+    <div class="field">
+      <span>Lecture</span>
+      <div class="curseurs">
+        <label><span>Corps</span>
+          <input type="range" id="setCorps" min="15" max="26" step="0.5">
+          <output id="valCorps"></output></label>
+        <label><span>Interligne</span>
+          <input type="range" id="setInterligne" min="1.3" max="2.1" step="0.05">
+          <output id="valInterligne"></output></label>
+        <label><span>Colonne</span>
+          <input type="range" id="setColonne" min="48" max="96" step="2">
+          <output id="valColonne"></output></label>
+      </div>
+      <small class="field-note">S’applique au panneau de lecture, tout de suite.
+        <button type="button" class="lien-sobre" id="lectureDefaut">Revenir aux valeurs d’origine</button></small>
+    </div>
+
     <label class="field">
       <span>Conserver les articles lus</span>
       <select id="setRetention">
@@ -404,10 +437,47 @@
       articles et ses étiquettes n’appartiennent qu’à lui. Le supprimer emporte tout son contenu.</p>
   </div>
 
+  <!-- Le débit : ce que chaque source apporte, et ce qu'on en fait. -->
+  <div class="modal-sep"><span>le débit</span></div>
+  <p class="field-note" id="debitResume">Chargement…</p>
+  <div class="debit" id="debitListe"></div>
+  <div class="modal-io" id="debitActions" hidden>
+    <button class="btn solid" id="debitAppliquer">Passer les suggestions en survol</button>
+  </div>
+
+  <!-- Les règles : ce qu'on ne veut plus voir arriver, décidé une fois. -->
+  <div class="modal-sep"><span>règles</span></div>
+  <p class="field-note">Un mot dans un titre suffit à écarter un article avant qu’il n’apparaisse.
+    Tous les mots du motif doivent être présents, dans n’importe quel ordre ; les accents et la casse
+    sont ignorés ; « entre guillemets » cherche l’expression exacte.</p>
+  <div class="regles-liste" id="reglesListe"></div>
+  <form id="regleForm" class="regle-neuve">
+    <input type="text" id="regleMotif" placeholder="bon plan, sponsorisé, « black friday »…" maxlength="200" required autocomplete="off">
+    <select id="regleChamp" aria-label="Où chercher">
+      <option value="titre">dans le titre</option>
+      <option value="corps">dans le corps</option>
+      <option value="auteur">dans l’auteur</option>
+      <option value="partout">partout</option>
+    </select>
+    <select id="regleSource" aria-label="Sur quelle source">
+      <option value="">de toutes les sources</option>
+    </select>
+    <select id="regleAction" aria-label="Quoi faire">
+      <option value="lu">marquer lu</option>
+      <option value="favori">mettre en favori</option>
+      <option value="etiquette">étiqueter</option>
+    </select>
+    <input type="text" id="regleValeur" placeholder="nom de l’étiquette" maxlength="60" hidden autocomplete="off" list="tagOptions">
+    <button type="button" class="btn" id="regleEssai">Essayer</button>
+    <button type="submit" class="btn solid">Ajouter</button>
+  </form>
+  <p class="field-note" id="regleApercu" hidden></p>
+
   <div class="modal-sep"><span>entretien</span></div>
   <div class="modal-io">
     <button class="btn" id="repairAll">Réparer les sources</button>
     <button class="btn" id="dedupeAll">Chercher les doublons</button>
+    <a class="btn" id="sauvegarde" href="/api/backup" hidden>Sauvegarder la base</a>
   </div>
 
   <div class="modal-sep"><span>raccourcis</span></div>
@@ -490,6 +560,16 @@
     <p class="field-note">Toutes les sources ne se lisent pas pareil. Une source
       en survol ou muette reste consultable en cliquant dessus, par étiquette et
       par la recherche : rien n’est perdu, seul le flot d’arrivée change.</p>
+    <label class="field">
+      <span>Texte complet</span>
+      <select id="editFeedFulltext">
+        <option value="auto">Automatique — si l’article paraît tronqué</option>
+        <option value="toujours">Toujours — cette source ne publie qu’un résumé</option>
+        <option value="jamais">Jamais — son flux publie déjà tout</option>
+      </select>
+      <small class="field-note">En « toujours », le texte est récupéré dès l’arrivée :
+        l’ouverture est alors immédiate.</small>
+    </label>
     <p class="field-note" id="editFeedError"></p>
     <div class="modal-actions spread">
       <button type="button" class="btn" id="deleteFeed">Supprimer</button>
@@ -522,6 +602,25 @@
   <div class="modal-actions">
     <button type="button" class="btn" data-close>Fermer</button>
   </div>
+</div>
+
+<!-- ====================================================== le baladeur ====
+     Un seul lecteur audio, hors du panneau de lecture : fermer l'article ne
+     coupe plus l'épisode. -->
+<div class="baladeur" id="baladeur" hidden>
+  <button type="button" id="baladeurJouer" aria-label="Lecture ou pause">
+    <span id="baladeurGlyphe">▶</span>
+  </button>
+  <span class="baladeur-quoi">
+    <span class="baladeur-titre" id="baladeurTitre"></span>
+    <span class="baladeur-source" id="baladeurSource"></span>
+  </span>
+  <input type="range" class="baladeur-barre" id="baladeurBarre" min="0" max="1000" value="0"
+         aria-label="Position dans l’épisode">
+  <span class="baladeur-temps" id="baladeurTemps">0:00</span>
+  <button type="button" id="baladeurVitesse" title="Vitesse de lecture">1×</button>
+  <button type="button" id="baladeurFermer" aria-label="Fermer le lecteur audio">✕</button>
+  <audio id="baladeurAudio" preload="metadata"></audio>
 </div>
 
 <div class="toasts" id="toasts" aria-live="polite"></div>

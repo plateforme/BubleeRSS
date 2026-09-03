@@ -1,0 +1,314 @@
+[
+  {
+    "cle": "sessions-moi-500",
+    "etape": 1,
+    "type": "Bug",
+    "priorite": "Highest",
+    "titre": "GET /api/auth/moi répond 500 : listerSessions lit une colonne « id » inexistante",
+    "description": "La table sessions a pour clé token_hash, pas id. listerSessions (server/comptes.js) fait SELECT id, … et la route /api/auth/moi échoue avec « no such column: id ». Corriger la requête et couvrir la route par un test HTTP."
+  },
+  {
+    "cle": "sessions-purge",
+    "etape": 1,
+    "type": "Bug",
+    "priorite": "High",
+    "titre": "Les sessions expirées ne sont jamais purgées",
+    "description": "purgerSessionsExpirees existe mais n’a aucun appelant : la table sessions grossit d’une ligne par connexion. L’appeler au démarrage et à chaque rafraîchissement."
+  },
+  {
+    "cle": "retention-etiquettes",
+    "etape": 1,
+    "type": "Bug",
+    "priorite": "High",
+    "titre": "La rétention supprime les articles étiquetés",
+    "description": "pruneArticles garde les non-lus et les favoris, mais un article lu et étiqueté est effacé après la durée de rétention, et ses étiquettes partent en cascade. Exclure les articles présents dans article_tags. Test de non-régression."
+  },
+  {
+    "cle": "audit-readme",
+    "etape": 1,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "npm audit fix, README à jour (92 tests, garde-fou SSRF des flux)",
+    "description": "Quatre alertes modérées (qs / body-parser) réglées par npm audit fix sans saut majeur. Le README annonce 47 tests (il y en a 92) et affirme que les flux sont protégés contre le SSRF, ce qui n’est pas le cas avant le ticket dédié."
+  },
+  {
+    "cle": "entetes-securite",
+    "etape": 1,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "En-têtes de sécurité et Content-Security-Policy",
+    "description": "Aucun en-tête de sécurité n’est envoyé alors que le HTML des articles est injecté en innerHTML. Ajouter CSP (script-src 'self', frame-src limité aux lecteurs connus), X-Content-Type-Options, Referrer-Policy no-referrer, X-Frame-Options. Sortir le script inline du thème dans un fichier pour éviter un hash."
+  },
+  {
+    "cle": "petits-ecarts",
+    "etape": 1,
+    "type": "Task",
+    "priorite": "Low",
+    "titre": "Petits écarts : toast doublement échappé, etag non remis à zéro, 404 JSON sur /api, messages d’erreur 500",
+    "description": "Un toast passe par esc() avant textContent (app.js). PATCH /api/feeds/:id avec url ne remet pas etag/last_modified à zéro. GET /api/inconnu renvoie index.html en 200. Le gestionnaire d’erreurs renvoie les messages SQL bruts sur les 500."
+  },
+  {
+    "cle": "ssrf-httpget",
+    "etape": 2,
+    "type": "Bug",
+    "priorite": "Highest",
+    "titre": "SSRF : filtrer toutes les requêtes sortantes dans httpGet (DNS, IPv6, redirections)",
+    "description": "fetchFeed et discoverFeeds ne passent pas par urlPubliqueOuNull ; le filtre laisse passer [::ffff:127.0.0.1], [fd00::1] et tout nom résolvant en privé ; les redirections sont suivies sans revérification. Résoudre le nom, refuser toute adresse privée en v4 et v6, suivre les redirections à la main, appliquer dans httpGet."
+  },
+  {
+    "cle": "login-limite",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "Limiter les tentatives de connexion",
+    "description": "scrypt réserve 64 Mo par tentative et rien ne borne le parallélisme. Compteur en mémoire par adresse IP et par courriel : après 5 échecs, refuser pendant une minute (429 + Retry-After)."
+  },
+  {
+    "cle": "relais-plafond",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Plafonner le relais d’images et couper les téléchargements trop gros en cours de route",
+    "description": "/api/image fait arrayBuffer() sans limite et httpGet ne vérifie MAX_BYTES qu’après avoir tout reçu. Lire content-length, lire le flux par morceaux et abandonner au-delà du plafond."
+  },
+  {
+    "cle": "jeton-hors-url",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Retirer le jeton d’API de la query string et restreindre CORS",
+    "description": "?token= finit dans les journaux et le Referer. Ne garder que l’en-tête Authorization / x-bublee-token. CORS : ne plus refléter toute origine avec credentials ; réserver CORS aux requêtes porteuses d’un jeton."
+  },
+  {
+    "cle": "app-bin-tests-http",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "Séparer l’application Express de l’écoute, et écrire les premiers tests HTTP",
+    "description": "server/index.js crée l’app et écoute dans le même fichier. Exporter l’app depuis server/app.js, garder l’écoute et l’ouverture du navigateur dans server/index.js, et tester les routes d’authentification, le cloisonnement et les en-têtes avec fetch sur un port éphémère."
+  },
+  {
+    "cle": "lint-ci",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "ESLint et intégration continue",
+    "description": "Configuration ESLint plate, script npm run lint, action GitHub qui lance lint et tests sur chaque push."
+  },
+  {
+    "cle": "favicons-polices-locales",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Favicons via le relais et polices auto-hébergées",
+    "description": "Les favicons viennent de google.com/s2 et les polices de Google Fonts : ça contredit « rien ne sort de la machine » et l’app est muette hors ligne. Lire le <link rel=icon> ou /favicon.ico du site via le relais ; servir les trois familles depuis public/fonts."
+  },
+  {
+    "cle": "ping-docker",
+    "etape": 2,
+    "type": "Task",
+    "priorite": "Low",
+    "titre": "/api/ping public, Dockerfile et arrêt propre",
+    "description": "/api/health exige un compte, donc un HEALTHCHECK Docker ne peut pas l’interroger. Ajouter /api/ping sans authentification, un Dockerfile avec volume sur data/, et fermer la base proprement sur SIGINT/SIGTERM."
+  },
+  {
+    "cle": "rendu-incremental",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "Rendu incrémental de la liste au défilement infini",
+    "description": "Chaque page de défilement reconstruit tout #flux en innerHTML : coût quadratique et fondu rejoué sur chaque image. Ajouter les nouveaux blocs à la fin, ne reconstruire qu’au changement de vue ou de mise en page."
+  },
+  {
+    "cle": "patch-compteurs",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "Les PATCH renvoient les compteurs ; l’index se met à jour sans se reconstruire",
+    "description": "Ouvrir un article coûte GET + PATCH + GET /api/state, et l’index est reconstruit avec ses 98 favicons. Faire renvoyer counts et unread par source par PATCH /api/articles/:id et POST /api/articles/:id/tags, et ne mettre à jour que les chiffres de l’index."
+  },
+  {
+    "cle": "refresh-verrou-recul",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "High",
+    "titre": "Verrou sur le rafraîchissement, recul exponentiel sur les sources en erreur, Retry-After",
+    "description": "refreshAll peut tourner en parallèle (minuteur, R, import, plusieurs comptes) et une source en panne est retéléchargée à chaque passe. Promesse partagée comme verrou, setTimeout rechaîné, recul sur error_count, respect de Retry-After."
+  },
+  {
+    "cle": "decouverte-parallele",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Découverte de flux : chemins classiques en parallèle",
+    "description": "Onze chemins essayés en série avec 6 s chacun, jusqu’à 66 s. Les tester par vagues en parallèle et s’arrêter au premier flux valide."
+  },
+  {
+    "cle": "sqlite-reglages",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "SQLite : synchronous NORMAL, busy_timeout, index pour la vue Non lus, listFeeds en une jointure, PRAGMA optimize à l’arrêt",
+    "description": "Réglages gratuits vus à l’EXPLAIN QUERY PLAN : l’index (read_at, published_at DESC, id DESC) supprime le tri temporaire ; listFeeds fait trois sous-requêtes corrélées par source."
+  },
+  {
+    "cle": "compression-cache",
+    "etape": 3,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Compression des réponses et cache long sur les fichiers statiques versionnés",
+    "description": "app.js (108 Ko) et styles.css (60 Ko) partent bruts avec max-age=0. Compresser en gzip/brotli, servir les fichiers statiques avec un cache long et un paramètre de version."
+  },
+  {
+    "cle": "etat-dans-adresse",
+    "etape": 3,
+    "type": "Story",
+    "priorite": "High",
+    "titre": "L’état de la vue dans l’adresse (vue, source, dossier, étiquette, recherche)",
+    "description": "Seul #/article/:id existe. Recharger perd la vue et le bouton retour ne fait rien. Sérialiser l’état dans le hash et le restaurer au chargement et sur popstate."
+  },
+  {
+    "cle": "lu-avant-annuler",
+    "etape": 3,
+    "type": "Story",
+    "priorite": "High",
+    "titre": "Marquer lu « avant hier / avant la semaine » et annuler depuis le toast",
+    "description": "L’API porte olderThan sans que le front l’expose. Comme markRead pose le même read_at sur tout le lot, « Annuler » revient à UPDATE … SET read_at = NULL WHERE read_at = ?. Route POST /api/articles/unread { stamp }."
+  },
+  {
+    "cle": "regles-filtrage",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "High",
+    "titre": "Règles de filtrage : si le titre ou le corps contient un mot, alors marquer lu / étiqueter / mettre en favori",
+    "description": "Table rules par compte (motif, portée : source ou partout, champ, action). Appliquée dans saveItems à l’insertion et rejouable sur l’existant. Interface dans les réglages."
+  },
+  {
+    "cle": "auto-survol",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "High",
+    "titre": "Statistiques par source et suggestions d’auto-survol",
+    "description": "Par source : reçus, lus, ouverts sur 90 jours. Proposer « survol » aux sources prolifiques jamais lues, avec un bouton « appliquer ». Page dans les réglages."
+  },
+  {
+    "cle": "pwa",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "High",
+    "titre": "PWA : manifeste, service worker, lecture hors ligne",
+    "description": "Icône sur l’écran d’accueil, plein écran, cache des articles ouverts et des images du relais pour lire hors ligne. share_target pour recevoir une adresse à ajouter."
+  },
+  {
+    "cle": "partage-entrant",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Recevoir un partage : #/ajouter?url=, marque-page, web+feed",
+    "description": "Une adresse partagée vers Bublee ouvre « Ajouter une source » pré-rempli. Marque-page pour bureau, registerProtocolHandler('web+feed')."
+  },
+  {
+    "cle": "mini-lecteur-audio",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Mini-lecteur audio persistant",
+    "description": "Un <audio> unique hors du panneau de lecture : fermer le lecteur ne coupe plus le podcast. Barre en pied de scène, position mémorisée par épisode, vitesse réglable."
+  },
+  {
+    "cle": "reglages-lecture",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Réglages de lecture : corps, largeur de colonne, interlignage",
+    "description": "Trois variables CSS et trois curseurs dans le panneau, mémorisés dans le navigateur."
+  },
+  {
+    "cle": "sse-direct",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Mises à jour en direct par Server-Sent Events",
+    "description": "/api/events pousse les nouveaux compteurs après un rafraîchissement automatique et la progression d’un import OPML, au lieu d’attendre 8 secondes au hasard."
+  },
+  {
+    "cle": "extraits-recherche",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Extraits de recherche avec le mot en gras",
+    "description": "FTS5 snippet() et highlight() : montrer le passage qui correspond plutôt que le chapô."
+  },
+  {
+    "cle": "dossiers-ordre",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Low",
+    "titre": "Renommer un dossier et ordonner les sources à la main",
+    "description": "Un dossier n’est qu’une chaîne sur chaque source. Renommage en un UPDATE, colonne position sur feeds et tri manuel dans l’index."
+  },
+  {
+    "cle": "texte-complet-par-source",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Texte complet par source : auto / toujours / jamais, avec récupération en tâche de fond",
+    "description": "Le seuil de 250 mots est global. Par source, un réglage fulltext ; en « toujours », récupérer le texte juste après le rafraîchissement pour une ouverture instantanée."
+  },
+  {
+    "cle": "decouverte-elargie",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Découverte élargie : Mastodon, Bluesky, Reddit, dépôts GitHub",
+    "description": "Comme pour YouTube : déduire l’adresse du flux de l’adresse collée."
+  },
+  {
+    "cle": "sauvegarde",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "Sauvegarde de la base en un clic",
+    "description": "GET /api/backup via db.backup() de better-sqlite3, cohérente pendant un rafraîchissement. Bouton dans « entretien », réservé au super."
+  },
+  {
+    "cle": "vignettes-redimensionnees",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Low",
+    "titre": "Vignettes redimensionnées par le relais",
+    "description": "Paramètre w sur /api/image, redimensionnement WebP avec sharp au premier passage, version réduite gardée dans le cache disque. Dépendance native supplémentaire : à décider."
+  },
+  {
+    "cle": "decoupage-modules",
+    "etape": 4,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Découper app.js et store.js en modules",
+    "description": "app.js (2 361 lignes) et store.js (1 133 lignes) portent chacun cinq responsabilités. Modules ES natifs, sans build, sans changement de comportement."
+  },
+  {
+    "cle": "accessibilite",
+    "etape": 4,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Accessibilité : <dialog> natif, cartes en <article>, états non portés par la seule couleur",
+    "description": "Les cartes sont des <button> contenant des blocs ; les modales n’ont ni piège de focus ni retour du focus ; la pastille de non-lu et le curseur ne sont signalés que par la couleur."
+  },
+  {
+    "cle": "edition-du-jour",
+    "etape": 4,
+    "type": "Story",
+    "priorite": "Medium",
+    "titre": "L’Édition du jour : une pile finie composée une fois par jour",
+    "description": "N articles choisis par priorité, fraîcheur et temps de lecture, présentés comme une une close (« 12 articles, 48 minutes »). Ce qui n’y est pas n’appelle plus."
+  },
+  {
+    "cle": "tests-xss-fumee",
+    "etape": 4,
+    "type": "Task",
+    "priorite": "Medium",
+    "titre": "Tests de non-régression XSS sur le nettoyeur et test de fumée du front",
+    "description": "Fichier de charges utiles classiques contre sanitizeHtml ; test Playwright : connexion, ajout d’une source, ouverture d’un article."
+  }
+]

@@ -22,7 +22,7 @@ function article(paragraphes = 12) {
 function comparateur(lignes = 60) {
   return Array.from({ length: lignes }, (_, i) =>
     `<li><div><p><span><span>Marchand ${i}</span></span></p>`
-    + `<p><span>2 199,00 &euro;</span><span>Neuf</span></p></div></li>`).join('');
+    + '<p><span>2 199,00 &euro;</span><span>Neuf</span></p></div></li>').join('');
 }
 
 test('un article ordinaire passe', () => {

@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, quand, heure, dateLongue, dateJournal, tempsLecture, duree, relais, hote, debounce, pluriel, nombre } from './util.js';
+import { esc, quand, heure, dateJournal, tempsLecture, duree, relais, hote, debounce, pluriel, nombre } from './util.js';
 
 const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
@@ -11,6 +11,7 @@ const state = {
   feedId: null,
   folder: null,
   q: '',
+  tri: 'date',           // pendant une recherche : date | pertinence
   tag: null,
   layout: 'magazine',    // magazine (la une) | list (sommaire) | compact (dépêches)
   articles: [],
@@ -26,6 +27,7 @@ const state = {
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
   tags: [],
+  regles: [],
   palette: [],
   accents: [],
   settings: {}
@@ -76,15 +78,28 @@ function rgba(hex, alpha) {
 
 /* ----------------------------------------------------------------- toasts */
 
-function toast(message, kind = '') {
+/**
+ * Un message passager. `action` y pose un bouton — « Annuler » après un
+ * marquage en masse : le geste le plus lourd de l'application est aussi le
+ * seul qui n'avait pas de filet.
+ */
+function toast(message, kind = '', action = null) {
   const el = document.createElement('div');
   el.className = 'toast' + (kind ? ' ' + kind : '');
-  el.textContent = message;
+  el.append(message);
+  if (action) {
+    const bouton = document.createElement('button');
+    bouton.className = 'toast-action';
+    bouton.type = 'button';
+    bouton.textContent = action.libelle;
+    bouton.addEventListener('click', () => { el.remove(); action.faire(); });
+    el.append(bouton);
+  }
   $('#toasts').append(el);
   setTimeout(() => {
     el.classList.add('out');
     setTimeout(() => el.remove(), 300);
-  }, kind === 'bad' ? 4600 : 2800);
+  }, action ? 7000 : kind === 'bad' ? 4600 : 2800);
 }
 
 /* --------------------------------------------------------------- demarrage */
@@ -144,11 +159,13 @@ function renderMonCompte() {
   const estSuper = moi.role === 'super';
   $('#sepComptes').hidden = !estSuper;
   $('#zoneComptes').hidden = !estSuper;
+  // La base porte tous les comptes : seul un super la télécharge.
+  $('#sauvegarde').hidden = !estSuper;
   if (estSuper) renderComptes();
 }
 
 async function renderComptes() {
-  let liste = [];
+  let liste;
   try { liste = (await api.comptes()).comptes; } catch { return; }
 
   $('#comptesListe').innerHTML = liste.map((c) => `
@@ -168,6 +185,216 @@ async function renderComptes() {
     </div>`).join('');
 }
 
+/* ------------------------------------------------- réglages de lecture */
+
+/* Corps, interligne, largeur de colonne. Un lecteur qu'on utilise une heure
+   par jour doit se régler à l'œil de chacun : trois variables CSS et trois
+   curseurs. Comme le thème et la largeur de l'index, ça vit dans le
+   navigateur — c'est un réglage d'écran, pas de compte. */
+
+const LECTURE_DEFAUT = { corps: 19.5, interligne: 1.68, colonne: 66 };
+
+function lireLecture() {
+  try { return { ...LECTURE_DEFAUT, ...JSON.parse(localStorage.getItem('bublee.lecture') || '{}') }; }
+  catch { return { ...LECTURE_DEFAUT }; }
+}
+
+function appliquerLecture(reglages) {
+  const racine = document.documentElement.style;
+  racine.setProperty('--corps', reglages.corps + 'px');
+  racine.setProperty('--interligne', String(reglages.interligne));
+  racine.setProperty('--colonne', reglages.colonne + 'ch');
+  try { localStorage.setItem('bublee.lecture', JSON.stringify(reglages)); } catch { /* tant pis */ }
+
+  $('#setCorps').value = String(reglages.corps);
+  $('#setInterligne').value = String(reglages.interligne);
+  $('#setColonne').value = String(reglages.colonne);
+  $('#valCorps').textContent = reglages.corps + ' px';
+  $('#valInterligne').textContent = Number(reglages.interligne).toFixed(2);
+  $('#valColonne').textContent = reglages.colonne + ' signes';
+}
+
+function brancherLecture() {
+  const relever = () => appliquerLecture({
+    corps: Number($('#setCorps').value),
+    interligne: Number($('#setInterligne').value),
+    colonne: Number($('#setColonne').value)
+  });
+  for (const id of ['#setCorps', '#setInterligne', '#setColonne']) {
+    $(id).addEventListener('input', relever);
+  }
+  $('#lectureDefaut').addEventListener('click', () => appliquerLecture({ ...LECTURE_DEFAUT }));
+  appliquerLecture(lireLecture());
+}
+
+/* --------------------------------------------------------- le baladeur */
+
+/* Un podcast vivait dans le panneau de lecture : le fermer coupait le son, ce
+   qui est exactement ce qu'on ne veut pas d'une écoute. Le lecteur audio est
+   donc unique, en pied de page, et survit à tout — changer d'article, revenir
+   à la liste, chercher autre chose.
+
+   La position est retenue par épisode : reprendre un épisode d'une heure là où
+   on l'avait laissé est la moitié de ce qu'on attend d'un baladeur. */
+
+const VITESSES = [1, 1.25, 1.5, 1.75, 2];
+const POSITIONS = 'bublee.ecoutes';
+
+let ecoute = null;              // { id, titre, source, src }
+
+function positions() {
+  try { return JSON.parse(localStorage.getItem(POSITIONS) || '{}'); } catch { return {}; }
+}
+
+function retenirPosition(id, secondes) {
+  try {
+    const toutes = positions();
+    // Un épisode fini n'a pas de reprise à retenir ; on ne garde que
+    // cinquante entrées, sinon le stockage enfle sans qu'on le voie.
+    if (secondes > 5) toutes[id] = Math.round(secondes); else delete toutes[id];
+    const cles = Object.keys(toutes);
+    for (const vieille of cles.slice(0, Math.max(0, cles.length - 50))) delete toutes[vieille];
+    localStorage.setItem(POSITIONS, JSON.stringify(toutes));
+  } catch { /* stockage plein ou refusé : l'écoute continue */ }
+}
+
+const minutes = (s) => {
+  if (!Number.isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return (m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}` : String(m))
+    + ':' + String(r).padStart(2, '0');
+};
+
+function ecouter(article, src) {
+  const audio = $('#baladeurAudio');
+  const memeEpisode = ecoute?.id === article.id;
+  ecoute = { id: article.id, titre: article.title, source: article.feed_title, src };
+
+  $('#baladeur').hidden = false;
+  $('#app').classList.add('avec-baladeur');
+  $('#baladeurTitre').textContent = article.title;
+  $('#baladeurSource').textContent = article.feed_title || '';
+
+  if (!memeEpisode) {
+    audio.src = src;
+    const reprise = positions()[article.id];
+    if (reprise) audio.currentTime = reprise;
+  }
+  audio.play().catch((error) => toast('Lecture impossible : ' + error.message, 'bad'));
+
+  // Les commandes de l'écran verrouillé, quand le navigateur les porte.
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: article.title,
+      artist: article.feed_title || 'Bublee',
+      artwork: article.image ? [{ src: relais(article.image), sizes: '512x512' }] : []
+    });
+    navigator.mediaSession.setActionHandler('play', () => audio.play());
+    navigator.mediaSession.setActionHandler('pause', () => audio.pause());
+    navigator.mediaSession.setActionHandler('seekbackward', () => { audio.currentTime -= 15; });
+    navigator.mediaSession.setActionHandler('seekforward', () => { audio.currentTime += 30; });
+  }
+}
+
+function fermerBaladeur() {
+  const audio = $('#baladeurAudio');
+  audio.pause();
+  if (ecoute) retenirPosition(ecoute.id, audio.currentTime);
+  audio.removeAttribute('src');
+  audio.load();
+  ecoute = null;
+  $('#baladeur').hidden = true;
+  $('#app').classList.remove('avec-baladeur');
+}
+
+function brancherBaladeur() {
+  const audio = $('#baladeurAudio');
+  const barre = $('#baladeurBarre');
+  let glisse = false;
+
+  const peindre = () => {
+    $('#baladeurGlyphe').textContent = audio.paused ? '▶' : '❚❚';
+    if (!glisse && Number.isFinite(audio.duration)) {
+      barre.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
+    }
+    $('#baladeurTemps').textContent = minutes(audio.currentTime)
+      + (Number.isFinite(audio.duration) ? ' / ' + minutes(audio.duration) : '');
+  };
+
+  audio.addEventListener('timeupdate', peindre);
+  audio.addEventListener('play', peindre);
+  audio.addEventListener('pause', () => { peindre(); if (ecoute) retenirPosition(ecoute.id, audio.currentTime); });
+  audio.addEventListener('loadedmetadata', peindre);
+  audio.addEventListener('ended', () => { if (ecoute) retenirPosition(ecoute.id, 0); peindre(); });
+  audio.addEventListener('error', () => toast('L’épisode ne se charge pas.', 'bad'));
+
+  $('#baladeurJouer').addEventListener('click', () => (audio.paused ? audio.play() : audio.pause()));
+  $('#baladeurFermer').addEventListener('click', fermerBaladeur);
+  $('#baladeurVitesse').addEventListener('click', (e) => {
+    const suivante = VITESSES[(VITESSES.indexOf(audio.playbackRate) + 1) % VITESSES.length];
+    audio.playbackRate = suivante;
+    e.currentTarget.textContent = (suivante % 1 ? suivante.toFixed(2).replace(/0$/, '') : suivante) + '×';
+  });
+  barre.addEventListener('input', () => { glisse = true; });
+  barre.addEventListener('change', () => {
+    glisse = false;
+    if (Number.isFinite(audio.duration)) audio.currentTime = (Number(barre.value) / 1000) * audio.duration;
+  });
+  // Une position perdue à la fermeture de l'onglet, c'est un épisode à
+  // retrouver à l'oreille.
+  addEventListener('pagehide', () => { if (ecoute) retenirPosition(ecoute.id, audio.currentTime); });
+}
+
+/**
+ * Remplace le lecteur audio en ligne d'un épisode par un bouton qui confie
+ * l'écoute au baladeur. Sans ça, deux lecteurs coexisteraient — celui de
+ * l'article et celui du pied de page — et pourraient jouer en même temps.
+ */
+function detournerLAudio(article) {
+  const enLigne = $('.reader-body audio', $('#readerScroll'));
+  if (!enLigne) return;
+  const src = enLigne.getAttribute('src') || $('source', enLigne)?.getAttribute('src');
+  if (!src) return;
+
+  const bouton = document.createElement('button');
+  bouton.type = 'button';
+  bouton.className = 'btn solid ecouter';
+  const reprise = positions()[article.id];
+  bouton.textContent = reprise ? `Reprendre à ${minutes(reprise)}` : 'Écouter l’épisode';
+  bouton.addEventListener('click', () => ecouter(article, src));
+  enLigne.replaceWith(bouton);
+}
+
+/* ------------------------------------------------- hors ligne et partage */
+
+/**
+ * Le service worker : il garde la coquille et les articles déjà ouverts, de
+ * sorte que Bublee s'ouvre et se relit sans réseau. Il ne s'enregistre qu'en
+ * contexte sûr — le navigateur refuse ailleurs, et l'application marche très
+ * bien sans lui.
+ */
+function poserLeServiceWorker() {
+  if (!('serviceWorker' in navigator) || !isSecureContext) return;
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* tant pis, on reste en ligne */ });
+}
+
+/**
+ * Une adresse partagée depuis le téléphone arrive sur /partage. On en tire ce
+ * qui ressemble à une adresse — certaines applications mettent le lien dans
+ * le texte plutôt que dans le champ prévu — et on ouvre l'ajout de source.
+ */
+function adressePartagee() {
+  if (location.pathname !== '/partage') return null;
+  const p = new URLSearchParams(location.search);
+  const candidats = [p.get('url'), p.get('text'), p.get('title')].filter(Boolean);
+  for (const c of candidats) {
+    const trouve = /https?:\/\/\S+/.exec(c);
+    if (trouve) return trouve[0];
+  }
+  return candidats[0] || null;
+}
+
 async function boot() {
   applyTheme(localStorage.getItem('bublee.theme') || 'auto');
   // L'amorce a posé l'état replié sur <html> avant le rendu ; on le reporte sur
@@ -178,6 +405,17 @@ async function boot() {
   await ouvrirLaPorte();
   $('#indexDate').textContent = dateJournal();
   $('#mastheadDate').textContent = dateJournal();
+
+  // La vue vient de l'adresse avant le premier chargement : sans ça, on
+  // chargeait les non-lus puis la vraie liste, deux fois.
+  const ecran = ECRANS[location.hash];
+  const depart = ecran ? null : lireAdresse();
+  if (depart) {
+    Object.assign(state, {
+      view: depart.view, feedId: depart.feedId, folder: depart.folder, tag: depart.tag, q: depart.q
+    });
+    $('#search').value = depart.q;
+  }
 
   try {
     const data = await api.state();
@@ -190,11 +428,22 @@ async function boot() {
   }
   wireEvents();
 
-  const article = /^#\/article\/(\d+)$/.exec(location.hash);
-  if (article) openArticle(Number(article[1]));
-  else if (location.hash === '#/tags') ouvrirGestionTags();
-  else if (location.hash === '#/shortcuts') openModal('#shortcutsModal');
-  else if (location.hash === '#/reglages') ouvrirReglages();
+  poserLeServiceWorker();
+
+  // Une adresse partagée depuis le téléphone, ou « #/ajouter » en marque-page.
+  const partagee = adressePartagee();
+  if (partagee || location.hash === '#/ajouter') {
+    history.replaceState(null, '', '/#/' + state.view);
+    openModal('#feedModal');
+    $('#feedUrl').value = partagee || '';
+    $('#feedUrl').focus();
+    return;
+  }
+
+  // Un écran (étiquettes, réglages, raccourcis) s'ouvre par-dessus la vue.
+  if (ecran) ecran();
+  else if (depart.openId) openArticle(depart.openId);
+  else ecrireAdresse({ remplacer: true });
 }
 
 function absorb(data) {
@@ -214,25 +463,66 @@ async function reloadState() {
 
 /* ============================================================== l'index */
 
-function renderIndex() {
+/**
+ * Les seuls chiffres. Lire un article n'a aucune raison de reconstruire
+ * l'index — quatre-vingt-dix-huit lignes, leurs favicons et leurs teintes —
+ * pour changer deux nombres. On les repeint là où ils sont.
+ */
+function peindreCompteurs() {
   $('#countUnread').textContent = nombre(state.counts.unread);
   $('#countAll').textContent = nombre(state.counts.total);
   $('#countStarred').textContent = nombre(state.counts.starred);
   $('#countSurvol').textContent = nombre(state.counts.survol || 0);
   $('#rowSurvol').hidden = !state.counts.survol && state.view !== 'survol';
+  $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
+  $('#toolbarCount').textContent =
+    `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
+
+  for (const feed of state.feeds) {
+    const ligne = $(`.feed-row[data-feed="${feed.id}"]`);
+    if (ligne) $('.feed-count', ligne).textContent = feed.unread || '';
+  }
+  // Le compteur d'un dossier est la somme des siennes.
+  for (const dossier of $$('.folder')) {
+    const somme = state.feeds
+      .filter((f) => (f.folder || '') === dossier.dataset.folder)
+      .reduce((n, f) => n + f.unread, 0);
+    $('.folder-count', dossier).textContent = somme || '';
+  }
+  for (const tag of state.tags) {
+    const ligne = $(`.tag-row[data-tag="${CSS.escape(tag.name)}"]`);
+    if (ligne) $('.tag-count', ligne).textContent = tag.count || '';
+  }
+}
+
+/** Les chiffres renvoyés par une écriture, sans redemander tout l'état. */
+function majCompteurs({ counts, feeds, tags_liste: tags } = {}) {
+  if (counts) state.counts = counts;
+  for (const maj of feeds || []) {
+    const feed = state.feeds.find((f) => f.id === maj.id);
+    if (feed) { feed.unread = maj.unread; feed.total = maj.total; }
+  }
+  if (tags) {
+    state.tags = tags;
+    $('#tagCount').textContent = String(state.tags.length).padStart(2, '0');
+    renderTagList();
+  }
+  peindreCompteurs();
+}
+
+function renderIndex() {
+  peindreCompteurs();
 
   const neutre = !state.feedId && !state.folder && !state.tag;
   $$('.view-row').forEach((b) => b.classList.toggle('active', neutre && b.dataset.view === state.view));
 
-  $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
   $('#tagCount').textContent = String(state.tags.length).padStart(2, '0');
-  $('#toolbarCount').textContent =
-    `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
-
   $('#folderOptions').innerHTML = state.folders.map((f) => `<option value="${esc(f.name)}"></option>`).join('');
 
   renderTagList();
   renderFeedList();
+  // Les lignes viennent d'être refaites : leurs compteurs avec.
+  peindreCompteurs();
 }
 
 function couleurTag(nom) {
@@ -286,7 +576,7 @@ function renderFeedList() {
   const feedRow = (feed) => {
     const couleur = teinte(feed.title);
     const marque = feed.icon
-      ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
+      ? `<img class="feed-icon" src="${esc(relais(feed.icon))}" alt="" loading="lazy">`
       : `<span class="feed-icon mono-mark" style="--teinte:${couleur};--teinte-texte:${contraste(couleur)}">${esc(initiale(feed.title))}</span>`;
 
     return `
@@ -357,6 +647,11 @@ async function loadArticles(reset = false) {
   state.loading = true;
   $('#stageTitle').textContent = titreVue();
   $('#stageSub').textContent = sousTitre();
+  $('#triRecherche').hidden = !state.q;
+  $$('#triRecherche [data-tri]').forEach((b) => b.classList.toggle('on', b.dataset.tri === state.tri));
+
+  // Ce qui est déjà à l'écran ne sera pas refait : la page qui arrive s'ajoute.
+  const depuis = reset ? 0 : state.articles.length;
 
   try {
     const data = await api.articles({
@@ -366,7 +661,8 @@ async function loadArticles(reset = false) {
       q: state.q,
       tag: state.tag,
       limit: state.layout === 'compact' ? 60 : 34,
-      before: state.cursor
+      before: state.cursor,
+      sort: state.q ? state.tri : null
     });
     state.articles.push(...data.articles);
     state.cursor = data.nextCursor;
@@ -376,7 +672,7 @@ async function loadArticles(reset = false) {
     state.done = true;
   } finally {
     state.loading = false;
-    renderFlux();
+    renderFlux({ depuis });
     $('#stageSub').textContent = sousTitre();
   }
 }
@@ -451,6 +747,27 @@ function fondImage(a) {
 const imgFondue = (src, { pressee = false } = {}) => `<img class="fondu" src="${esc(src)}" alt=""` +
   (pressee ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"') + ' decoding="async">';
 
+/* Pendant une recherche, le chapô cède la place au passage qui correspond,
+   le mot cherché en évidence. FTS5 l'entoure de deux caractères de contrôle :
+   on échappe le texte d'abord, on pose les balises ensuite — sinon un article
+   qui contient « <b> » ouvrirait une balise pour de bon. */
+const DEBUT_MARQUE = String.fromCharCode(2);
+const FIN_MARQUE = String.fromCharCode(3);
+const MARQUE = new RegExp(DEBUT_MARQUE + '([\\s\\S]*?)' + FIN_MARQUE, 'g');
+
+function chapo(a) {
+  if (a.extrait) {
+    // FTS5 rend le passage de la colonne qui correspond le mieux : quand c'est
+    // le titre, l'extrait répéterait le titre juste au-dessus. On garde alors
+    // le chapô, qui apprend quelque chose.
+    const nu = a.extrait.replaceAll(DEBUT_MARQUE, '').replaceAll(FIN_MARQUE, '').replace(/^…|…$/g, '').trim();
+    if (nu && !String(a.title || '').includes(nu)) {
+      return esc(a.extrait).replace(MARQUE, '<mark>$1</mark>');
+    }
+  }
+  return esc(a.summary || '');
+}
+
 /** Les étiquettes d'un article, telles qu'elles s'affichent dans une carte. */
 const pastilles = (a) => (a.tags || [])
   .map((nom) => `<span class="art-etiq" style="background:${esc(couleurTag(nom))}">${esc(nom)}</span>`)
@@ -481,7 +798,7 @@ function blocUne(a) {
       <button class="une-corps" data-open="${a.id}">
         <div class="une-sur">${surtitre(a)}</div>
         <h2 class="une-titre">${esc(a.title)}</h2>
-        ${a.summary ? `<p class="une-chapo">${esc(a.summary)}</p>` : ''}
+        ${a.summary || a.extrait ? `<p class="une-chapo">${chapo(a)}</p>` : ''}
         ${puces(a)}
       </button>
     </div>`;
@@ -493,7 +810,7 @@ function blocColonnes(liste) {
       <div class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
       <h3 class="col-titre">${esc(a.title)}</h3>
       <div class="wipe"></div>
-      ${a.summary ? `<p class="chapo">${esc(a.summary)}</p>` : ''}
+      ${a.summary || a.extrait ? `<p class="chapo">${chapo(a)}</p>` : ''}
       <div class="col-pied">${esc(laDuree(a) || 'à lire')}${puces(a)}</div>
     </button>`).join('')}</div>`;
 }
@@ -538,7 +855,7 @@ function blocAplats(liste) {
         ${large.has_full ? '<span class="aplat-badge">Texte complet</span>' : ''}</span>
       <span class="aplat-titre">${esc(large.title)}</span>
       <span class="aplat-pied">
-        ${large.summary ? `<span class="aplat-chapo">${esc(large.summary)}</span>` : '<span></span>'}
+        ${large.summary || large.extrait ? `<span class="aplat-chapo">${chapo(large)}</span>` : '<span></span>'}
         <span class="aplat-duree">${puces(large)}${esc(laDuree(large))}</span>
       </span>
     </button>`;
@@ -585,7 +902,7 @@ function blocFils(liste) {
  * Découpe la liste en blocs de journal. Les blocs qui ont besoin d'une image
  * la réclament en priorité, sans jamais bloquer si personne n'en a.
  */
-function composerUne(articles) {
+function composerUne(articles, { une = true } = {}) {
   const reste = articles.slice();
   const blocs = [];
 
@@ -603,7 +920,9 @@ function composerUne(articles) {
   const avecImage = (a) => Boolean(a.image);
   const sansImage = (a) => !a.image;
 
-  let premier = true;
+  // La une n'a lieu qu'une fois, en tête d'édition : une page qui s'ajoute
+  // en dessous reprend le rythme à la rangée de colonnes.
+  let premier = une;
   while (reste.length) {
     if (premier) {
       blocs.push({ type: 'une', liste: prendre(1, avecImage) });
@@ -631,8 +950,30 @@ function composerUne(articles) {
 
 /* ------------------------------------------------------------ rendu du flux */
 
-function renderFlux() {
+/** Le HTML d'une tranche d'articles, dans la mise en page courante. */
+function htmlDesArticles(liste, decalage) {
+  if (state.layout === 'compact') return liste.map(ligneDepeche).join('');
+  if (state.layout === 'list') return liste.map((a, i) => ligneSommaire(a, decalage + i)).join('');
+  return composerUne(liste, { une: decalage === 0 }).map((b) => {
+    if (b.type === 'une') return b.liste.length ? blocUne(b.liste[0]) : '';
+    if (b.type === 'cols') return blocColonnes(b.liste);
+    if (b.type === 'wall') return blocMur(b.liste);
+    if (b.type === 'aplats') return blocAplats(b.liste);
+    return blocFils(b.liste);
+  }).join('');
+}
+
+/**
+ * Rend la liste. `depuis` dit à partir de quel article elle a changé : une
+ * page de plus s'ajoute à la fin, tout le reste se recompose.
+ *
+ * Sans ça, la dixième page régénérait les trois cent quarante cartes déjà
+ * posées pour en montrer trente-quatre — et chaque image déjà chargée
+ * rejouait son fondu.
+ */
+function renderFlux({ depuis = 0 } = {}) {
   const flux = $('#flux');
+  const memeMiseEnPage = flux.className === 'flux ' + CLASSE_LAYOUT[state.layout];
   flux.className = 'flux ' + CLASSE_LAYOUT[state.layout];
 
   indexParId = new Map(state.articles.map((a, i) => [a.id, i]));
@@ -643,26 +984,33 @@ function renderFlux() {
     return;
   }
 
-  if (state.layout === 'compact') flux.innerHTML = state.articles.map(ligneDepeche).join('');
-  else if (state.layout === 'list') flux.innerHTML = state.articles.map(ligneSommaire).join('');
-  else {
-    flux.innerHTML = composerUne(state.articles).map((b) => {
-      if (b.type === 'une') return b.liste.length ? blocUne(b.liste[0]) : '';
-      if (b.type === 'cols') return blocColonnes(b.liste);
-      if (b.type === 'wall') return blocMur(b.liste);
-      if (b.type === 'aplats') return blocAplats(b.liste);
-      return blocFils(b.liste);
-    }).join('');
+  // On n'ajoute que si ce qui est en place est bien le début de la même liste :
+  // un squelette, un état vide ou un changement de mise en page repartent de zéro.
+  const ajout = depuis > 0 && memeMiseEnPage && flux.firstElementChild
+    && !$('.empty', flux) && !$('.sk', flux);
+  const tranche = ajout ? state.articles.slice(depuis) : state.articles;
+  const html = htmlDesArticles(tranche, ajout ? depuis : 0);
+
+  let neufs;
+  if (ajout) {
+    const avant = flux.children.length;
+    flux.insertAdjacentHTML('beforeend', html);
+    neufs = [...flux.children].slice(avant);
+  } else {
+    flux.innerHTML = html;
+    neufs = [flux];
   }
 
   $('#endNote').hidden = !state.done;
 
   // Une illustration qui ne charge pas laisse la place à son fond d'attente,
   // qui devient alors l'illustration : mieux qu'une icône cassée.
-  $$('img', flux).forEach((img) => {
-    img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
-  });
-  rattraperImages(flux);
+  for (const racine of neufs) {
+    $$('img', racine).forEach((img) => {
+      img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
+    });
+    rattraperImages(racine);
+  }
 }
 
 function ligneSommaire(a, i) {
@@ -674,7 +1022,7 @@ function ligneSommaire(a, i) {
       <span>
         <span class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
         <span class="som-titre">${esc(a.title)}</span>
-        ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
+        ${a.summary || a.extrait ? `<span class="som-chapo">${chapo(a)}</span>` : ''}
         ${puces(a)}
       </span>
       <span class="som-thumb" style="--teinte:${couleur};${fondImage(a)}">${vignette}</span>
@@ -740,7 +1088,86 @@ function setView({ view, feedId = null, folder = null, tag = null }) {
   state.tag = tag;
   closeRail();
   renderIndex();
+  ecrireAdresse();
   loadArticles(true);
+}
+
+/* ------------------------------------------------------------- l'adresse */
+
+/* Seul l'article ouvert tenait dans l'adresse : recharger la page revenait
+   aux non-lus, le bouton « précédent » ne faisait rien, et une recherche ne
+   se mettait pas en marque-page. L'adresse dit maintenant ce qu'on regarde.
+
+     #/unread                     #/source/17            #/source/17/all
+     #/dossier/Tech               #/etiquette/veille     #/recherche/quebec
+     #/unread/article/482         #/article/482          (l'ancienne forme)  */
+
+const VUES = ['unread', 'all', 'starred', 'survol'];
+
+function hashDeLEtat() {
+  // La vue n'accompagne une source, un dossier ou une étiquette que si elle
+  // n'est pas celle par défaut : une adresse courte se lit mieux.
+  const vue = state.view !== 'unread' ? '/' + state.view : '';
+  let base;
+  if (state.q) base = '/recherche/' + encodeURIComponent(state.q);
+  else if (state.feedId) base = '/source/' + state.feedId + vue;
+  else if (state.tag) base = '/etiquette/' + encodeURIComponent(state.tag) + vue;
+  else if (state.folder) base = '/dossier/' + encodeURIComponent(state.folder) + vue;
+  else base = '/' + state.view;
+  return '#' + base + (state.openId ? '/article/' + state.openId : '');
+}
+
+/** Vrai le temps d'écrire nous-mêmes : on ne réagit pas à notre propre trace. */
+let ecritureInterne = false;
+
+function ecrireAdresse({ remplacer = false } = {}) {
+  const cible = hashDeLEtat();
+  if (location.hash === cible) return;
+  ecritureInterne = true;
+  if (remplacer) history.replaceState(null, '', cible);
+  else history.pushState(null, '', cible);
+  ecritureInterne = false;
+}
+
+/** Les écrans qui ne sont pas des vues : ils gardent leur adresse à eux. */
+const ECRANS = { '#/tags': ouvrirGestionTags, '#/reglages': ouvrirReglages, '#/shortcuts': () => openModal('#shortcutsModal') };
+
+function lireAdresse(hash = location.hash) {
+  const morceaux = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const etat = { view: 'unread', feedId: null, folder: null, tag: null, q: '', openId: null };
+
+  // L'article se lit à la fin, quelle que soit la liste qui le porte — et
+  // « #/article/482 » tout court reste une adresse valable.
+  const i = morceaux.indexOf('article');
+  if (i >= 0) {
+    etat.openId = Number(morceaux[i + 1]) || null;
+    morceaux.splice(i);
+  }
+
+  const [quoi, valeur, vue] = morceaux;
+  const val = valeur ? decodeURIComponent(valeur) : '';
+  if (quoi === 'source') etat.feedId = Number(val) || null;
+  else if (quoi === 'dossier') etat.folder = val || null;
+  else if (quoi === 'etiquette') etat.tag = val || null;
+  else if (quoi === 'recherche') { etat.q = val; etat.view = 'all'; }
+  else if (VUES.includes(quoi)) etat.view = quoi;
+  if (VUES.includes(vue)) etat.view = vue;
+  return etat;
+}
+
+/** Applique ce que dit l'adresse, sans la réécrire. */
+function appliquerAdresse(etat) {
+  const memeListe = etat.view === state.view && etat.feedId === state.feedId
+    && etat.folder === state.folder && etat.tag === state.tag && etat.q === state.q;
+
+  if (!memeListe) {
+    Object.assign(state, { view: etat.view, feedId: etat.feedId, folder: etat.folder, tag: etat.tag, q: etat.q });
+    $('#search').value = etat.q;
+    renderIndex();
+    loadArticles(true);
+  }
+  if (etat.openId && etat.openId !== state.openId) openArticle(etat.openId);
+  else if (!etat.openId && state.openId) closeReader();
 }
 
 function applyLayout(layout) {
@@ -823,7 +1250,7 @@ async function openArticle(id, { enchaine = false } = {}) {
   const index = indexParId.get(id);
   if (index !== undefined) setPointer(index, false);
   state.openId = id;
-  history.replaceState(null, '', '#/article/' + id);
+  ecrireAdresse({ remplacer: true });
 
   $('#readerShade').hidden = false;
   // Le panneau ne s'annonce qu'en venant de la liste. Enchaîné — glissé, touche
@@ -916,6 +1343,14 @@ function renderReader(a) {
   rattraperImages($('#readerScroll'));
   $('#readerProgress').style.width = '0%';
 
+  // Toute image passe par le relais : la CSP n'en admet pas d'autre origine.
+  // Les <source> d'un <picture> pointent chez l'éditeur : on les retire, l'<img>
+  // en dessous suffit.
+  $$('.reader-body picture source', $('#readerScroll')).forEach((s) => s.remove());
+  $$('.reader-body video[poster]', $('#readerScroll')).forEach((v) => {
+    const poster = v.getAttribute('poster');
+    if (poster && !poster.startsWith('data:') && !poster.startsWith('/api/image')) v.poster = relais(poster);
+  });
   $$('.reader-body img, .reader-hero img').forEach((img) => {
     const src = img.getAttribute('src') || '';
     if (src && !src.startsWith('data:') && !src.startsWith('/api/image')) {
@@ -925,6 +1360,8 @@ function renderReader(a) {
     }
     img.addEventListener('error', () => { img.style.display = 'none'; }, { once: true });
   });
+
+  detournerLAudio(a);
 
   const premier = $$('.reader-body p').find((p) => {
     const t = p.textContent.trim();
@@ -957,7 +1394,7 @@ async function etiqueter(id, action) {
     if (local) local.tags = article.tags;
     if (state.ouvert?.id === id) state.ouvert.tags = article.tags;
     if (state.openId === id) $('#tagEditor').innerHTML = editeurTags(article);
-    await reloadState();
+    majCompteurs(article);
     majPuces(article);
     if (popId === id) renderPopTags();
   } catch (error) {
@@ -1208,7 +1645,7 @@ function closeReader() {
   fermerPartage();
   state.openId = null;
   state.ouvert = null;
-  history.replaceState(null, '', location.pathname);
+  ecrireAdresse({ remplacer: true });
   $('#reader').hidden = true;
   $('#readerShade').hidden = true;
   document.body.style.overflow = '';
@@ -1227,8 +1664,7 @@ function patchLocal(id, patch) {
 async function marquerLu(id, lu) {
   patchLocal(id, { read_at: lu ? Date.now() : null });
   try {
-    await api.patch(id, { read: lu });
-    await reloadState();
+    majCompteurs(await api.patch(id, { read: lu }));
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
@@ -1240,8 +1676,7 @@ async function basculerFavori(id) {
   patchLocal(id, { starred: valeur ? 1 : 0 });
   if (state.openId === id) $('#readerStar').classList.toggle('on', valeur);
   try {
-    await api.patch(id, { starred: valeur });
-    await reloadState();
+    majCompteurs(await api.patch(id, { starred: valeur }));
     toast(valeur ? 'Ajouté aux favoris' : 'Retiré des favoris');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
@@ -1273,6 +1708,7 @@ function onKey(event) {
   const key = event.key;
 
   if (key === 'Escape') {
+    if (!$('#lirePop').hidden) return fermerLirePop();
     if (partageId !== null) return fermerPartage();
     if (popId !== null) return fermerPopTags();
     if (!$('#reader').hidden) return closeReader();
@@ -1284,6 +1720,7 @@ function onKey(event) {
   if (key === '/') { event.preventDefault(); $('#search').focus(); return; }
   if (key === 'a') { event.preventDefault(); openModal('#feedModal'); $('#feedUrl').focus(); return; }
   if (key === 'A') { event.preventDefault(); toutMarquerLu(); return; }
+  if (key === 'U' || (key === 'a' && event.shiftKey)) { event.preventDefault(); toutMarquerLu(); return; }
   if (key === 'r') { event.preventDefault(); rafraichir(); return; }
   if (key === '?') { event.preventDefault(); openModal('#shortcutsModal'); return; }
   if (key === ',') { event.preventDefault(); ouvrirReglages(); return; }
@@ -1364,17 +1801,54 @@ async function rafraichir() {
   }
 }
 
-async function toutMarquerLu() {
-  const payload = state.feedId ? { feedId: state.feedId } : state.folder ? { folder: state.folder } : { all: true };
+/**
+ * Marque comme lu ce que la vue montre. `jours` limite aux articles déjà
+ * vieux : c'est le geste qu'on veut vraiment neuf fois sur dix, vider ce qui
+ * a passé sans toucher à ce qui vient d'arriver.
+ */
+async function toutMarquerLu(jours = null) {
+  const portee = state.feedId ? { feedId: state.feedId } : state.folder ? { folder: state.folder } : { all: true };
+  const payload = jours ? { ...portee, olderThan: Date.now() - jours * 86400000 } : portee;
   try {
     const r = await api.markRead(payload);
-    await reloadState();
-    toast(r.changed ? `${nombre(r.changed)} articles marqués lus` : 'Déjà tout lu');
+    majCompteurs(r);
+    if (!r.changed) { toast('Déjà tout lu'); return; }
+    // Tout le lot porte le même horodatage : l'annulation le rend à NULL.
+    toast(`${nombre(r.changed)} articles marqués lus`, '', {
+      libelle: 'Annuler',
+      faire: () => annulerLecture(r.stamp)
+    });
     await loadArticles(true);
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
 }
+
+async function annulerLecture(stamp) {
+  try {
+    majCompteurs(await api.annulerLecture(stamp));
+    toast('Marquage annulé');
+    await loadArticles(true);
+  } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* -------------------------------------------- la portée de « tout lire » */
+
+function ouvrirLirePop(ancre) {
+  fermerPopTags();
+  fermerPartage();
+  const pop = $('#lirePop');
+  $('#lirePopTitre').textContent = state.feedId
+    ? 'Marquer lu : ' + titreVue()
+    : state.folder ? 'Marquer lu : ' + state.folder : 'Marquer tout comme lu';
+  pop.hidden = false;
+  poserContre(pop, ancre);
+  $('[data-lire]', pop)?.focus();
+}
+
+const fermerLirePop = () => { $('#lirePop').hidden = true; };
 
 /* -------------------------------------------------------------- fenêtres */
 
@@ -1475,7 +1949,7 @@ async function adopterAdresse(feedId, url, bouton) {
       $('.repair-tag', ligne).className = 'repair-tag ok';
       $('.repair-tag', ligne).textContent = 'réparée';
     }
-    toast(`${esc(r.feed.title)} · ${nombre(r.added || 0)} articles`);
+    toast(`${r.feed.title} · ${nombre(r.added || 0)} articles`);
     loadArticles(true);
   } catch (error) {
     bouton.disabled = false;
@@ -1500,6 +1974,8 @@ function ouvrirReglages() {
   $('#setFulltext').value = state.settings.fulltext ?? 'auto';
   renderAccents();
   renderMonCompte();
+  chargerRegles();
+  chargerDebit();
   openModal('#settingsModal');
 }
 
@@ -1522,6 +1998,121 @@ async function enregistrerReglages(event) {
     toast('Réglages enregistrés');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- débit */
+
+/* Le vrai problème d'un agrégateur n'est pas de collecter, c'est le débit.
+   La base sait ce que chaque source apporte et ce qu'on en fait ; il suffisait
+   de le montrer, et de proposer d'agir. */
+
+let suggestions = [];
+
+const LIBELLE_PRIORITE = { suivi: '', survol: 'survol', muet: 'muette' };
+
+async function chargerDebit() {
+  const resume = $('#debitResume');
+  try {
+    const d = await api.statsSources(90);
+    suggestions = d.suggestions;
+    const parJour = Math.round((d.recus / d.jours) * 10) / 10;
+    resume.textContent = `Sur ${d.jours} jours : ${nombre(d.recus)} articles reçus, ${nombre(d.lus)} lus`
+      + ` — ${parJour} par jour.`
+      + (d.assezDeRecul
+        ? ''
+        : ' Trop peu de lectures pour comparer les sources entre elles : aucune suggestion tant que la'
+          + ' bibliothèque n’a pas été parcourue.');
+
+    // Les plus prolifiques d'abord : c'est là que se joue le débit. Les
+    // suggestions remontent en tête, puisque c'est sur elles qu'on peut agir.
+    const liste = d.sources.filter((s) => s.recus > 0)
+      .sort((a, b) => (b.suggestion ? 1 : 0) - (a.suggestion ? 1 : 0) || b.recus - a.recus)
+      .slice(0, 25);
+
+    $('#debitListe').innerHTML = liste.map((s) => `
+      <div class="debit-ligne${s.suggestion ? ' propose' : ''}" data-source="${s.id}">
+        <span class="debit-nom">${esc(s.title)}${
+  LIBELLE_PRIORITE[s.priority] ? ` <span class="debit-etat">${LIBELLE_PRIORITE[s.priority]}</span>` : ''}</span>
+        <span class="debit-barre" aria-hidden="true"><span style="width:${Math.min(100, s.partLue)}%"></span></span>
+        <span class="debit-chiffres">${nombre(s.recus)} reçus · ${s.partLue}% lus · ${s.parJour}/j</span>
+        ${s.suggestion ? `<button type="button" data-survol="${s.id}">Survol</button>` : '<span></span>'}
+      </div>`).join('') || '<p class="field-note">Rien reçu sur la période.</p>';
+
+    $('#debitActions').hidden = !suggestions.length;
+    if (suggestions.length) {
+      $('#debitAppliquer').textContent = `Passer ${pluriel(suggestions.length, 'source')} en survol`;
+    }
+  } catch (error) {
+    resume.textContent = 'Débit indisponible : ' + error.message;
+  }
+}
+
+async function passerEnSurvol(ids) {
+  try {
+    majCompteurs(await api.priorites(ids, 'survol'));
+    await reloadState();
+    await chargerDebit();
+    toast(`${pluriel(ids.length, 'source')} en survol`);
+    loadArticles(true);
+  } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- règles */
+
+const LIBELLE_ACTION = { lu: 'marquer lu', favori: 'mettre en favori', etiquette: 'étiqueter' };
+const LIBELLE_CHAMP = { titre: 'titre', corps: 'corps', auteur: 'auteur', partout: 'partout' };
+
+function renderRegles(liste) {
+  state.regles = liste;
+  $('#reglesListe').innerHTML = liste.length
+    ? liste.map((r) => `
+      <div class="regle${r.actif ? '' : ' eteinte'}" data-regle="${r.id}">
+        <span class="regle-quoi">
+          <b>${esc(r.motif)}</b>
+          <span class="regle-ou">${esc(LIBELLE_CHAMP[r.champ] || r.champ)}${
+  r.feed_title ? ' · ' + esc(r.feed_title) : ''} → ${esc(LIBELLE_ACTION[r.action] || r.action)}${
+  r.valeur ? ' « ' + esc(r.valeur) + ' »' : ''}</span>
+        </span>
+        <span class="regle-compte">${r.touches ? nombre(r.touches) + ' pris' : '—'}</span>
+        <button type="button" data-bascule="${r.id}" data-actif="${r.actif ? 0 : 1}">${r.actif ? 'Suspendre' : 'Reprendre'}</button>
+        <button type="button" class="lien-danger" data-suppr-regle="${r.id}">✕</button>
+      </div>`).join('')
+    : '<p class="field-note">Aucune règle. Le champ ci-dessous en pose une.</p>';
+}
+
+async function chargerRegles() {
+  try { renderRegles((await api.regles()).rules); } catch { /* les réglages restent utilisables */ }
+  // La liste des sources sert à borner une règle à l'une d'elles.
+  $('#regleSource').innerHTML = '<option value="">de toutes les sources</option>'
+    + state.feeds.map((f) => `<option value="${f.id}">${esc(f.title)}</option>`).join('');
+}
+
+/** Ce qu'on est en train d'écrire, sous forme de règle. */
+const regleSaisie = () => ({
+  motif: $('#regleMotif').value.trim(),
+  champ: $('#regleChamp').value,
+  action: $('#regleAction').value,
+  valeur: $('#regleValeur').value.trim() || null,
+  feedId: $('#regleSource').value || null
+});
+
+async function essayerRegle() {
+  const regle = regleSaisie();
+  const apercu = $('#regleApercu');
+  if (!regle.motif) { apercu.hidden = true; return; }
+  try {
+    const r = await api.essayerRegle(regle);
+    apercu.hidden = false;
+    apercu.textContent = r.total
+      ? `${nombre(r.total)} article(s) non lu(s) correspondent — par exemple : `
+        + r.exemples.slice(0, 3).map((a) => `« ${a.title.slice(0, 60)} »`).join(', ')
+      : 'Aucun article non lu ne correspond pour l’instant.';
+  } catch (error) {
+    apercu.hidden = false;
+    apercu.textContent = 'Essai impossible : ' + error.message;
   }
 }
 
@@ -1592,6 +2183,7 @@ function ouvrirEditionFlux(id) {
   $('#editFeedFolder').value = feed.folder || '';
   $('#editFeedUrl').value = feed.url;
   $('#editFeedPriority').value = feed.priority || 'suivi';
+  $('#editFeedFulltext').value = feed.fulltext || 'auto';
   $('#editFeedError').textContent = feed.last_error ? '⚠ ' + feed.last_error : '';
   $('#repairFeed').hidden = !feed.last_error;
   openModal('#feedEditModal');
@@ -1608,6 +2200,7 @@ async function enregistrerFlux(event) {
       custom_title: $('#editFeedTitle').value.trim(),
       folder: $('#editFeedFolder').value.trim(),
       priority: $('#editFeedPriority').value,
+      fulltext: $('#editFeedFulltext').value,
       ...(url && url !== feed?.url ? { url } : {})
     });
     if (url && url !== feed?.url) await api.refreshFeed(id);
@@ -2019,6 +2612,8 @@ function glisseLecteur() {
 
 function wireEvents() {
   glisseLecteur();
+  brancherBaladeur();
+  brancherLecture();
 
   /* --- compte et administration --- */
   $('#compteNouveau').addEventListener('input', (e) => {
@@ -2186,10 +2781,12 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
 
   // Un clic ailleurs referme — mais pas celui qui vient de l'ouvrir.
   document.addEventListener('pointerdown', (e) => {
-    if (popId === null && partageId === null) return;
-    if (e.target.closest('#tagPop') || e.target.closest('#sharePop') || e.target.closest('#artActions')) return;
+    const dansUnPop = e.target.closest('#tagPop') || e.target.closest('#sharePop')
+      || e.target.closest('#lirePop') || e.target.closest('#artActions') || e.target.closest('#markAllRead');
+    if (dansUnPop) return;
     fermerPopTags();
     fermerPartage();
+    fermerLirePop();
   });
 
   $('#flux').addEventListener('click', (e) => {
@@ -2210,14 +2807,41 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   }, { root: $('#scroller'), rootMargin: '700px' }).observe($('#sentinel'));
 
   const chercher = debounce(() => {
+    const avant = state.q;
     state.q = $('#search').value.trim();
     if (state.q) { state.feedId = null; state.folder = null; state.tag = null; state.view = 'all'; renderIndex(); }
+    // La recherche s'ouvre comme une vue — elle s'empile une fois, pour qu'on
+    // puisse en revenir. Les lettres suivantes remplacent : chacune n'est pas
+    // une étape de l'historique.
+    ecrireAdresse({ remplacer: Boolean(avant) });
     loadArticles(true);
   }, 300);
   $('#search').addEventListener('input', chercher);
 
+  $('#triRecherche').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tri]');
+    if (!b || b.dataset.tri === state.tri) return;
+    state.tri = b.dataset.tri;
+    loadArticles(true);
+  });
+
+  // Le bouton « précédent » du navigateur ramène à la vue d'avant.
+  addEventListener('popstate', () => {
+    if (ecritureInterne) return;
+    const ecran = ECRANS[location.hash];
+    if (ecran) { ecran(); return; }
+    closeModals();
+    appliquerAdresse(lireAdresse());
+  });
+
   $('#refreshBtn').addEventListener('click', rafraichir);
-  $('#markAllRead').addEventListener('click', toutMarquerLu);
+  $('#markAllRead').addEventListener('click', (e) => ouvrirLirePop(e.currentTarget));
+  $('#lirePop').addEventListener('click', (e) => {
+    const ligne = e.target.closest('[data-lire]');
+    if (!ligne) return;
+    fermerLirePop();
+    toutMarquerLu(ligne.dataset.lire === 'tout' ? null : Number(ligne.dataset.lire));
+  });
   $('#addFeedBtn').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
   $('#addFeedRail').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
   // Sous 860 px l'index est un tiroir : le ☰ l'ouvre. Au-dessus, il le déplie.
@@ -2284,6 +2908,46 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   $('#settingsForm').addEventListener('submit', enregistrerReglages);
   $('#feedEditForm').addEventListener('submit', enregistrerFlux);
   $('#deleteFeed').addEventListener('click', supprimerFlux);
+
+  /* --- débit --- */
+  $('#debitAppliquer').addEventListener('click', () => suggestions.length && passerEnSurvol(suggestions));
+  $('#debitListe').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-survol]');
+    if (b) passerEnSurvol([Number(b.dataset.survol)]);
+  });
+
+  /* --- règles --- */
+  // Le nom de l'étiquette n'a de sens que pour l'action qui étiquette.
+  $('#regleAction').addEventListener('change', (e) => {
+    $('#regleValeur').hidden = e.target.value !== 'etiquette';
+  });
+  $('#regleEssai').addEventListener('click', essayerRegle);
+  $('#regleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api.creerRegle(regleSaisie());
+      majCompteurs(r);
+      $('#regleMotif').value = '';
+      $('#regleValeur').value = '';
+      $('#regleApercu').hidden = true;
+      await chargerRegles();
+      const n = (r.rejoue?.lus || 0) + (r.rejoue?.favoris || 0) + (r.rejoue?.etiquetes || 0);
+      toast(n ? `Règle posée — ${nombre(n)} article(s) traité(s)` : 'Règle posée');
+      if (n) loadArticles(true);
+    } catch (error) {
+      toast('Règle : ' + error.message, 'bad');
+    }
+  });
+  $('#reglesListe').addEventListener('click', async (e) => {
+    const bascule = e.target.closest('[data-bascule]');
+    const suppr = e.target.closest('[data-suppr-regle]');
+    try {
+      if (bascule) await api.majRegle(Number(bascule.dataset.bascule), { actif: bascule.dataset.actif === '1' });
+      else if (suppr) await api.supprimerRegle(Number(suppr.dataset.supprRegle));
+      else return;
+      await chargerRegles();
+    } catch (error) { toast('Règle : ' + error.message, 'bad'); }
+  });
 
   $('#manageTags').addEventListener('click', ouvrirGestionTags);
   $('#tagCreateForm').addEventListener('submit', async (e) => {

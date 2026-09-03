@@ -189,6 +189,8 @@ const ROUTES = [
   ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
+  ['GET',    '/api/feeds/stats',         'ce que chaque source apporte ; parametre jours'],
+  ['POST',   '/api/feeds/priorites',     'changer la priorite de plusieurs sources { ids, priority }'],
   ['GET',    '/api/rules',               'les regles de filtrage'],
   ['POST',   '/api/rules',               'ajouter une regle { motif, champ?, action?, valeur?, feedId? }'],
   ['POST',   '/api/rules/essai',         'ce qu une regle attraperait, sans rien changer'],
@@ -432,6 +434,19 @@ app.get('/api/opml/export', (req, res) => {
     'Content-Disposition',
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
+});
+
+/* --------------------------------------------------------------- debit */
+
+// Ce que chaque source apporte, et ce qu'on en fait.
+app.get('/api/feeds/stats', (req, res) => {
+  res.json(store.statistiquesSources(moi(req), { jours: Number(req.query.jours) || 90 }));
+});
+
+// Passer plusieurs sources en survol (ou ailleurs) d'un seul geste.
+app.post('/api/feeds/priorites', (req, res) => {
+  const changed = store.changerPriorites(req.body?.ids, req.body?.priority, moi(req));
+  res.json({ changed, counts: store.counts(moi(req)), feeds: store.compteursSources(moi(req)) });
 });
 
 /* -------------------------------------------------------------- regles */

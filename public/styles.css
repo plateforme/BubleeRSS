@@ -1273,6 +1273,29 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* ---------------------------------------------------------------- débit */
+
+.debit { display: flex; flex-direction: column; margin: 10px 0 12px; max-height: 320px; overflow-y: auto; }
+.debit-ligne {
+  display: grid; grid-template-columns: minmax(0, 1fr) 64px auto 64px;
+  gap: 10px; align-items: center;
+  padding: 7px 0; border-top: 1px solid var(--rule-list);
+}
+.debit-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.debit-etat, .debit-chiffres {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+/* La part lue, en clair : une barre courte est une source qu'on ne lit pas. */
+.debit-barre { display: block; height: 3px; background: var(--rule-col); }
+.debit-barre span { display: block; height: 100%; background: var(--accent); }
+.debit-ligne.propose .debit-nom { font-weight: 600; }
+.debit-ligne button {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent); text-align: right;
+}
+.debit-ligne button:hover { text-decoration: underline; text-underline-offset: 3px; }
+
 /* --------------------------------------------------------------- règles */
 
 .regles-liste { display: flex; flex-direction: column; margin-bottom: 12px; }

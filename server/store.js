@@ -331,6 +331,91 @@ export async function reparerSourcesCassees(u, concurrency = 5) {
   };
 }
 
+/* ------------------------------------------------- le debit, par source */
+
+/** En deca, une source n'a pas assez publie pour qu'on juge. */
+const ASSEZ_PUBLIE = 15;
+/** Au-dela, on lit assez cette source pour la laisser tranquille. */
+const PART_LUE_SUFFISANTE = 0.12;
+
+/**
+ * Ce que chaque source a reellement apporte sur la periode, et ce qu'on en a
+ * fait. La base sait tout : il suffisait de le demander.
+ *
+ * Une source qui envoie beaucoup et qu'on ne lit jamais merite « survol » —
+ * elle reste collectee, indexee, consultable, mais cesse d'appeler. C'est le
+ * chainon qui manquait a la priorite par source : elle se reglait a la main,
+ * source par source, sur une intuition.
+ */
+export function statistiquesSources(u, { jours = 90 } = {}) {
+  const compte = exigeCompte(u);
+  const depuis = now() - jours * 86400000;
+
+  const lignes = db.prepare(`
+    SELECT f.id, f.priority,
+           COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
+           COUNT(a.id)                                   AS recus,
+           SUM(a.read_at IS NOT NULL)                    AS lus,
+           SUM(a.starred = 1)                            AS favoris
+    FROM feeds f
+    LEFT JOIN articles a ON a.feed_id = f.id AND a.published_at >= ?
+    WHERE f.user_id = ?
+    GROUP BY f.id
+    ORDER BY recus DESC
+  `).all(depuis, compte);
+
+  const recusEnTout = lignes.reduce((n, l) => n + (l.recus || 0), 0);
+  const lusEnTout = lignes.reduce((n, l) => n + (l.lus || 0), 0);
+
+  /* Comparer une source aux autres suppose qu'on lise quelque part. Sur une
+     bibliotheque a peine ouverte — un import OPML de la veille — tout parait
+     ignore, et proposer de mettre les deux tiers en survol serait un conseil
+     tire d'un dossier vide. On se tait alors, et on le dit. */
+  const partGlobale = recusEnTout ? lusEnTout / recusEnTout : 0;
+  const assezDeRecul = partGlobale >= 0.15;
+
+  const sources = lignes.map((l) => {
+    const recus = l.recus || 0;
+    const lus = l.lus || 0;
+    const part = recus ? lus / recus : 0;
+    return {
+      ...l,
+      recus,
+      lus,
+      favoris: l.favoris || 0,
+      parJour: Math.round((recus / jours) * 10) / 10,
+      partLue: Math.round(part * 100),
+      // On ne propose que ce qui change quelque chose : une source deja en
+      // survol ou muette ne remonte plus d'elle-meme.
+      suggestion: assezDeRecul && l.priority === 'suivi'
+        && recus >= ASSEZ_PUBLIE && part < PART_LUE_SUFFISANTE ? 'survol' : null
+    };
+  });
+
+  return {
+    jours,
+    sources,
+    suggestions: sources.filter((s) => s.suggestion).map((s) => s.id),
+    recus: recusEnTout,
+    lus: lusEnTout,
+    partGlobale: Math.round(partGlobale * 100),
+    assezDeRecul
+  };
+}
+
+/** Change la priorite de plusieurs sources d'un coup. */
+export function changerPriorites(ids, priorite, u) {
+  const compte = exigeCompte(u);
+  if (!PRIORITES.has(priorite)) {
+    throw Object.assign(new Error('Priorite inconnue : ' + priorite), { status: 400 });
+  }
+  const liste = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite);
+  if (!liste.length) return 0;
+  return db.prepare(
+    `UPDATE feeds SET priority = ? WHERE user_id = ? AND id IN (${liste.map(() => '?').join(',')})`
+  ).run(priorite, compte, ...liste).changes;
+}
+
 export function listFolders(u) {
   return db.prepare(`
     SELECT folder AS name, COUNT(*) AS feeds

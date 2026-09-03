@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, quand, heure, dateJournal, tempsLecture, duree, relais, hote, debounce, nombre } from './util.js';
+import { esc, quand, heure, dateJournal, tempsLecture, duree, relais, hote, debounce, pluriel, nombre } from './util.js';
 
 const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
@@ -1751,6 +1751,7 @@ function ouvrirReglages() {
   renderAccents();
   renderMonCompte();
   chargerRegles();
+  chargerDebit();
   openModal('#settingsModal');
 }
 
@@ -1771,6 +1772,65 @@ async function enregistrerReglages(event) {
     state.settings.fulltext = $('#setFulltext').value;
     closeModals();
     toast('Réglages enregistrés');
+  } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- débit */
+
+/* Le vrai problème d'un agrégateur n'est pas de collecter, c'est le débit.
+   La base sait ce que chaque source apporte et ce qu'on en fait ; il suffisait
+   de le montrer, et de proposer d'agir. */
+
+let suggestions = [];
+
+const LIBELLE_PRIORITE = { suivi: '', survol: 'survol', muet: 'muette' };
+
+async function chargerDebit() {
+  const resume = $('#debitResume');
+  try {
+    const d = await api.statsSources(90);
+    suggestions = d.suggestions;
+    const parJour = Math.round((d.recus / d.jours) * 10) / 10;
+    resume.textContent = `Sur ${d.jours} jours : ${nombre(d.recus)} articles reçus, ${nombre(d.lus)} lus`
+      + ` — ${parJour} par jour.`
+      + (d.assezDeRecul
+        ? ''
+        : ' Trop peu de lectures pour comparer les sources entre elles : aucune suggestion tant que la'
+          + ' bibliothèque n’a pas été parcourue.');
+
+    // Les plus prolifiques d'abord : c'est là que se joue le débit. Les
+    // suggestions remontent en tête, puisque c'est sur elles qu'on peut agir.
+    const liste = d.sources.filter((s) => s.recus > 0)
+      .sort((a, b) => (b.suggestion ? 1 : 0) - (a.suggestion ? 1 : 0) || b.recus - a.recus)
+      .slice(0, 25);
+
+    $('#debitListe').innerHTML = liste.map((s) => `
+      <div class="debit-ligne${s.suggestion ? ' propose' : ''}" data-source="${s.id}">
+        <span class="debit-nom">${esc(s.title)}${
+  LIBELLE_PRIORITE[s.priority] ? ` <span class="debit-etat">${LIBELLE_PRIORITE[s.priority]}</span>` : ''}</span>
+        <span class="debit-barre" aria-hidden="true"><span style="width:${Math.min(100, s.partLue)}%"></span></span>
+        <span class="debit-chiffres">${nombre(s.recus)} reçus · ${s.partLue}% lus · ${s.parJour}/j</span>
+        ${s.suggestion ? `<button type="button" data-survol="${s.id}">Survol</button>` : '<span></span>'}
+      </div>`).join('') || '<p class="field-note">Rien reçu sur la période.</p>';
+
+    $('#debitActions').hidden = !suggestions.length;
+    if (suggestions.length) {
+      $('#debitAppliquer').textContent = `Passer ${pluriel(suggestions.length, 'source')} en survol`;
+    }
+  } catch (error) {
+    resume.textContent = 'Débit indisponible : ' + error.message;
+  }
+}
+
+async function passerEnSurvol(ids) {
+  try {
+    majCompteurs(await api.priorites(ids, 'survol'));
+    await reloadState();
+    await chargerDebit();
+    toast(`${pluriel(ids.length, 'source')} en survol`);
+    loadArticles(true);
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
@@ -2620,6 +2680,13 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   $('#settingsForm').addEventListener('submit', enregistrerReglages);
   $('#feedEditForm').addEventListener('submit', enregistrerFlux);
   $('#deleteFeed').addEventListener('click', supprimerFlux);
+
+  /* --- débit --- */
+  $('#debitAppliquer').addEventListener('click', () => suggestions.length && passerEnSurvol(suggestions));
+  $('#debitListe').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-survol]');
+    if (b) passerEnSurvol([Number(b.dataset.survol)]);
+  });
 
   /* --- règles --- */
   // Le nom de l'étiquette n'a de sens que pour l'action qui étiquette.

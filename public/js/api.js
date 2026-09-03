@@ -58,6 +58,9 @@ export const api = {
   updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),
   deleteTag: (id) => json('DELETE', '/api/tags/' + id),
 
+  statsSources:  (jours = 90) => call('/api/feeds/stats?jours=' + jours),
+  priorites:     (ids, priority) => json('POST', '/api/feeds/priorites', { ids, priority }),
+
   regles:        () => call('/api/rules'),
   creerRegle:    (regle) => json('POST', '/api/rules', regle),
   essayerRegle:  (regle) => json('POST', '/api/rules/essai', regle),

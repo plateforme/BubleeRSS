@@ -148,3 +148,51 @@ test('une règle refuse ce qui ne veut rien dire', () => {
   assert.throws(() => regles.creerRegle(moi.id, { motif: 'x', action: 'etiquette' }), /étiquette/);
   assert.throws(() => regles.creerRegle(moi.id, { motif: 'x', feedId: fluxAutre }), /introuvable/);
 });
+
+/* --------------------------------------------------------------- débit */
+
+test('les statistiques disent ce que chaque source apporte', () => {
+  const d = store.statistiquesSources(moi.id);
+  assert.ok(d.recus > 0);
+  assert.equal(d.jours, 90);
+  const source = d.sources.find((s) => s.id === flux);
+  assert.ok(source.recus > 0);
+  assert.equal(typeof source.partLue, 'number');
+  assert.equal(typeof source.parJour, 'number');
+});
+
+test('aucune suggestion tant que la bibliothèque n’a pas été lue', () => {
+  // Ici presque rien n'a été lu : comparer les sources n'aurait pas de sens.
+  const d = store.statistiquesSources(moi.id);
+  if (!d.assezDeRecul) assert.deepEqual(d.suggestions, [], 'on se tait faute de recul');
+});
+
+test('une source prolifique et jamais lue est proposée en survol', () => {
+  const prolifique = Number(db.prepare(
+    'INSERT INTO feeds (url, title, folder, created_at, user_id) VALUES (?, ?, ?, ?, ?)'
+  ).run('https://beaucoup.test/rss', 'Beaucoup', '', Date.now(), moi.id).lastInsertRowid);
+
+  // Vingt articles jamais lus chez elle, et de la lecture ailleurs pour que
+  // la comparaison ait un sens.
+  const lot = [];
+  for (let i = 0; i < 20; i++) lot.push(article('Article prolifique numéro ' + i));
+  store.saveItems(prolifique, lot, moi.id);
+
+  const lus = db.prepare('SELECT id FROM articles WHERE feed_id = ?').all(flux);
+  for (const l of lus) db.prepare('UPDATE articles SET read_at = ? WHERE id = ?').run(Date.now(), l.id);
+
+  const d = store.statistiquesSources(moi.id);
+  assert.ok(d.assezDeRecul, 'il y a maintenant assez de lectures');
+  assert.ok(d.suggestions.includes(prolifique), 'la source prolifique et ignorée est proposée');
+
+  assert.equal(store.changerPriorites([prolifique], 'survol', moi.id), 1);
+  assert.equal(db.prepare('SELECT priority FROM feeds WHERE id = ?').get(prolifique).priority, 'survol');
+
+  // Une fois en survol, elle ne se propose plus : ce serait sans effet.
+  assert.ok(!store.statistiquesSources(moi.id).suggestions.includes(prolifique));
+});
+
+test('changer les priorités refuse une valeur inconnue, et ne sort pas du compte', () => {
+  assert.throws(() => store.changerPriorites([flux], 'nawak', moi.id), /Priorite inconnue/);
+  assert.equal(store.changerPriorites([fluxAutre], 'muet', moi.id), 0, 'la source d’un autre n’est pas touchée');
+});

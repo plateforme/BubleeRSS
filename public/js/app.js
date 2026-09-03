@@ -771,9 +771,6 @@ function chargerArticle(id) {
   return retenir(id, enMain.get(id) || api.article(id));
 }
 
-/** Vrai si l'article est déjà en main : le passage se fera sans attendre. */
-const dejaEnMain = (id) => enMain.has(id);
-
 /** L'image d'ouverture, mise au chaud dans le cache du navigateur. Avoir le
     texte en main ne sert à rien si la photo, elle, se télécharge encore
     pendant le passage : c'est elle qui occupe la moitié haute de l'écran. */
@@ -1851,7 +1848,7 @@ function poigneeIndex() {
 
 function wireEvents() {
   // Le geste ne connaît pas le lecteur : on lui prête ce dont il a besoin.
-  glisseLecteur({ openArticle, closeReader, dejaEnMain, articleSuivant, articlePrecedent });
+  glisseLecteur({ openArticle, closeReader, articleSuivant, articlePrecedent });
   brancherBaladeur();
   brancherLecture();
   ecouterLeServeur();

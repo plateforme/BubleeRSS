@@ -99,10 +99,13 @@ async function glisserVers(article, sens, depart, vitesse = 0) {
   ancien.style.scrollBehavior = 'auto';
   ancien.scrollTop = lu;
 
-  // Déjà en main : le rendu tient dans le même souffle, avant la première image
-  // de l'animation. Sinon on part quand même — le sortant couvre l'attente.
-  const ouverture = lecteur.openArticle(article.id, { enchaine: true });
-  if (lecteur.dejaEnMain(article.id)) await ouverture;
+  // On lance l'ouverture et on anime tout de suite, sans jamais l'attendre.
+  // Attendre l'article — qu'il soit encore en route, ou déjà là mais suivi de
+  // son « marquer lu » sur le réseau — figeait le glissé là où le doigt l'avait
+  // laissé, parfois plusieurs secondes. Le contenu se pose dans le panneau
+  // entrant dès qu'il arrive : pendant l'animation s'il est en cache, juste
+  // après sinon, et le sortant couvre l'attente.
+  lecteur.openArticle(article.id, { enchaine: true });
 
   // Le sortant vise un peu au-delà du bord. Visant le bord pile, la courbe le
   // laissait traîner : elle fait 98 % du chemin en deux tiers du temps, et le

@@ -30,7 +30,7 @@ export default [
   {
     /* Le test de fumée vit des deux côtés : il tourne dans Node, mais le
        contenu de ses `page.evaluate()` s'exécute dans le navigateur. */
-    files: ['test/fumee.mjs'],
+    files: ['scripts/fumee.mjs'],
     languageOptions: {
       ecmaVersion: 2024, sourceType: 'module',
       globals: { ...globals.node, ...globals.browser }

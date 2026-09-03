@@ -912,7 +912,7 @@ Quelques choix à connaître :
 npm test
 ```
 
-215 tests : nettoyage HTML — dont trente-cinq charges utiles XSS classiques —,
+214 tests : nettoyage HTML — dont trente-cinq charges utiles XSS classiques —,
 analyse des trois formats de flux, chaînes YouTube et plateformes, garde-fou
 SSRF, routes de l'API et cloisonnement entre comptes, règles de filtrage,
 édition du jour, rétention, vignettes, et comportement complet de la

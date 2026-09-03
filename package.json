@@ -9,7 +9,7 @@
     "dev": "node --watch server/index.js",
     "test": "node --test",
     "lint": "eslint .",
-    "fumee": "node test/fumee.mjs"
+    "fumee": "node scripts/fumee.mjs"
   },
   "engines": {
     "node": ">=18"

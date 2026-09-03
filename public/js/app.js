@@ -20,10 +20,11 @@ import { glisseLecteur } from './glisse.js';
  * l'installation — le tout premier compte devient super et reprend la
  * bibliothèque d'avant les comptes.
  */
-async function ouvrirLaPorte() {
-  const etat = await api.etatAuth();
-  if (etat.compte) { state.moi = etat.compte; return true; }
-
+/**
+ * Affiche la porte et attend la connexion. `etat` vient de `api.etatAuth()`,
+ * déjà demandé par `boot` en même temps que le reste : on ne le refait pas.
+ */
+function montrerLaPorte(etat) {
   const installation = !etat.installe;
   const porte = $('#porte');
   porte.hidden = false;
@@ -301,24 +302,35 @@ async function boot() {
     $('#stageTitle').textContent = titreVue();
   }
 
-  // Rien ne se charge tant que personne n'est entré.
-  await ouvrirLaPorte();
-  $('#indexDate').textContent = dateJournal();
-  $('#mastheadDate').textContent = dateJournal();
-
-  // L'état (l'index) et les articles se demandent en même temps : deux
-  // requêtes, une seule attente au lieu de deux enchaînées. La vue par défaut
-  // étant l'édition, on charge déjà ses articles ; un jour sans édition, on
-  // rectifiera en rechargeant les non-lus — le seul cas qui coûte un aller
-  // de plus, et il est rare.
-  renderSkeleton();
-  const premiers = api.articles({
+  // Tout part en même temps : l'identité, l'état de l'index et les articles.
+  // Pour un retour — session valide —, les trois arrivent ensemble, en un
+  // seul aller-retour au lieu de trois enchaînés. Si on n'est pas connecté,
+  // l'état et les articles échouent sans dommage (401), et la porte reprend
+  // la main ; on les refait alors une fois entré.
+  const params = {
     view: state.view, feed: state.feedId, folder: state.folder, q: state.q, tag: state.tag,
     limit: state.layout === 'compact' ? 60 : 34
-  }).catch((error) => ({ erreur: error }));
+  };
+  const pEtat = api.etatAuth().catch((error) => ({ erreur: error }));
+  let pState = api.state().catch((error) => ({ erreur: error }));
+  let pArticles = api.articles(params).catch((error) => ({ erreur: error }));
+
+  $('#indexDate').textContent = dateJournal();
+  $('#mastheadDate').textContent = dateJournal();
+  renderSkeleton();
+
+  const etat = await pEtat;
+  if (etat.erreur || !etat.compte) {
+    await montrerLaPorte(etat.erreur ? { installe: true } : etat);
+    pState = api.state();
+    pArticles = api.articles(params);
+  } else {
+    state.moi = etat.compte;
+  }
 
   try {
-    const data = await api.state();
+    const data = await pState;
+    if (data.erreur) throw data.erreur;
     // Les jours sans édition — rien de neuf chez les sources suivies — on
     // retombe sur les non-lus, pour ne pas ouvrir sur un écran vide.
     const videEdition = neutre && !data.counts.edition;
@@ -330,11 +342,11 @@ async function boot() {
     if (videEdition) {
       // L'optimisme était faux : la fournée en vol visait l'édition, on la
       // laisse tomber et on charge la bonne vue.
-      premiers.catch(() => {});
+      Promise.resolve(pArticles).catch(() => {});
       await loadArticles(true);
     } else {
-      const fournee = await premiers;
-      if (fournee.erreur) throw fournee.erreur;
+      let fournee = await pArticles;
+      if (fournee?.erreur) fournee = await api.articles(params);   // filet, rare
       state.articles = fournee.articles || [];
       state.cursor = fournee.nextCursor;
       state.done = !fournee.nextCursor;

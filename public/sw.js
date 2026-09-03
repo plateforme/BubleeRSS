@@ -13,12 +13,13 @@
 // Rien n'est mis en cache avant que la réponse ne soit là : on ne garde
 // jamais une redirection vers la page de connexion à la place d'un article.
 
-const VERSION = 'bublee-v1';
+const VERSION = 'bublee-v2';
 const COQUILLE = VERSION + '-coquille';
 const LECTURE = VERSION + '-lecture';
 const IMAGES = VERSION + '-images';
 
-/** Ce qu'il faut pour que l'application s'ouvre sans réseau. */
+/** Ce qu'il faut pour que l'application s'ouvre sans réseau — la coquille
+    entière, modules du découpage compris, sinon ils repartent au réseau. */
 const SOCLE = [
   '/',
   '/index.html',
@@ -27,6 +28,11 @@ const SOCLE = [
   '/js/api.js',
   '/js/util.js',
   '/js/amorce.js',
+  '/js/etat.js',
+  '/js/cartes.js',
+  '/js/couleurs.js',
+  '/js/baladeur.js',
+  '/js/glisse.js',
   '/fonts/polices.css',
   '/manifest.webmanifest'
 ];
@@ -110,13 +116,20 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.startsWith('/api/')) return;
 
   // Une adresse de vue est rendue par l'index : c'est lui qu'on garde.
+  // La coquille est servie du cache d'emblée — l'app démarre sans attendre le
+  // réseau —, et rafraîchie en arrière-plan pour le prochain lancement. C'est
+  // le modèle « app shell » : sans lui, chaque ouverture patientait le temps
+  // d'un aller-retour rien que pour la page, avant même que le JavaScript ne
+  // commence.
   if (requete.mode === 'navigate') {
     e.respondWith((async () => {
-      try {
-        return await fetch(requete);
-      } catch {
-        return (await caches.match('/index.html')) || Response.error();
-      }
+      const cache = await caches.open(COQUILLE);
+      const gardee = await cache.match('/index.html');
+      const reseau = fetch(requete).then((reponse) => {
+        if (reponse.ok) cache.put('/index.html', reponse.clone());
+        return reponse;
+      }).catch(() => null);
+      return gardee || (await reseau) || Response.error();
     })());
     return;
   }

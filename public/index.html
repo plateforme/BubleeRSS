@@ -625,9 +625,12 @@
     <span class="baladeur-titre" id="baladeurTitre"></span>
     <span class="baladeur-source" id="baladeurSource"></span>
   </span>
-  <input type="range" class="baladeur-barre" id="baladeurBarre" min="0" max="1000" value="0"
-         aria-label="Position dans l’épisode">
-  <span class="baladeur-temps" id="baladeurTemps">0:00</span>
+  <span class="baladeur-piste">
+    <span class="baladeur-temps" id="baladeurTemps">0:00</span>
+    <input type="range" class="baladeur-barre" id="baladeurBarre" min="0" max="1000" value="0"
+           aria-label="Position dans l’épisode">
+    <span class="baladeur-temps baladeur-reste" id="baladeurReste"></span>
+  </span>
   <button type="button" id="baladeurVitesse" title="Vitesse de lecture">1×</button>
   <button type="button" id="baladeurFermer" aria-label="Fermer le lecteur audio">✕</button>
   <audio id="baladeurAudio" preload="metadata"></audio>

@@ -96,8 +96,13 @@ export function brancherBaladeur() {
     if (!glisse && Number.isFinite(audio.duration)) {
       barre.value = String(Math.round((audio.currentTime / audio.duration) * 1000));
     }
-    $('#baladeurTemps').textContent = minutes(audio.currentTime)
-      + (Number.isFinite(audio.duration) ? ' / ' + minutes(audio.duration) : '');
+    $('#baladeurTemps').textContent = minutes(audio.currentTime);
+    // Le décompte plutôt que la durée totale : en écoutant, la question qu'on se
+    // pose est « j'en ai encore pour combien ? ». La donner évite la
+    // soustraction de tête, et la durée totale reste lisible sur la fiche.
+    $('#baladeurReste').textContent = Number.isFinite(audio.duration)
+      ? '−' + minutes(Math.max(0, audio.duration - audio.currentTime))
+      : '';
   };
 
   audio.addEventListener('timeupdate', peindre);

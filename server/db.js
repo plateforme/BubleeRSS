@@ -127,8 +127,17 @@ export const migrationApplied = [
   // Le proprietaire d'un flux. NULL le temps de la migration ci-dessous, qui
   // rattache l'existant au premier compte cree.
   addColumn('feeds', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE'),
-  addColumn('tags', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE')
+  addColumn('tags', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE'),
+  // Date de la recherche d'icone, trouvee ou non : on ne la refait pas.
+  addColumn('feeds', 'icon_checked', 'INTEGER')
 ].some(Boolean);
+
+/* Les icones demandees a Google disaient a Google quelles sources on lit.
+   On les oublie : le prochain rafraichissement ira lire celle du site. */
+{
+  const n = db.prepare("UPDATE feeds SET icon = NULL, icon_checked = NULL WHERE icon LIKE '%google.com/s2/favicons%'").run().changes;
+  if (n) console.log(`[bublee] ${n} icone(s) Google oubliee(s) : elles seront relues sur les sites.`);
+}
 
 db.exec(`
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);

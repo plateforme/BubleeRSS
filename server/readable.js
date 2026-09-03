@@ -67,6 +67,49 @@ export async function extraireImageDeLaPage(url) {
   return null;
 }
 
+/**
+ * L'icone d'un site, lue dans sa page d'accueil : <link rel="icon">, a defaut
+ * /favicon.ico si le serveur en sert un. Le tout passe ensuite par le relais,
+ * si bien qu'aucun tiers — Google en tete — ne voit quelles sources on lit.
+ */
+export async function extraireIconeDuSite(siteUrl) {
+  const cible = urlPubliqueOuNull(siteUrl);
+  if (!cible) return null;
+
+  let base = cible.href;
+  try {
+    const { res, buffer } = await httpGet(cible.href, {
+      navigateur: true, timeout: 12000, headers: { accept: ACCEPT_HTML }
+    });
+    if (res.ok && /text\/html|application\/xhtml/i.test(res.headers.get('content-type') || '')) {
+      base = res.url || base;
+      const html = decodeBody(buffer, res.headers.get('content-type'));
+      const tete = html.slice(0, Math.max(0, html.search(/<\/head>/i)) || 200000);
+      const balises = tete.match(/<link\b[^>]*>/gi) || [];
+      // Les plus grandes d'abord : une apple-touch-icon fait 180 px, un .ico 16.
+      const candidats = [];
+      for (const balise of balises) {
+        const rel = /rel\s*=\s*["']?([^"'>]+)/i.exec(balise)?.[1]?.toLowerCase() || '';
+        if (!/(^|\s)(icon|apple-touch-icon(-precomposed)?|shortcut icon)(\s|$)/.test(rel)) continue;
+        const href = /href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(balise)?.[1]?.replace(/^["']|["']$/g, '');
+        const abs = absolutize(href, base);
+        if (!abs || !/^https?:/i.test(abs)) continue;
+        const taille = Number(/sizes\s*=\s*["']?(\d+)/i.exec(balise)?.[1]) || (/apple-touch/.test(rel) ? 180 : 32);
+        candidats.push({ abs, taille });
+      }
+      candidats.sort((a, b) => b.taille - a.taille);
+      if (candidats.length) return candidats[0].abs;
+    }
+  } catch { /* page injoignable : on tente quand meme le favicon.ico */ }
+
+  try {
+    const ico = new URL('/favicon.ico', base).href;
+    const { res } = await httpGet(ico, { navigateur: true, timeout: 8000, headers: { accept: 'image/*' } });
+    if (res.ok && /^image\//i.test(res.headers.get('content-type') || '')) return ico;
+  } catch { /* pas d'icone */ }
+  return null;
+}
+
 export const EXTRACTION_DOUTEUSE =
   'La page est surtout de la mise en page — menus, comparateur de prix, encarts — et pas un article.';
 

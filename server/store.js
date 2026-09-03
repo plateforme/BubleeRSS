@@ -2,7 +2,7 @@
 import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
-import { extraireTexteComplet, extraireImageDeLaPage } from './readable.js';
+import { extraireTexteComplet, extraireImageDeLaPage, extraireIconeDuSite } from './readable.js';
 import { estYouTube } from './youtube.js';
 import { purgerSessionsExpirees } from './comptes.js';
 
@@ -64,13 +64,16 @@ export function getFeed(id, u) {
   return fluxDuCompte(id, u);
 }
 
-function iconFor(siteUrl) {
+/**
+ * L'icone d'une source, cherchee une seule fois : l'avatar d'une chaine
+ * YouTube (le favicon de youtube.com ne distingue pas deux chaines), sinon
+ * l'icone que le site declare. Autrefois demandee a google.com/s2, ce qui
+ * disait a Google quelles sources on lit : plus maintenant.
+ */
+async function trouverIcone(feed, siteUrl) {
   if (!siteUrl) return null;
-  try {
-    return 'https://www.google.com/s2/favicons?sz=64&domain=' + new URL(siteUrl).hostname;
-  } catch {
-    return null;
-  }
+  if (estYouTube(feed.url)) return extraireImageDeLaPage(siteUrl).catch(() => null);
+  return extraireIconeDuSite(siteUrl).catch(() => null);
 }
 
 /** Ajoute un flux depuis une URL (page d'accueil acceptee : on cherche le flux). */
@@ -568,6 +571,11 @@ export async function refreshFeed(id) {
     const result = await fetchFeed(feed.url, { etag: feed.etag, lastModified: feed.last_modified });
 
     if (result.notModified) {
+      // Une source deja a jour peut encore attendre son icone.
+      if (!feed.icon && !feed.icon_checked) {
+        const icone = await trouverIcone(feed, feed.site_url);
+        db.prepare('UPDATE feeds SET icon = COALESCE(?, icon), icon_checked = ? WHERE id = ?').run(icone, now(), id);
+      }
       db.prepare('UPDATE feeds SET last_fetched_at = ?, last_error = NULL, error_count = 0 WHERE id = ?')
         .run(now(), id);
       return { feedId: id, added: 0, duplicates: 0, notModified: true };
@@ -575,14 +583,13 @@ export async function refreshFeed(id) {
 
     const { ajoutes, doublons } = saveItems(id, result.parsed.items, feed.user_id);
 
-    // L'avatar d'une chaine YouTube vaut mieux que le logo generique du site.
-    // Une seule fois : ensuite la colonne icon est renseignee.
-    // Le logo generique de youtube.com ne distingue pas deux chaines : on le
-    // remplace des qu'on peut par l'avatar de la chaine elle-meme.
-    let avatar = null;
-    const iconeGenerique = !feed.icon || /s2\/favicons/.test(feed.icon);
-    if (iconeGenerique && estYouTube(feed.url) && result.parsed.siteUrl) {
-      avatar = await extraireImageDeLaPage(result.parsed.siteUrl).catch(() => null);
+    // L'icone se cherche une fois, au premier rafraichissement reussi : la
+    // colonne icon_checked retient qu'on a essaye, trouve ou pas.
+    let icone = null;
+    let cherchee = feed.icon_checked;
+    if (!feed.icon && !feed.icon_checked) {
+      icone = await trouverIcone(feed, result.parsed.siteUrl || feed.site_url);
+      cherchee = now();
     }
 
     db.prepare(`
@@ -590,8 +597,7 @@ export async function refreshFeed(id) {
         title = CASE WHEN ? <> '' THEN ? ELSE title END,
         site_url = COALESCE(?, site_url),
         description = COALESCE(NULLIF(?, ''), description),
-        -- l'avatar trouvé gagne ; sinon on garde l'icône en place ; sinon le favicon
-        icon = COALESCE(?, icon, ?),
+        icon = COALESCE(?, icon), icon_checked = ?,
         etag = ?, last_modified = ?, last_fetched_at = ?,
         last_error = NULL, error_count = 0
       WHERE id = ?
@@ -599,7 +605,7 @@ export async function refreshFeed(id) {
       result.parsed.title, result.parsed.title,
       result.parsed.siteUrl,
       result.parsed.description || '',
-      avatar, iconFor(result.parsed.siteUrl || feed.url),
+      icone, cherchee,
       result.etag, result.lastModified, now(), id
     );
 

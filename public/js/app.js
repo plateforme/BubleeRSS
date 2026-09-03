@@ -810,8 +810,15 @@ async function openArticle(id, { enchaine = false } = {}) {
   // son entrée écraserait l'animation du passage.
   $('#reader').style.animation = enchaine ? 'none' : '';
   $('#reader').hidden = false;
-  $('#readerScroll').innerHTML = '';
   document.body.style.overflow = 'hidden';
+
+  // Un aperçu tout de suite, tiré de la liste : elle porte déjà le titre,
+  // l'image et le résumé. Le panneau n'est donc jamais blanc pendant que le
+  // texte complet se récupère — il le remplacera à l'arrivée, en cache pendant
+  // l'animation, juste après sinon. Sans article en liste (lien direct), on
+  // repart d'un panneau vide, le cas est rare.
+  const apercu = state.articles.find((a) => a.id === id);
+  if (apercu) renderReader(apercu); else $('#readerScroll').innerHTML = '';
 
   try {
     const article = await chargerArticle(id);

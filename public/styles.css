@@ -936,7 +936,7 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .reader-hero.hero-video { height: min(30vh, 230px); }
 .reader-hero.hero-video .plaque-initiale { font-size: 230px; bottom: -30%; }
 
-.reader-inner { max-width: 66ch; margin: 0 auto; padding: 0 20px 90px; }
+.reader-inner { max-width: var(--colonne, 66ch); margin: 0 auto; padding: 0 20px 90px; }
 
 /* étiquettes du lecteur */
 .tag-editor {
@@ -1059,7 +1059,11 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 /* corps de l'article */
 .reader-body {
   margin-top: 40px;
-  font-family: var(--body); font-size: 19.5px; line-height: 1.68; font-weight: 400;
+  /* Trois réglages de lecture, posés sur :root par l'amorce avant le premier
+     rendu. Un lecteur qu'on utilise une heure par jour doit se régler à l'œil
+     de chacun — et c'est un réglage d'écran, pas de compte, comme le thème. */
+  font-family: var(--body); font-size: var(--corps, 19.5px); line-height: var(--interligne, 1.68);
+  font-weight: 400;
   color: #1a1917;
   overflow-wrap: break-word;
 }
@@ -1272,6 +1276,27 @@ kbd {
   text-decoration: underline; text-underline-offset: 3px;
 }
 .toast-action:hover { color: var(--accent); }
+
+/* ------------------------------------------------ réglages de lecture */
+
+.curseurs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.curseurs label { display: grid; grid-template-columns: 78px minmax(0, 1fr) 74px; gap: 10px; align-items: center; }
+.curseurs label > span, .curseurs output {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.curseurs output { text-align: right; font-variant-numeric: tabular-nums; }
+.curseurs input[type="range"] { -webkit-appearance: none; appearance: none; background: none; height: 14px; }
+.curseurs input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: var(--rule-col); }
+.curseurs input[type="range"]::-moz-range-track { height: 1px; background: var(--rule-col); }
+.curseurs input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 10px; margin-top: -4.5px; background: var(--ink); border: 0;
+}
+.curseurs input[type="range"]::-moz-range-thumb { width: 10px; height: 10px; background: var(--ink); border: 0; border-radius: 0; }
+
+.lien-sobre { font: inherit; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; }
+.lien-sobre:hover { color: var(--accent); }
 
 /* ------------------------------------------------------------ baladeur */
 

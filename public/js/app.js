@@ -185,6 +185,48 @@ async function renderComptes() {
     </div>`).join('');
 }
 
+/* ------------------------------------------------- réglages de lecture */
+
+/* Corps, interligne, largeur de colonne. Un lecteur qu'on utilise une heure
+   par jour doit se régler à l'œil de chacun : trois variables CSS et trois
+   curseurs. Comme le thème et la largeur de l'index, ça vit dans le
+   navigateur — c'est un réglage d'écran, pas de compte. */
+
+const LECTURE_DEFAUT = { corps: 19.5, interligne: 1.68, colonne: 66 };
+
+function lireLecture() {
+  try { return { ...LECTURE_DEFAUT, ...JSON.parse(localStorage.getItem('bublee.lecture') || '{}') }; }
+  catch { return { ...LECTURE_DEFAUT }; }
+}
+
+function appliquerLecture(reglages) {
+  const racine = document.documentElement.style;
+  racine.setProperty('--corps', reglages.corps + 'px');
+  racine.setProperty('--interligne', String(reglages.interligne));
+  racine.setProperty('--colonne', reglages.colonne + 'ch');
+  try { localStorage.setItem('bublee.lecture', JSON.stringify(reglages)); } catch { /* tant pis */ }
+
+  $('#setCorps').value = String(reglages.corps);
+  $('#setInterligne').value = String(reglages.interligne);
+  $('#setColonne').value = String(reglages.colonne);
+  $('#valCorps').textContent = reglages.corps + ' px';
+  $('#valInterligne').textContent = Number(reglages.interligne).toFixed(2);
+  $('#valColonne').textContent = reglages.colonne + ' signes';
+}
+
+function brancherLecture() {
+  const relever = () => appliquerLecture({
+    corps: Number($('#setCorps').value),
+    interligne: Number($('#setInterligne').value),
+    colonne: Number($('#setColonne').value)
+  });
+  for (const id of ['#setCorps', '#setInterligne', '#setColonne']) {
+    $(id).addEventListener('input', relever);
+  }
+  $('#lectureDefaut').addEventListener('click', () => appliquerLecture({ ...LECTURE_DEFAUT }));
+  appliquerLecture(lireLecture());
+}
+
 /* --------------------------------------------------------- le baladeur */
 
 /* Un podcast vivait dans le panneau de lecture : le fermer coupait le son, ce
@@ -2571,6 +2613,7 @@ function glisseLecteur() {
 function wireEvents() {
   glisseLecteur();
   brancherBaladeur();
+  brancherLecture();
 
   /* --- compte et administration --- */
   $('#compteNouveau').addEventListener('input', (e) => {

@@ -16,15 +16,19 @@ import { fileURLToPath } from 'node:url';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 
-// Le jeton peut aussi vivre dans un fichier .env a la racine (ignore par git) :
-//   JIRA_EMAIL=...
-//   JIRA_TOKEN=...
+/* Le jeton peut aussi vivre dans un fichier .env a la racine (ignore par git).
+   Les deux ecritures passent, parce qu'on ecrit l'une comme l'autre sans y
+   penser — et parce qu'un jeton Atlassian contient lui-meme un signe egal,
+   qu'il ne faut surtout pas prendre pour le separateur :
+
+     JIRA_TOKEN=ATATT...        JIRA_TOKEN ATATT...                          */
 {
   const env = path.join(ici, '..', '..', '.env');
   if (fs.existsSync(env)) {
     for (const ligne of fs.readFileSync(env, 'utf8').split(/\r?\n/)) {
-      const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(ligne);
-      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+      if (!ligne.trim() || ligne.trim().startsWith('#')) continue;
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\s)\s*(.*?)\s*$/.exec(ligne);
+      if (m && m[2] && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
     }
   }
 }
@@ -72,6 +76,23 @@ const ETAPES = {
   4: 'Étape 4 — fonctionnalités et architecture'
 };
 
+/* Les tickets sont consignes apres coup : le travail est fait et fusionne.
+   `--fait` les fait donc passer a « Termine » dans la foulee, pour que le
+   tableau dise la verite plutot que d'afficher trente-neuf tickets ouverts
+   sur du code deja livre. */
+const MARQUER_FAIT = process.argv.includes('--fait');
+const LIVRAISON = 'Livré : PR #1 et #2, fusionnées dans main le 3 septembre 2026.';
+
+/** Fait passer un ticket a son statut final, quel qu'en soit le nom ici. */
+async function terminer(cle) {
+  const { transitions } = await api(`/issue/${cle}/transitions`);
+  const vers = transitions.find((t) => t.to?.statusCategory?.key === 'done')
+    || transitions.find((t) => /termin|done|fini/i.test(t.name));
+  if (!vers) return null;
+  await api(`/issue/${cle}/transitions`, { method: 'POST', body: JSON.stringify({ transition: { id: vers.id } }) });
+  return vers.to?.name || vers.name;
+}
+
 /* Les types d'issue et les priorites portent des noms qui dependent de la
    langue du site : on lit ce que le projet propose et on rapproche. */
 function rapprocher(voulu, disponibles, synonymes) {
@@ -101,7 +122,8 @@ async function main() {
     const champs = {
       project: { key: PROJET },
       summary: t.titre,
-      description: adf(`${t.description}\n\n${ETAPES[t.etape]}. Référence : audit Bublee du 2 septembre 2026, identifiant « ${t.cle} ».`),
+      description: adf(`${t.description}\n\n${ETAPES[t.etape]}. Référence : audit Bublee du 2 septembre 2026, identifiant « ${t.cle} ».`
+        + (MARQUER_FAIT ? `\n${LIVRAISON}` : '')),
       labels: ['audit-2026-09', `etape-${t.etape}`]
     };
     if (SEC) { console.log(`  +  [${t.type}/${t.priorite}] ${t.titre}`); continue; }
@@ -120,7 +142,13 @@ async function main() {
     cles[t.cle] = cree.key;
     fs.writeFileSync(fichierCles, JSON.stringify(cles, null, 2));
     crees++;
-    console.log(`  +  ${cree.key.padEnd(8)} ${t.titre}`);
+
+    let statut = '';
+    if (MARQUER_FAIT) {
+      try { statut = ' · ' + (await terminer(cree.key) || 'statut inchangé'); }
+      catch (e) { statut = ' · transition refusée : ' + e.message.slice(0, 60); }
+    }
+    console.log(`  +  ${cree.key.padEnd(8)} ${t.titre}${statut}`);
   }
   console.log(`\n${crees} ticket(s) créé(s) dans ${PROJET}. Clés dans ${path.relative(process.cwd(), fichierCles)}.`);
 }

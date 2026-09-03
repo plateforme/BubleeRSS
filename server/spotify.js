@@ -8,14 +8,16 @@
 // la vitesse sont gardees, et rien ne demande de compte.
 //
 // Le chemin tient en deux temps. La page Spotify annonce le nom de l'emission ;
-// l'annuaire d'Apple, interroge sur ce nom, rend l'adresse de son flux. Rien
-// n'est pris sur parole : `discoverFeeds` telecharge le candidat et le rejette
-// s'il ne repond pas comme un flux.
+// un annuaire de podcasts, interroge sur ce nom, rend l'adresse de son flux.
+// Deux annuaires plutot qu'un : Apple pour sa couverture, gpodder pour ce
+// qu'Apple ne publie pas — et il n'en publie pas peu, notamment sur Radio
+// France. Aucun des deux ne demande de cle. Rien n'est pris sur parole :
+// `discoverFeeds` telecharge le candidat et le rejette s'il ne repond pas comme
+// un flux.
 //
-// Deux limites, assumees. Apple ne rend pas toujours l'adresse du flux, et les
-// exclusivites Spotify n'en ont nulle part — elles n'existent que chez Spotify.
-// Dans les deux cas on renvoie null, et l'ajout retombe sur la decouverte
-// ordinaire plutot que d'inventer.
+// Reste une limite qu'aucun annuaire ne leve : les exclusivites Spotify n'ont de
+// flux nulle part, elles n'existent que chez Spotify. On renvoie alors null, et
+// l'ajout retombe sur la decouverte ordinaire plutot que d'inventer.
 import { httpGet, decodeBody } from './http.js';
 import { decodeEntities } from './html.js';
 
@@ -70,34 +72,15 @@ async function jsonDe(url) {
 }
 
 /**
- * L'annuaire d'Apple : d'un nom d'emission a l'adresse de son flux.
+ * Le meilleur flux parmi des candidats d'annuaire.
  *
- * La recherche ne donne plus l'adresse du flux — Apple l'a retiree de cette
- * reponse-la —, mais la fiche detaillee la porte encore, souvent. On interroge
- * donc les meilleures correspondances l'une apres l'autre, et on s'arrete a la
- * premiere qui livre son flux.
+ * Le nom exact d'abord, le nom approchant seulement ensuite. Sans cet ordre, une
+ * emission voisine — « … Show » la ou l'on cherche « … » — passerait devant
+ * celle qu'on demande, au seul motif qu'elle, elle livre son flux.
  */
-async function fluxChezApple(titre) {
-  const recherche = await jsonDe(
-    'https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=' + encodeURIComponent(titre)
-  );
-  const candidats = recherche?.results || [];
-
-  /** Le flux d'une fiche : annonce dans la recherche, sinon dans le detail. */
-  const fluxDe = async (candidat) => {
-    if (candidat.feedUrl) return candidat.feedUrl;
-    if (!candidat.collectionId) return null;
-    const fiche = await jsonDe(
-      'https://itunes.apple.com/lookup?entity=podcast&id=' + encodeURIComponent(candidat.collectionId)
-    );
-    return fiche?.results?.[0]?.feedUrl || null;
-  };
-
-  // Le nom exact d'abord, le nom approchant seulement ensuite. Sans cet ordre,
-  // une emission voisine — « … Show » la ou l'on cherche « … » — passerait
-  // devant celle qu'on demande, au seul motif qu'elle, elle livre son flux.
-  const exact = (c) => simplifier(titre) === simplifier(c.collectionName);
-  for (const retenir of [exact, (c) => memeEmission(titre, c.collectionName)]) {
+async function meilleurFlux(titre, candidats, fluxDe) {
+  const exact = (c) => simplifier(titre) === simplifier(c.nom);
+  for (const retenir of [exact, (c) => memeEmission(titre, c.nom)]) {
     for (const candidat of candidats) {
       if (!retenir(candidat)) continue;
       const flux = await fluxDe(candidat);
@@ -105,6 +88,53 @@ async function fluxChezApple(titre) {
     }
   }
   return null;
+}
+
+/**
+ * L'annuaire d'Apple : le plus large, mais avare de l'adresse du flux.
+ *
+ * La recherche ne la donne plus — Apple l'a retiree de cette reponse-la —, et la
+ * fiche detaillee ne la porte que pour une partie du catalogue. On interroge
+ * donc la fiche des meilleures correspondances, l'une apres l'autre.
+ */
+async function fluxChezApple(titre) {
+  const recherche = await jsonDe(
+    'https://itunes.apple.com/search?media=podcast&entity=podcast&limit=5&term=' + encodeURIComponent(titre)
+  );
+  const candidats = (recherche?.results || []).map((c) => ({ nom: c.collectionName, fiche: c }));
+
+  return meilleurFlux(titre, candidats, async ({ fiche }) => {
+    if (fiche.feedUrl) return fiche.feedUrl;
+    if (!fiche.collectionId) return null;
+    const detail = await jsonDe(
+      'https://itunes.apple.com/lookup?entity=podcast&id=' + encodeURIComponent(fiche.collectionId)
+    );
+    return detail?.results?.[0]?.feedUrl || null;
+  });
+}
+
+/**
+ * gpodder : un annuaire ouvert, qui donne l'adresse du flux sans rien demander.
+ *
+ * Il prend le relais la ou Apple se tait — et il se tait beaucoup, notamment sur
+ * Radio France : « Affaires sensibles » comme « Le code a change » n'ont chez lui
+ * aucune adresse de flux, meme interroge sur sa boutique francaise, quand gpodder
+ * les rend tous les deux.
+ */
+async function fluxChezGpodder(titre) {
+  const trouves = await jsonDe('https://gpodder.net/search.json?q=' + encodeURIComponent(titre));
+  const candidats = (Array.isArray(trouves) ? trouves : []).map((c) => ({ nom: c.title, url: c.url }));
+  return meilleurFlux(titre, candidats, async ({ url }) => url || null);
+}
+
+/**
+ * L'adresse du flux, d'ou qu'elle vienne. Apple d'abord, pour sa couverture ;
+ * gpodder ensuite, pour ce qu'Apple ne publie pas. L'un ou l'autre indisponible
+ * n'empeche rien : on passe au suivant, et faute des deux on renonce.
+ */
+async function fluxDuTitre(titre) {
+  return (await fluxChezApple(titre).catch(() => null))
+    || (await fluxChezGpodder(titre).catch(() => null));
 }
 
 /**
@@ -129,7 +159,7 @@ export async function resoudreFluxSpotify(input) {
   if (!res.ok) return null;
 
   const titre = titreDansLaPage(decodeBody(buffer, res.headers.get('content-type')));
-  return titre ? fluxChezApple(titre) : null;
+  return titre ? fluxDuTitre(titre) : null;
 }
 
-export const _pourLesTests = { titreDansLaPage, memeEmission, simplifier };
+export const _pourLesTests = { titreDansLaPage, memeEmission, simplifier, meilleurFlux };

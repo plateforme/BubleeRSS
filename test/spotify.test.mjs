@@ -59,3 +59,30 @@ test('apparie une émission sans confondre deux voisines', () => {
   assert.ok(!memeEmission('The Daily', 'Daily'), 'ni un nom seulement contenu');
   assert.ok(!memeEmission('', 'The Daily'), 'un nom vide n’apparie rien');
 });
+
+/* ------------------------------------- l’ordre des candidats d’un annuaire */
+
+test('le nom exact l’emporte sur le nom approchant, même s’il vient après', async () => {
+  const { meilleurFlux } = _pourLesTests;
+  const candidats = [
+    { nom: 'The Daily Show With Trevor', url: 'voisine' },
+    { nom: 'The Daily', url: 'la-bonne' }
+  ];
+  assert.equal(
+    await meilleurFlux('The Daily', candidats, async (c) => c.url),
+    'la-bonne',
+    'une émission voisine ne passe pas devant celle qu’on demande'
+  );
+});
+
+test('à défaut d’exact, le nom approchant sert de recours', async () => {
+  const { meilleurFlux } = _pourLesTests;
+  // L’émission exacte est là, mais l’annuaire ne livre pas son flux : plutôt que
+  // de renoncer, on accepte celle qui commence pareil.
+  const candidats = [
+    { nom: 'The Daily', url: null },
+    { nom: 'The Daily : the news', url: 'approchante' }
+  ];
+  assert.equal(await meilleurFlux('The Daily', candidats, async (c) => c.url), 'approchante');
+  assert.equal(await meilleurFlux('The Daily', [{ nom: 'Rien à voir', url: 'x' }], async (c) => c.url), null);
+});

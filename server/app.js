@@ -178,7 +178,8 @@ const ROUTES = [
   ['GET',    '/api/articles/:id',        'un article avec son contenu'],
   ['PATCH',  '/api/articles/:id',        'marquer lu / favori { read?, starred? }'],
   ['POST',   '/api/articles/:id/full',   'recuperer le texte complet (?force=1 pour relancer)'],
-  ['POST',   '/api/articles/read',       'marquer lu en masse { ids | feedId | folder | all }'],
+  ['POST',   '/api/articles/read',       'marquer lu en masse { ids | feedId | folder | all | olderThan }'],
+  ['POST',   '/api/articles/unread',     'annuler un marquage en masse { stamp }'],
   ['POST',   '/api/articles/images',     'chercher les illustrations manquantes'],
   ['GET',    '/api/tags',                'etiquettes, couleurs et nombre d’articles'],
   ['POST',   '/api/tags',                'creer une etiquette { name }'],
@@ -338,11 +339,13 @@ app.post('/api/tags', (req, res) => res.status(201).json(store.createTag(req.bod
 app.post('/api/articles/:id/tags', (req, res) => {
   const corps = req.body || {};
   const liste = (v) => (Array.isArray(v) ? v : v === undefined ? [] : [v]);
-  res.json(store.tagArticle(Number(req.params.id), {
+  const article = store.tagArticle(Number(req.params.id), {
     add: liste(corps.add),
     remove: liste(corps.remove),
     ...(corps.set !== undefined ? { set: liste(corps.set) } : {})
-  }, moi(req)));
+  }, moi(req));
+  // Les etiquettes suivent : leur nombre d'articles vient de changer.
+  res.json({ ...avecCompteurs(req, article), tags_liste: store.listTags(moi(req)) });
 });
 
 // Les couleurs sont calculees par le navigateur : le format est verifie ici.
@@ -366,13 +369,22 @@ app.get('/api/articles/:id', (req, res) => {
   res.json(article);
 });
 
+/* La reponse porte les compteurs a jour : sans eux, le navigateur redemandait
+   tout l'etat — sources, dossiers, etiquettes, reglages — apres chaque
+   article ouvert, chaque favori et chaque etiquette posee. */
+const avecCompteurs = (req, article) => ({
+  ...article,
+  counts: store.counts(moi(req)),
+  feeds: store.compteursSources(moi(req))
+});
+
 app.patch('/api/articles/:id', (req, res) => {
   const id = Number(req.params.id);
   let article = store.getArticle(id, moi(req));
   if (!article) return res.status(404).json({ error: 'Article introuvable.' });
   if (req.body.read !== undefined) article = store.setRead(id, Boolean(req.body.read), moi(req));
   if (req.body.starred !== undefined) article = store.setStarred(id, Boolean(req.body.starred), moi(req));
-  res.json(article);
+  res.json(avecCompteurs(req, article));
 });
 
 // Recuperation du texte complet d'un article tronque (resultat mis en cache).
@@ -382,8 +394,14 @@ app.post('/api/articles/:id/full', wrap(async (req, res) => {
 }));
 
 app.post('/api/articles/read', (req, res) => {
-  const changed = store.markRead(req.body || {}, moi(req));
-  res.json({ changed, counts: store.counts(moi(req)) });
+  const { changed, stamp } = store.markRead(req.body || {}, moi(req));
+  res.json({ changed, stamp, counts: store.counts(moi(req)), feeds: store.compteursSources(moi(req)) });
+});
+
+// Annule un marquage en masse : tout le lot porte le meme horodatage.
+app.post('/api/articles/unread', (req, res) => {
+  const changed = store.annulerLecture(req.body?.stamp, moi(req));
+  res.json({ changed, counts: store.counts(moi(req)), feeds: store.compteursSources(moi(req)) });
 });
 
 /* ------------------------------------------------------------------ OPML */

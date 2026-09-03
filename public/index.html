@@ -253,6 +253,18 @@
          placeholder="Nouvelle étiquette" aria-label="Créer une étiquette" maxlength="60">
 </div>
 
+<!-- « Tout lire » ouvre le choix de la portée : la pile entière, ou seulement
+     ce qui a déjà vieilli. Annuler reste possible depuis le toast. -->
+<div class="tagpop" id="lirePop" hidden role="dialog" aria-label="Marquer comme lu">
+  <p class="tagpop-titre" id="lirePopTitre">Marquer comme lu</p>
+  <div class="tagpop-list">
+    <button type="button" class="tagpop-row" data-lire="tout"><span class="tagpop-nom">Tout</span></button>
+    <button type="button" class="tagpop-row" data-lire="1"><span class="tagpop-nom">Avant hier</span></button>
+    <button type="button" class="tagpop-row" data-lire="7"><span class="tagpop-nom">Avant la semaine dernière</span></button>
+    <button type="button" class="tagpop-row" data-lire="30"><span class="tagpop-nom">Avant le mois dernier</span></button>
+  </div>
+</div>
+
 <div class="tagpop" id="sharePop" hidden role="dialog" aria-label="Partager l’article">
   <p class="tagpop-titre" id="sharePopTitre"></p>
   <div class="tagpop-list">

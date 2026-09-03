@@ -72,6 +72,21 @@ export function getFeed(id, u) {
 }
 
 /**
+ * Les seuls chiffres de l'index : non lus et total par source. Marquer un
+ * article comme lu rechargeait tout l'etat — quatre-vingt-dix-huit sources
+ * avec leur titre, leur icone et leur description — pour rafraichir deux
+ * nombres. Ceci suffit, et tient en trois kilo-octets.
+ */
+export function compteursSources(u) {
+  return db.prepare(`
+    SELECT f.id,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
+    FROM feeds f WHERE f.user_id = ?
+  `).all(exigeCompte(u));
+}
+
+/**
  * L'icone d'une source, cherchee une seule fois : l'avatar d'une chaine
  * YouTube (le favicon de youtube.com ne distingue pas deux chaines), sinon
  * l'icone que le site declare. Autrefois demandee a google.com/s2, ce qui
@@ -1152,7 +1167,24 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
 
   // Les copies de la meme histoire suivent, dans les autres flux aussi.
   if (changed) reconcilierDoublons(compte);
-  return changed;
+  // L'horodatage est le meme pour tout le lot : c'est ce qui rend l'annulation
+  // possible sans tenir la liste des identifiants.
+  return { changed, stamp };
+}
+
+/**
+ * Annule un marquage en masse. Tous les articles d'un lot portent le meme
+ * `read_at` a la milliseconde : il suffit de le rendre a NULL. Un article lu
+ * a un autre moment, avant ou apres, n'est pas touche.
+ */
+export function annulerLecture(stamp, u) {
+  const compte = exigeCompte(u);
+  const quand = Number(stamp);
+  if (!Number.isFinite(quand)) return 0;
+  return db.prepare(`
+    UPDATE articles SET read_at = NULL
+    WHERE read_at = ? AND id IN ${ARTICLES_DU_COMPTE}
+  `).run(quand, compte).changes;
 }
 
 export function counts(u) {

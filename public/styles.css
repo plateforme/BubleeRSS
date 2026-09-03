@@ -1263,6 +1263,16 @@ kbd {
 .toast.bad { background: #d63a2a; color: #fff; }
 .toast.out { animation: ed-fade .28s var(--ease) reverse forwards; }
 
+/* « Annuler », après un marquage en masse : un filet posé dans le message
+   lui-même, séparé du texte par un filet et souligné comme un lien. */
+.toast-action {
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  color: inherit; margin-left: 14px; padding-left: 14px;
+  border-left: 1px solid rgba(246, 245, 241, .3);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.toast-action:hover { color: var(--accent); }
+
 /* ============================================================ responsive */
 
 @media (max-width: 1280px) {

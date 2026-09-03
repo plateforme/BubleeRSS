@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 
 import { httpGet, decodeBody, urlPubliqueOuNull } from './http.js';
-import { sanitizeHtml, toPlainText, countWords, absolutize } from './html.js';
+import { sanitizeHtml, toPlainText, countWords, absolutize, decodeEntities } from './html.js';
 
 const ACCEPT_HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
 
@@ -60,7 +60,9 @@ export async function extraireImageDeLaPage(url) {
     while ((m = motif.exec(portee))) {
       const contenu = /content\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(m[0]);
       if (!contenu) continue;
-      const abs = absolutize(contenu[1].replace(/^["']|["']$/g, ''), res.url || cible.href);
+      // Une adresse ecrite dans un attribut porte ses esperluettes en entites :
+      // sans les decoder, « &#038; » resterait tel quel dans la requete.
+      const abs = absolutize(decodeEntities(contenu[1].replace(/^["']|["']$/g, '')), res.url || cible.href);
       if (abs) return abs;
     }
   }
@@ -92,7 +94,7 @@ export async function extraireIconeDuSite(siteUrl) {
         const rel = /rel\s*=\s*["']?([^"'>]+)/i.exec(balise)?.[1]?.toLowerCase() || '';
         if (!/(^|\s)(icon|apple-touch-icon(-precomposed)?|shortcut icon)(\s|$)/.test(rel)) continue;
         const href = /href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i.exec(balise)?.[1]?.replace(/^["']|["']$/g, '');
-        const abs = absolutize(href, base);
+        const abs = absolutize(href ? decodeEntities(href) : null, base);
         if (!abs || !/^https?:/i.test(abs)) continue;
         const taille = Number(/sizes\s*=\s*["']?(\d+)/i.exec(balise)?.[1]) || (/apple-touch/.test(rel) ? 180 : 32);
         candidats.push({ abs, taille });

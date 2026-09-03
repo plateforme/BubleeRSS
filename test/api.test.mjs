@@ -247,3 +247,58 @@ test('une adresse de vue rend l’index, et rien ne sort du dossier public', asy
   const corps = await dehors.text();
   assert.ok(!corps.includes('"better-sqlite3"'), 'le package.json ne doit pas être servi');
 });
+
+/* ------------------------------------------------- compteurs et annulation */
+
+/* Le test de déconnexion plus haut a fermé la session d'Alice : on rouvre. */
+test('Alice se reconnecte', async () => {
+  const r = await appel('POST', '/api/auth/login', { corps: { email: 'alice@bublee.test', motDePasse: 'le-mot-de-passe-alice' } });
+  assert.equal(r.statut, 200);
+  cookieAlice = cookieDe(r);
+});
+
+test('les écritures renvoient les compteurs, sans redemander tout l’état', async () => {
+  const r = await appel('PATCH', '/api/articles/' + articleAlice, { cookie: cookieAlice, corps: { starred: true } });
+  assert.equal(r.statut, 200);
+  assert.ok(r.json.counts, 'les compteurs suivent la réponse');
+  assert.equal(r.json.counts.starred, 1);
+  assert.ok(Array.isArray(r.json.feeds), 'et les chiffres de chaque source');
+  assert.ok(r.json.feeds.every((f) => 'unread' in f && 'total' in f));
+
+  const etiq = await appel('POST', `/api/articles/${articleAlice}/tags`, { cookie: cookieAlice, corps: { add: ['relire'] } });
+  assert.ok(etiq.json.tags_liste.some((t) => t.name === 'relire'), 'les étiquettes aussi');
+});
+
+test('marquer lu en masse s’annule : tout le lot porte le même horodatage', async () => {
+  // On remet les deux articles d'Alice à non lus pour partir au propre.
+  const [, alice] = db.prepare('SELECT id FROM users ORDER BY id').all().map((r) => r.id);
+  db.prepare('UPDATE articles SET read_at = NULL WHERE feed_id IN (SELECT id FROM feeds WHERE user_id = ?)').run(alice);
+
+  const lu = await appel('POST', '/api/articles/read', { cookie: cookieAlice, corps: { all: true } });
+  assert.equal(lu.json.changed, 1);
+  assert.ok(lu.json.stamp, 'l’horodatage du lot revient');
+  assert.equal(lu.json.counts.unread, 0);
+
+  const annule = await appel('POST', '/api/articles/unread', { cookie: cookieAlice, corps: { stamp: lu.json.stamp } });
+  assert.equal(annule.json.changed, 1);
+  assert.equal(annule.json.counts.unread, 1, 'l’article est revenu dans les non-lus');
+
+  // Un horodatage inconnu ne touche à rien.
+  assert.equal((await appel('POST', '/api/articles/unread', { cookie: cookieAlice, corps: { stamp: 1 } })).json.changed, 0);
+});
+
+test('« olderThan » ne marque que ce qui a vieilli', async () => {
+  const [, alice] = db.prepare('SELECT id FROM users ORDER BY id').all().map((r) => r.id);
+  const fluxAlice = db.prepare('SELECT id FROM feeds WHERE user_id = ?').get(alice).id;
+  store.saveItems(fluxAlice, [{
+    guid: 'vieux', url: 'https://presse.test/vieux', title: 'Un article publié il y a bien longtemps déjà',
+    author: null, summary: '', content: '<p>x</p>', image: null,
+    published_at: Date.now() - 40 * 86400000, duration: null, word_count: 5
+  }], alice);
+
+  const r = await appel('POST', '/api/articles/read', {
+    cookie: cookieAlice, corps: { all: true, olderThan: Date.now() - 7 * 86400000 }
+  });
+  assert.equal(r.json.changed, 1, 'seul le vieil article est marqué');
+  assert.equal(r.json.counts.unread, 1, 'le récent reste non lu');
+});

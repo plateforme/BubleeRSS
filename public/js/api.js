@@ -50,6 +50,7 @@ export const api = {
   full:     (id, force = false) => json('POST', `/api/articles/${id}/full${force ? '?force=1' : ''}`),
   patch:    (id, patch) => json('PATCH', '/api/articles/' + id, patch),
   markRead: (payload) => json('POST', '/api/articles/read', payload),
+  annulerLecture: (stamp) => json('POST', '/api/articles/unread', { stamp }),
   tag:      (id, action) => json('POST', `/api/articles/${id}/tags`, action),
   couleur:  (id, color) => json('POST', `/api/articles/${id}/color`, { color }),
   tags:      () => call('/api/tags'),

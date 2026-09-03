@@ -76,15 +76,28 @@ function rgba(hex, alpha) {
 
 /* ----------------------------------------------------------------- toasts */
 
-function toast(message, kind = '') {
+/**
+ * Un message passager. `action` y pose un bouton — « Annuler » après un
+ * marquage en masse : le geste le plus lourd de l'application est aussi le
+ * seul qui n'avait pas de filet.
+ */
+function toast(message, kind = '', action = null) {
   const el = document.createElement('div');
   el.className = 'toast' + (kind ? ' ' + kind : '');
-  el.textContent = message;
+  el.append(message);
+  if (action) {
+    const bouton = document.createElement('button');
+    bouton.className = 'toast-action';
+    bouton.type = 'button';
+    bouton.textContent = action.libelle;
+    bouton.addEventListener('click', () => { el.remove(); action.faire(); });
+    el.append(bouton);
+  }
   $('#toasts').append(el);
   setTimeout(() => {
     el.classList.add('out');
     setTimeout(() => el.remove(), 300);
-  }, kind === 'bad' ? 4600 : 2800);
+  }, action ? 7000 : kind === 'bad' ? 4600 : 2800);
 }
 
 /* --------------------------------------------------------------- demarrage */
@@ -214,25 +227,66 @@ async function reloadState() {
 
 /* ============================================================== l'index */
 
-function renderIndex() {
+/**
+ * Les seuls chiffres. Lire un article n'a aucune raison de reconstruire
+ * l'index — quatre-vingt-dix-huit lignes, leurs favicons et leurs teintes —
+ * pour changer deux nombres. On les repeint là où ils sont.
+ */
+function peindreCompteurs() {
   $('#countUnread').textContent = nombre(state.counts.unread);
   $('#countAll').textContent = nombre(state.counts.total);
   $('#countStarred').textContent = nombre(state.counts.starred);
   $('#countSurvol').textContent = nombre(state.counts.survol || 0);
   $('#rowSurvol').hidden = !state.counts.survol && state.view !== 'survol';
+  $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
+  $('#toolbarCount').textContent =
+    `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
+
+  for (const feed of state.feeds) {
+    const ligne = $(`.feed-row[data-feed="${feed.id}"]`);
+    if (ligne) $('.feed-count', ligne).textContent = feed.unread || '';
+  }
+  // Le compteur d'un dossier est la somme des siennes.
+  for (const dossier of $$('.folder')) {
+    const somme = state.feeds
+      .filter((f) => (f.folder || '') === dossier.dataset.folder)
+      .reduce((n, f) => n + f.unread, 0);
+    $('.folder-count', dossier).textContent = somme || '';
+  }
+  for (const tag of state.tags) {
+    const ligne = $(`.tag-row[data-tag="${CSS.escape(tag.name)}"]`);
+    if (ligne) $('.tag-count', ligne).textContent = tag.count || '';
+  }
+}
+
+/** Les chiffres renvoyés par une écriture, sans redemander tout l'état. */
+function majCompteurs({ counts, feeds, tags_liste: tags } = {}) {
+  if (counts) state.counts = counts;
+  for (const maj of feeds || []) {
+    const feed = state.feeds.find((f) => f.id === maj.id);
+    if (feed) { feed.unread = maj.unread; feed.total = maj.total; }
+  }
+  if (tags) {
+    state.tags = tags;
+    $('#tagCount').textContent = String(state.tags.length).padStart(2, '0');
+    renderTagList();
+  }
+  peindreCompteurs();
+}
+
+function renderIndex() {
+  peindreCompteurs();
 
   const neutre = !state.feedId && !state.folder && !state.tag;
   $$('.view-row').forEach((b) => b.classList.toggle('active', neutre && b.dataset.view === state.view));
 
-  $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
   $('#tagCount').textContent = String(state.tags.length).padStart(2, '0');
-  $('#toolbarCount').textContent =
-    `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
-
   $('#folderOptions').innerHTML = state.folders.map((f) => `<option value="${esc(f.name)}"></option>`).join('');
 
   renderTagList();
   renderFeedList();
+  // Les lignes viennent d'être refaites : leurs compteurs avec.
+  peindreCompteurs();
 }
 
 function couleurTag(nom) {
@@ -358,6 +412,9 @@ async function loadArticles(reset = false) {
   $('#stageTitle').textContent = titreVue();
   $('#stageSub').textContent = sousTitre();
 
+  // Ce qui est déjà à l'écran ne sera pas refait : la page qui arrive s'ajoute.
+  const depuis = reset ? 0 : state.articles.length;
+
   try {
     const data = await api.articles({
       view: state.view,
@@ -376,7 +433,7 @@ async function loadArticles(reset = false) {
     state.done = true;
   } finally {
     state.loading = false;
-    renderFlux();
+    renderFlux({ depuis });
     $('#stageSub').textContent = sousTitre();
   }
 }
@@ -585,7 +642,7 @@ function blocFils(liste) {
  * Découpe la liste en blocs de journal. Les blocs qui ont besoin d'une image
  * la réclament en priorité, sans jamais bloquer si personne n'en a.
  */
-function composerUne(articles) {
+function composerUne(articles, { une = true } = {}) {
   const reste = articles.slice();
   const blocs = [];
 
@@ -603,7 +660,9 @@ function composerUne(articles) {
   const avecImage = (a) => Boolean(a.image);
   const sansImage = (a) => !a.image;
 
-  let premier = true;
+  // La une n'a lieu qu'une fois, en tête d'édition : une page qui s'ajoute
+  // en dessous reprend le rythme à la rangée de colonnes.
+  let premier = une;
   while (reste.length) {
     if (premier) {
       blocs.push({ type: 'une', liste: prendre(1, avecImage) });
@@ -631,8 +690,30 @@ function composerUne(articles) {
 
 /* ------------------------------------------------------------ rendu du flux */
 
-function renderFlux() {
+/** Le HTML d'une tranche d'articles, dans la mise en page courante. */
+function htmlDesArticles(liste, decalage) {
+  if (state.layout === 'compact') return liste.map(ligneDepeche).join('');
+  if (state.layout === 'list') return liste.map((a, i) => ligneSommaire(a, decalage + i)).join('');
+  return composerUne(liste, { une: decalage === 0 }).map((b) => {
+    if (b.type === 'une') return b.liste.length ? blocUne(b.liste[0]) : '';
+    if (b.type === 'cols') return blocColonnes(b.liste);
+    if (b.type === 'wall') return blocMur(b.liste);
+    if (b.type === 'aplats') return blocAplats(b.liste);
+    return blocFils(b.liste);
+  }).join('');
+}
+
+/**
+ * Rend la liste. `depuis` dit à partir de quel article elle a changé : une
+ * page de plus s'ajoute à la fin, tout le reste se recompose.
+ *
+ * Sans ça, la dixième page régénérait les trois cent quarante cartes déjà
+ * posées pour en montrer trente-quatre — et chaque image déjà chargée
+ * rejouait son fondu.
+ */
+function renderFlux({ depuis = 0 } = {}) {
   const flux = $('#flux');
+  const memeMiseEnPage = flux.className === 'flux ' + CLASSE_LAYOUT[state.layout];
   flux.className = 'flux ' + CLASSE_LAYOUT[state.layout];
 
   indexParId = new Map(state.articles.map((a, i) => [a.id, i]));
@@ -643,26 +724,33 @@ function renderFlux() {
     return;
   }
 
-  if (state.layout === 'compact') flux.innerHTML = state.articles.map(ligneDepeche).join('');
-  else if (state.layout === 'list') flux.innerHTML = state.articles.map(ligneSommaire).join('');
-  else {
-    flux.innerHTML = composerUne(state.articles).map((b) => {
-      if (b.type === 'une') return b.liste.length ? blocUne(b.liste[0]) : '';
-      if (b.type === 'cols') return blocColonnes(b.liste);
-      if (b.type === 'wall') return blocMur(b.liste);
-      if (b.type === 'aplats') return blocAplats(b.liste);
-      return blocFils(b.liste);
-    }).join('');
+  // On n'ajoute que si ce qui est en place est bien le début de la même liste :
+  // un squelette, un état vide ou un changement de mise en page repartent de zéro.
+  const ajout = depuis > 0 && memeMiseEnPage && flux.firstElementChild
+    && !$('.empty', flux) && !$('.sk', flux);
+  const tranche = ajout ? state.articles.slice(depuis) : state.articles;
+  const html = htmlDesArticles(tranche, ajout ? depuis : 0);
+
+  let neufs;
+  if (ajout) {
+    const avant = flux.children.length;
+    flux.insertAdjacentHTML('beforeend', html);
+    neufs = [...flux.children].slice(avant);
+  } else {
+    flux.innerHTML = html;
+    neufs = [flux];
   }
 
   $('#endNote').hidden = !state.done;
 
   // Une illustration qui ne charge pas laisse la place à son fond d'attente,
   // qui devient alors l'illustration : mieux qu'une icône cassée.
-  $$('img', flux).forEach((img) => {
-    img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
-  });
-  rattraperImages(flux);
+  for (const racine of neufs) {
+    $$('img', racine).forEach((img) => {
+      img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, { once: true });
+    });
+    rattraperImages(racine);
+  }
 }
 
 function ligneSommaire(a, i) {
@@ -965,7 +1053,7 @@ async function etiqueter(id, action) {
     if (local) local.tags = article.tags;
     if (state.ouvert?.id === id) state.ouvert.tags = article.tags;
     if (state.openId === id) $('#tagEditor').innerHTML = editeurTags(article);
-    await reloadState();
+    majCompteurs(article);
     majPuces(article);
     if (popId === id) renderPopTags();
   } catch (error) {
@@ -1235,8 +1323,7 @@ function patchLocal(id, patch) {
 async function marquerLu(id, lu) {
   patchLocal(id, { read_at: lu ? Date.now() : null });
   try {
-    await api.patch(id, { read: lu });
-    await reloadState();
+    majCompteurs(await api.patch(id, { read: lu }));
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
@@ -1248,8 +1335,7 @@ async function basculerFavori(id) {
   patchLocal(id, { starred: valeur ? 1 : 0 });
   if (state.openId === id) $('#readerStar').classList.toggle('on', valeur);
   try {
-    await api.patch(id, { starred: valeur });
-    await reloadState();
+    majCompteurs(await api.patch(id, { starred: valeur }));
     toast(valeur ? 'Ajouté aux favoris' : 'Retiré des favoris');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
@@ -1281,6 +1367,7 @@ function onKey(event) {
   const key = event.key;
 
   if (key === 'Escape') {
+    if (!$('#lirePop').hidden) return fermerLirePop();
     if (partageId !== null) return fermerPartage();
     if (popId !== null) return fermerPopTags();
     if (!$('#reader').hidden) return closeReader();
@@ -1292,6 +1379,7 @@ function onKey(event) {
   if (key === '/') { event.preventDefault(); $('#search').focus(); return; }
   if (key === 'a') { event.preventDefault(); openModal('#feedModal'); $('#feedUrl').focus(); return; }
   if (key === 'A') { event.preventDefault(); toutMarquerLu(); return; }
+  if (key === 'U' || (key === 'a' && event.shiftKey)) { event.preventDefault(); toutMarquerLu(); return; }
   if (key === 'r') { event.preventDefault(); rafraichir(); return; }
   if (key === '?') { event.preventDefault(); openModal('#shortcutsModal'); return; }
   if (key === ',') { event.preventDefault(); ouvrirReglages(); return; }
@@ -1372,17 +1460,54 @@ async function rafraichir() {
   }
 }
 
-async function toutMarquerLu() {
-  const payload = state.feedId ? { feedId: state.feedId } : state.folder ? { folder: state.folder } : { all: true };
+/**
+ * Marque comme lu ce que la vue montre. `jours` limite aux articles déjà
+ * vieux : c'est le geste qu'on veut vraiment neuf fois sur dix, vider ce qui
+ * a passé sans toucher à ce qui vient d'arriver.
+ */
+async function toutMarquerLu(jours = null) {
+  const portee = state.feedId ? { feedId: state.feedId } : state.folder ? { folder: state.folder } : { all: true };
+  const payload = jours ? { ...portee, olderThan: Date.now() - jours * 86400000 } : portee;
   try {
     const r = await api.markRead(payload);
-    await reloadState();
-    toast(r.changed ? `${nombre(r.changed)} articles marqués lus` : 'Déjà tout lu');
+    majCompteurs(r);
+    if (!r.changed) { toast('Déjà tout lu'); return; }
+    // Tout le lot porte le même horodatage : l'annulation le rend à NULL.
+    toast(`${nombre(r.changed)} articles marqués lus`, '', {
+      libelle: 'Annuler',
+      faire: () => annulerLecture(r.stamp)
+    });
     await loadArticles(true);
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
   }
 }
+
+async function annulerLecture(stamp) {
+  try {
+    majCompteurs(await api.annulerLecture(stamp));
+    toast('Marquage annulé');
+    await loadArticles(true);
+  } catch (error) {
+    toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* -------------------------------------------- la portée de « tout lire » */
+
+function ouvrirLirePop(ancre) {
+  fermerPopTags();
+  fermerPartage();
+  const pop = $('#lirePop');
+  $('#lirePopTitre').textContent = state.feedId
+    ? 'Marquer lu : ' + titreVue()
+    : state.folder ? 'Marquer lu : ' + state.folder : 'Marquer tout comme lu';
+  pop.hidden = false;
+  poserContre(pop, ancre);
+  $('[data-lire]', pop)?.focus();
+}
+
+const fermerLirePop = () => { $('#lirePop').hidden = true; };
 
 /* -------------------------------------------------------------- fenêtres */
 
@@ -2194,10 +2319,12 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
 
   // Un clic ailleurs referme — mais pas celui qui vient de l'ouvrir.
   document.addEventListener('pointerdown', (e) => {
-    if (popId === null && partageId === null) return;
-    if (e.target.closest('#tagPop') || e.target.closest('#sharePop') || e.target.closest('#artActions')) return;
+    const dansUnPop = e.target.closest('#tagPop') || e.target.closest('#sharePop')
+      || e.target.closest('#lirePop') || e.target.closest('#artActions') || e.target.closest('#markAllRead');
+    if (dansUnPop) return;
     fermerPopTags();
     fermerPartage();
+    fermerLirePop();
   });
 
   $('#flux').addEventListener('click', (e) => {
@@ -2225,7 +2352,13 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   $('#search').addEventListener('input', chercher);
 
   $('#refreshBtn').addEventListener('click', rafraichir);
-  $('#markAllRead').addEventListener('click', toutMarquerLu);
+  $('#markAllRead').addEventListener('click', (e) => ouvrirLirePop(e.currentTarget));
+  $('#lirePop').addEventListener('click', (e) => {
+    const ligne = e.target.closest('[data-lire]');
+    if (!ligne) return;
+    fermerLirePop();
+    toutMarquerLu(ligne.dataset.lire === 'tout' ? null : Number(ligne.dataset.lire));
+  });
   $('#addFeedBtn').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
   $('#addFeedRail').addEventListener('click', () => { openModal('#feedModal'); $('#feedUrl').focus(); });
   // Sous 860 px l'index est un tiroir : le ☰ l'ouvre. Au-dessus, il le déplie.

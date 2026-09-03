@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 
 const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'bublee-refresh-'));
 process.env.BUBLEE_DATA = dossier;
@@ -17,17 +16,9 @@ const { db } = await import('../server/db.js');
 
 const moi = await comptes.creerCompte({ email: 'f@bublee.test', motDePasse: 'dix-caracteres-au-moins', role: 'super' });
 
-/* Un vrai serveur, pour que fetchFeed suive son chemin habituel. Le garde-fou
-   SSRF refuse 127.0.0.1 : le flux est donc enregistré avec une adresse
-   publique factice, et seul le nombre d'appels compte ici. */
-let appels = 0;
-const serveur = http.createServer((req, res) => {
-  appels++;
-  res.writeHead(500, { 'content-type': 'text/plain' });
-  res.end('en panne');
-});
-await new Promise((r) => serveur.listen(0, '127.0.0.1', r));
-test.after(() => serveur.close());
+/* La source est enregistrée avec une adresse publique qui n'existe pas : le
+   garde-fou refuse 127.0.0.1, et de toute façon c'est l'échec qui nous
+   intéresse ici, pas ce qu'il y a au bout. */
 
 const fluxCasse = Number(db.prepare(
   'INSERT INTO feeds (url, title, folder, created_at, user_id) VALUES (?, ?, ?, ?, ?)'

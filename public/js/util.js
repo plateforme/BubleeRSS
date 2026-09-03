@@ -50,11 +50,20 @@ export function tempsLecture(mots) {
   return `${Math.max(1, Math.round(mots / 230))} min de lecture`;
 }
 
-/** Passe l'image par le relais local : evite les blocages de hotlink. */
-export function relais(url) {
+/**
+ * Passe l'image par le relais local : evite les blocages de hotlink.
+ *
+ * `largeur` dit la taille a laquelle elle sera vue. Le serveur la reduit s'il
+ * sait le faire — une tuile de cent-cinquante pixels n'a aucune raison de
+ * recevoir deux megaoctets — et sert l'original sinon.
+ */
+export function relais(url, largeur = 0) {
   if (!url) return '';
   if (url.startsWith('data:')) return url;
-  return '/api/image?url=' + encodeURIComponent(url);
+  // On demande le double pour les ecrans a forte densite, ou le trait fin
+  // d'une image reduite se verrait tout de suite.
+  const w = largeur ? '&w=' + Math.round(largeur * 2) : '';
+  return '/api/image?url=' + encodeURIComponent(url) + w;
 }
 
 export function hote(url) {

@@ -396,7 +396,7 @@ function ecouter(article, src) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: article.title,
       artist: article.feed_title || 'Bublee',
-      artwork: article.image ? [{ src: relais(article.image), sizes: '512x512' }] : []
+      artwork: article.image ? [{ src: relais(article.image, 400), sizes: '512x512' }] : []
     });
     navigator.mediaSession.setActionHandler('play', () => audio.play());
     navigator.mediaSession.setActionHandler('pause', () => audio.pause());
@@ -688,7 +688,7 @@ function renderFeedList() {
   const feedRow = (feed) => {
     const couleur = teinte(feed.title);
     const marque = feed.icon
-      ? `<img class="feed-icon" src="${esc(relais(feed.icon))}" alt="" loading="lazy">`
+      ? `<img class="feed-icon" src="${esc(relais(feed.icon, 32))}" alt="" loading="lazy">`
       : `<span class="feed-icon mono-mark" style="--teinte:${couleur};--teinte-texte:${contraste(couleur)}">${esc(initiale(feed.title))}</span>`;
 
     return `
@@ -928,7 +928,7 @@ function majPuces(a) {
 function blocUne(a) {
   const couleur = teinte(a.feed_title);
   const fond = a.image
-    ? imgFondue(relais(a.image), { pressee: true })
+    ? imgFondue(relais(a.image, 900), { pressee: true })
     : `<div class="plaque-initiale" style="color:${rgba(couleur, .2)}">${esc(initialeDe(a))}</div>`;
 
   return `
@@ -967,7 +967,7 @@ function blocMur(liste) {
         : '';
     return `
       <article class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} style="${fondImage(a)}">
-        ${imgFondue(relais(a.image))}
+        ${imgFondue(relais(a.image, 400))}
         <span class="tuile-voile"></span>
         ${badge}
         <span class="tuile-corps">
@@ -1156,7 +1156,7 @@ function renderFlux({ depuis = 0 } = {}) {
 
 function ligneSommaire(a, i) {
   const couleur = teinte(a.feed_title);
-  const vignette = a.image ? imgFondue(relais(a.image)) : '';
+  const vignette = a.image ? imgFondue(relais(a.image, 160)) : '';
   return `
     <article class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)}>
       <span class="som-num">${String(i + 1).padStart(2, '0')}</span>
@@ -1376,7 +1376,7 @@ function prechargerImage(a) {
   if (!a || !a.image) return;
   const img = new Image();
   img.decoding = 'async';
-  img.src = relais(a.image);
+  img.src = relais(a.image, 900);
 }
 
 /** Deux articles d'avance plutôt qu'un : à lire vite, on rattrapait la
@@ -1450,7 +1450,7 @@ function renderReader(a) {
 
   const ouverture = a.image && !video
     ? `<div class="reader-hero" style="${fondImage(a)}">
-         ${imgFondue(relais(a.image), { pressee: true })}
+         ${imgFondue(relais(a.image, 900), { pressee: true })}
          <div class="voile"></div>
          <div class="reader-hero-corps"><div class="reader-hero-inner">
            ${a.has_full ? '<span class="reader-badge">Texte complet</span>' : ''}
@@ -1499,14 +1499,14 @@ function renderReader(a) {
   $$('.reader-body picture source', $('#readerScroll')).forEach((s) => s.remove());
   $$('.reader-body video[poster]', $('#readerScroll')).forEach((v) => {
     const poster = v.getAttribute('poster');
-    if (poster && !poster.startsWith('data:') && !poster.startsWith('/api/image')) v.poster = relais(poster);
+    if (poster && !poster.startsWith('data:') && !poster.startsWith('/api/image')) v.poster = relais(poster, 900);
   });
   $$('.reader-body img, .reader-hero img').forEach((img) => {
     const src = img.getAttribute('src') || '';
     if (src && !src.startsWith('data:') && !src.startsWith('/api/image')) {
       img.removeAttribute('srcset');
       img.removeAttribute('sizes');
-      img.src = relais(src);
+      img.src = relais(src, 900);
     }
     img.addEventListener('error', () => { img.style.display = 'none'; }, { once: true });
   });

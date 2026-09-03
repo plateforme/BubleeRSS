@@ -408,3 +408,60 @@ test('le flux d’évènements s’ouvre, bat, et n’est servi qu’à son comp
   stop.abort();
   await new Promise((r) => setTimeout(r, 150));
 });
+
+/* --------------------------------------------------------- vignettes */
+
+test('les tailles de vignette sont ramenées à celles qu’on connaît', async () => {
+  const { tailleVoulue, TAILLES } = await import('../server/vignettes.js');
+  assert.equal(tailleVoulue(100), 160);
+  assert.equal(tailleVoulue(160), 160);
+  assert.equal(tailleVoulue(320), 400);
+  assert.equal(tailleVoulue(5000), null, 'au-delà de la plus grande, on sert l’original');
+  assert.equal(tailleVoulue(0), null);
+  assert.equal(tailleVoulue('nawak'), null);
+  assert.deepEqual(TAILLES, [160, 400, 900]);
+});
+
+test('une image se réduit, et le cache garde chaque taille à part', async () => {
+  const { reduire, disponible } = await import('../server/vignettes.js');
+  const cache = await import('../server/cache-images.js');
+
+  if (!await disponible()) {
+    // sharp est optionnel : là où il manque, l'original doit passer tel quel.
+    assert.equal(await reduire(Buffer.alloc(10), 'image/jpeg', 400), null);
+    return;
+  }
+
+  // Une image de mille pixels, faite pour l'occasion.
+  const sharp = (await import('sharp')).default;
+  const grande = await sharp({
+    create: { width: 1000, height: 700, channels: 3, background: { r: 200, g: 40, b: 30 } }
+  }).jpeg().toBuffer();
+
+  const petite = await reduire(grande, 'image/jpeg', 160);
+  assert.ok(petite, 'la réduction a lieu');
+  assert.equal(petite.type, 'image/webp');
+  assert.ok(petite.corps.length < grande.length / 4, 'et elle allège franchement');
+  assert.equal((await sharp(petite.corps).metadata()).width, 160);
+
+  // Plus petite que demandé : on ne l'agrandit pas.
+  assert.equal(await reduire(petite.corps, 'image/webp', 900), null);
+  // Un SVG n'a pas de taille à réduire.
+  assert.equal(await reduire(grande, 'image/svg+xml', 160), null);
+
+  // Un GIF animé garde ses images : le webp animé existe pour ça, et c'est
+  // là que le gain est le plus gros.
+  const anime = await sharp(grande).gif().toBuffer();
+  const petitGif = await reduire(anime, 'image/gif', 160);
+  if (petitGif) {
+    assert.equal(petitGif.type, 'image/webp');
+    assert.equal((await sharp(petitGif.corps, { animated: true }).metadata()).width, 160);
+  }
+
+  // Deux tailles de la même adresse cohabitent dans le cache.
+  const url = 'https://exemple.fr/photo.jpg';
+  await cache.ranger(url, 'image/jpeg', grande);
+  await cache.ranger(url, 'image/webp', petite.corps, 'w160');
+  assert.equal((await cache.lire(url)).corps.length, grande.length);
+  assert.equal((await cache.lire(url, 'w160')).corps.length, petite.corps.length);
+});

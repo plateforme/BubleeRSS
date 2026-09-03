@@ -19,6 +19,7 @@ import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
 import { listerRegles, creerRegle, modifierRegle, supprimerRegle } from './regles.js';
 import { abonner, annoncer, nombreAbonnes, toutFermer } from './evenements.js';
+import { tailleVoulue, reduire, disponible as vignettesDisponibles } from './vignettes.js';
 
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -205,7 +206,7 @@ const ROUTES = [
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
   ['GET',    '/api/backup',              'telecharger une copie coherente de la base (super)'],
-  ['GET',    '/api/image',               'relais d’images ; parametre url']
+  ['GET',    '/api/image',               'relais d’images ; parametres url et w (largeur voulue)']
 ];
 
 app.get('/api', (req, res) => {
@@ -228,6 +229,7 @@ app.get('/api/health', wrap(async (req, res) => {
     ok: true, version: VERSION, uptime: Math.round(process.uptime()),
     ...counts,
     ecoutes: nombreAbonnes(),
+    vignettes: await vignettesDisponibles(),
     cacheImages: await cacheImages.etat()
   });
 }));
@@ -558,8 +560,13 @@ app.get('/api/image', wrap(async (req, res) => {
   const parsed = urlPubliqueOuNull(req.query.url || '');
   if (!parsed) return res.status(400).end();
 
+  // `w` dit la largeur a laquelle l'image sera vue. Elle est ramenee a l'une
+  // des trois tailles connues : chacune coute une entree de cache par image.
+  const largeur = tailleVoulue(req.query.w);
+  const variante = largeur ? 'w' + largeur : '';
+
   // Deja vue : on la sert du disque, sans repartir chez l'editeur.
-  const gardee = await cacheImages.lire(parsed.href);
+  const gardee = await cacheImages.lire(parsed.href, variante);
   if (gardee) {
     return res.set('content-type', gardee.type)
       .set('cache-control', 'public, max-age=604800')
@@ -570,20 +577,29 @@ app.get('/api/image', wrap(async (req, res) => {
   try {
     // Meme couche que les flux : adresse resolue verifiee, redirections
     // revues une a une, et le telechargement coupe au-dela du plafond.
-    const { res: upstream, buffer: corps } = await httpGet(parsed.href, {
+    const { res: upstream, buffer: original } = await httpGet(parsed.href, {
       navigateur: true, timeout: 15000, maxBytes: IMAGE_MAX_BYTES,
       headers: { accept: 'image/*,*/*;q=0.8', referer: parsed.origin + '/' }
     });
     if (!upstream.ok) return res.status(upstream.status).end();
 
-    const type = upstream.headers.get('content-type') || 'image/jpeg';
-    if (!/^image\//i.test(type)) return res.status(415).end();
+    const typeRecu = upstream.headers.get('content-type') || 'image/jpeg';
+    if (!/^image\//i.test(typeRecu)) return res.status(415).end();
+
+    // Reduite si on sait le faire et qu'il y a quelque chose a gagner ;
+    // sinon l'original, ce qui est toujours correct.
+    const reduite = await reduire(original, typeRecu, largeur);
+    const corps = reduite ? reduite.corps : original;
+    const type = reduite ? reduite.type : typeRecu;
 
     res.set('content-type', type).set('cache-control', 'public, max-age=604800')
       .set('x-bublee-cache', 'reseau').send(corps);
 
     // Rangee apres l'envoi : le cache ne doit jamais retarder l'affichage.
-    cacheImages.ranger(parsed.href, type, corps).catch(() => {});
+    cacheImages.ranger(parsed.href, type, corps, variante).catch(() => {});
+    // L'original est garde aussi : le lecteur le demandera en pleine largeur,
+    // et on ne veut pas refaire le voyage chez l'editeur pour ca.
+    if (reduite) cacheImages.ranger(parsed.href, typeRecu, original).catch(() => {});
   } catch (error) {
     res.status(error.status || 504).end();
   }

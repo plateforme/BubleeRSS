@@ -189,6 +189,8 @@ const ROUTES = [
   ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
+  ['PATCH',  '/api/folders/:nom',        'renommer un dossier (fusionne si le nom existe) { name }'],
+  ['POST',   '/api/feeds/ordre',         'fixer l ordre des sources { ids }'],
   ['GET',    '/api/feeds/stats',         'ce que chaque source apporte ; parametre jours'],
   ['POST',   '/api/feeds/priorites',     'changer la priorite de plusieurs sources { ids, priority }'],
   ['GET',    '/api/rules',               'les regles de filtrage'],
@@ -436,6 +438,20 @@ app.get('/api/opml/export', (req, res) => {
     'Content-Disposition',
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
+});
+
+/* ------------------------------------------------------------ dossiers */
+
+// Un dossier n'est qu'une chaine sur chaque source : le renommer, c'est les
+// reecrire toutes. Vers un nom existant, les deux fusionnent.
+app.patch('/api/folders/:nom', (req, res) => {
+  const changed = store.renommerDossier(req.params.nom, req.body?.name, moi(req));
+  res.json({ changed, folders: store.listFolders(moi(req)) });
+});
+
+// L'ordre voulu dans l'index, dossier par dossier.
+app.post('/api/feeds/ordre', (req, res) => {
+  res.json({ changed: store.ordonnerSources(req.body?.ids, moi(req)) });
 });
 
 /* --------------------------------------------------------------- debit */

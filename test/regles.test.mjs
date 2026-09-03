@@ -220,3 +220,35 @@ test('une source réglée sur « toujours » l’est même pour un long article'
 test('le réglage de texte complet refuse une valeur inconnue', () => {
   assert.throws(() => store.updateFeed(fluxB, { fulltext: 'nawak' }, moi.id), /texte complet inconnu/);
 });
+
+/* ------------------------------------------------- dossiers et ordre */
+
+test('un dossier se renomme, et se fusionne avec un autre', () => {
+  db.prepare('UPDATE feeds SET folder = ? WHERE id = ?').run('Tech', flux);
+  db.prepare('UPDATE feeds SET folder = ? WHERE id = ?').run('Techno', fluxB);
+
+  assert.equal(store.renommerDossier('Tech', 'Technique', moi.id), 1);
+  assert.equal(db.prepare('SELECT folder FROM feeds WHERE id = ?').get(flux).folder, 'Technique');
+
+  // Vers un nom qui existe déjà, les deux n'en font qu'un.
+  store.renommerDossier('Techno', 'Technique', moi.id);
+  assert.equal(store.listFolders(moi.id).find((f) => f.name === 'Technique').feeds, 2);
+  assert.equal(store.listFolders(moi.id).some((f) => f.name === 'Techno'), false);
+});
+
+test('renommer ne touche pas au dossier d’un autre compte', () => {
+  db.prepare('UPDATE feeds SET folder = ? WHERE id = ?').run('Technique', fluxAutre);
+  store.renommerDossier('Technique', 'Ailleurs', moi.id);
+  assert.equal(db.prepare('SELECT folder FROM feeds WHERE id = ?').get(fluxAutre).folder, 'Technique');
+});
+
+test('l’ordre des sources se fixe, et tient dans la liste', () => {
+  assert.equal(store.ordonnerSources([fluxB, flux], moi.id), 2);
+  const rangs = db.prepare('SELECT id, position FROM feeds WHERE user_id = ? AND position > 0 ORDER BY position').all(moi.id);
+  assert.deepEqual(rangs.map((r) => r.id), [fluxB, flux]);
+
+  const dansLIndex = store.listFeeds(moi.id).filter((f) => f.folder === 'Ailleurs').map((f) => f.id);
+  assert.deepEqual(dansLIndex, [fluxB, flux], 'l’index suit l’ordre voulu, pas l’alphabet');
+
+  assert.equal(store.ordonnerSources([fluxAutre], moi.id), 0, 'la source d’un autre ne bouge pas');
+});

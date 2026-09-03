@@ -185,6 +185,66 @@ async function renderComptes() {
     </div>`).join('');
 }
 
+/* ------------------------------------------------- l'ordre des sources */
+
+/* L'index rangeait les sources par titre, sans recours : une source qu'on lit
+   tous les jours se retrouvait en bas de son dossier parce qu'elle commence
+   par un W. Elles se déplacent maintenant au glissé, dans leur dossier.
+
+   Tant qu'on n'a touché à rien, la position vaut zéro partout et l'ordre reste
+   l'alphabet — seul un dossier qu'on a rangé à la main s'en écarte. */
+
+function glisserLesSources() {
+  const liste = $('#feedList');
+  let prise = null;
+
+  liste.addEventListener('dragstart', (e) => {
+    const ligne = e.target.closest('.feed-row');
+    if (!ligne) return;
+    prise = ligne;
+    ligne.classList.add('emportee');
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox ne démarre pas un glissé sans données.
+    e.dataTransfer.setData('text/plain', ligne.dataset.feed);
+  });
+
+  liste.addEventListener('dragover', (e) => {
+    if (!prise) return;
+    const cible = e.target.closest('.feed-row');
+    // On ne déplace qu'à l'intérieur d'un dossier : changer de dossier reste
+    // le rôle de la fiche de la source, où l'on voit ce qu'on fait.
+    if (!cible || cible === prise || cible.dataset.dossier !== prise.dataset.dossier) return;
+    e.preventDefault();
+    const r = cible.getBoundingClientRect();
+    cible.parentNode.insertBefore(prise, e.clientY < r.top + r.height / 2 ? cible : cible.nextSibling);
+  });
+
+  liste.addEventListener('dragend', async () => {
+    if (!prise) return;
+    const corps = prise.parentNode;
+    prise.classList.remove('emportee');
+    prise = null;
+
+    const ids = [...corps.querySelectorAll('.feed-row')].map((n) => Number(n.dataset.feed));
+    try {
+      await api.ordonner(ids);
+      // L'ordre local suit, sans redemander tout l'état : la liste est déjà
+      // à l'écran dans le bon ordre, la refaire la ferait sauter.
+      ids.forEach((id, rang) => {
+        const feed = state.feeds.find((f) => f.id === id);
+        if (feed) feed.position = rang + 1;
+      });
+      state.feeds.sort((a, b) => (a.folder === '' ? 0 : 1) - (b.folder === '' ? 0 : 1)
+        || (a.folder || '').localeCompare(b.folder || '', 'fr')
+        || a.position - b.position
+        || a.title.localeCompare(b.title, 'fr'));
+    } catch (error) {
+      toast('Ordre : ' + error.message, 'bad');
+      renderFeedList();
+    }
+  });
+}
+
 /* ------------------------------------------------- réglages de lecture */
 
 /* Corps, interligne, largeur de colonne. Un lecteur qu'on utilise une heure
@@ -582,7 +642,8 @@ function renderFeedList() {
     return `
       <button class="feed-row${state.feedId === feed.id ? ' active' : ''}${feed.last_error ? ' error' : ''}${
                 feed.priority && feed.priority !== 'suivi' ? ' p-' + feed.priority : ''}"
-              data-feed="${feed.id}" style="--teinte:${couleur}"
+              data-feed="${feed.id}" data-dossier="${esc(feed.folder || '')}" draggable="true"
+              style="--teinte:${couleur}"
               title="${esc(feed.last_error ? feed.title + ' — ' + feed.last_error
                 : feed.title + (LEGENDE_PRIORITE[feed.priority] || ''))}">
         <span class="feed-bar" aria-hidden="true"></span>
@@ -601,9 +662,10 @@ function renderFeedList() {
     const unread = feeds.reduce((s, f) => s + f.unread, 0);
     blocs.push(`
       <div class="folder${collapsed.has(name) ? ' collapsed' : ''}" data-folder="${esc(name)}">
-        <button class="folder-head${state.folder === name ? ' active' : ''}" data-toggle="${esc(name)}">
+        <button class="folder-head${state.folder === name ? ' active' : ''}" data-toggle="${esc(name)}"
+                title="${esc(name)} — double-clic pour renommer">
           <span class="chev"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>
-          <span class="folder-name" data-open-folder="${esc(name)}">${esc(name)}</span>
+          <span class="folder-name" data-open-folder="${esc(name)}" data-renommer="${esc(name)}">${esc(name)}</span>
           <span class="folder-rule"></span>
           <span class="folder-count">${unread || ''}</span>
         </button>
@@ -2739,6 +2801,24 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
     e.preventDefault();
     ouvrirEditionFlux(Number(row.dataset.feed));
   });
+
+  // Un dossier n'était qu'une chaîne portée par chaque source : il n'y avait
+  // aucun moyen de le renommer sans reprendre les sources une à une.
+  $('#feedList').addEventListener('dblclick', async (e) => {
+    const nom = e.target.closest('[data-renommer]')?.dataset.renommer;
+    if (!nom) return;
+    e.preventDefault();
+    const neuf = prompt(`Renommer le dossier « ${nom} » :\n\nLui donner le nom d’un autre dossier fusionne les deux.`, nom);
+    if (neuf === null || neuf.trim() === nom) return;
+    try {
+      await api.renommerDossier(nom, neuf);
+      if (state.folder === nom) state.folder = neuf.trim() || null;
+      await reloadState();
+      toast(neuf.trim() ? `Dossier renommé « ${neuf.trim()} »` : 'Sources sorties du dossier');
+    } catch (error) { toast('Renommage : ' + error.message, 'bad'); }
+  });
+
+  glisserLesSources();
 
   /* --- étiqueter depuis les vues --- */
   const scroller = $('#scroller');

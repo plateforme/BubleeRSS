@@ -256,7 +256,11 @@ export const migrationApplied = [
   addColumn('feeds', 'next_fetch_at', 'INTEGER'),
   // Le texte complet, source par source : auto (le seuil de mots decide),
   // toujours (on va le chercher des l'arrivee), jamais (le flux suffit).
-  addColumn('feeds', 'fulltext', "TEXT NOT NULL DEFAULT 'auto'")
+  addColumn('feeds', 'fulltext', "TEXT NOT NULL DEFAULT 'auto'"),
+  // L'ordre voulu dans l'index. Zero partout au depart : les sources restent
+  // alors rangees par titre, et seul un dossier qu'on a ordonne a la main
+  // s'ecarte de l'alphabet.
+  addColumn('feeds', 'position', 'INTEGER NOT NULL DEFAULT 0')
 ].some(Boolean);
 
 /* Les icones demandees a Google disaient a Google quelles sources on lit.

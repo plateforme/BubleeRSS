@@ -50,7 +50,7 @@ function articleDuCompte(id, u) {
 export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
-           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext,
+           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext, f.position,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
            -- Le type de source porte sa propre marque dans l'index : on ne lit
@@ -64,8 +64,38 @@ export function listFeeds(u) {
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
     WHERE f.user_id = ?
-    ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, title COLLATE NOCASE
+    ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, f.position, title COLLATE NOCASE
   `).all(exigeCompte(u));
+}
+
+/**
+ * Renomme un dossier : il n'est qu'une chaine portee par chaque source, si
+ * bien qu'il n'y avait aucun moyen de le renommer sans reprendre les sources
+ * une a une. Renommer vers un nom existant fusionne les deux, ce qui est la
+ * seule chose sensee a faire.
+ */
+export function renommerDossier(ancien, nouveau, u) {
+  const compte = exigeCompte(u);
+  const propre = String(nouveau ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return db.prepare('UPDATE feeds SET folder = ? WHERE folder = ? AND user_id = ?')
+    .run(propre, String(ancien ?? ''), compte).changes;
+}
+
+/**
+ * Fixe l'ordre des sources d'un dossier. On renumerote a partir de un : zero
+ * reste la valeur de celles qu'on n'a jamais touchees, et qui se rangent donc
+ * par titre.
+ */
+export function ordonnerSources(ids, u) {
+  const compte = exigeCompte(u);
+  const liste = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite);
+  if (!liste.length) return 0;
+  const poser = db.prepare('UPDATE feeds SET position = ? WHERE id = ? AND user_id = ?');
+  let bouges = 0;
+  db.transaction(() => {
+    liste.forEach((id, rang) => { bouges += poser.run(rang + 1, id, compte).changes; });
+  })();
+  return bouges;
 }
 
 export function getFeed(id, u) {

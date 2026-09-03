@@ -58,6 +58,8 @@ export const api = {
   updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),
   deleteTag: (id) => json('DELETE', '/api/tags/' + id),
 
+  renommerDossier: (ancien, name) => json('PATCH', '/api/folders/' + encodeURIComponent(ancien), { name }),
+  ordonner:      (ids) => json('POST', '/api/feeds/ordre', { ids }),
   statsSources:  (jours = 90) => call('/api/feeds/stats?jours=' + jours),
   priorites:     (ids, priority) => json('POST', '/api/feeds/priorites', { ids, priority }),
 

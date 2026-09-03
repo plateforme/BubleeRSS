@@ -1277,6 +1277,11 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* La source qu'on déplace s'efface le temps du geste : ce qu'on suit des yeux,
+   c'est la place qu'elle va prendre, pas elle. */
+.feed-row.emportee { opacity: .35; }
+.feed-row[draggable="true"] { -webkit-user-drag: element; }
+
 /* ------------------------------------------------ réglages de lecture */
 
 .curseurs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }

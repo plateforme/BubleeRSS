@@ -175,7 +175,7 @@ const ROUTES = [
   ['POST',   '/api/refresh',             'rafraichir toutes les sources'],
   ['POST',   '/api/feeds/repair',        'retrouver l’adresse des sources injoignables'],
   ['POST',   '/api/feeds/:id/repair',    'reparer une source precise'],
-  ['GET',    '/api/articles',            'articles ; parametres view, feed, folder, q, tag, limit, before'],
+  ['GET',    '/api/articles',            'articles ; parametres view, feed, folder, q, tag, limit, before, sort'],
   ['GET',    '/api/articles/:id',        'un article avec son contenu'],
   ['PATCH',  '/api/articles/:id',        'marquer lu / favori { read?, starred? }'],
   ['POST',   '/api/articles/:id/full',   'recuperer le texte complet (?force=1 pour relancer)'],
@@ -327,7 +327,8 @@ app.get('/api/articles', (req, res) => {
     q: req.query.q,
     tag: req.query.tag,
     limit: req.query.limit,
-    before: req.query.before
+    before: req.query.before,
+    sort: req.query.sort
   }, moi(req)));
 });
 

@@ -202,6 +202,12 @@
           <div class="masthead-meta">
             <span id="mastheadDate"></span>
             <span id="stageSub"></span>
+            <!-- N'apparaît que pendant une recherche : le reste du temps,
+                 il n'y a rien à classer autrement que par date. -->
+            <span class="tri" id="triRecherche" hidden>
+              <button type="button" data-tri="date" class="on">Récents</button>
+              <button type="button" data-tri="pertinence">Pertinents</button>
+            </span>
           </div>
         </div>
       </header>

@@ -11,6 +11,7 @@ const state = {
   feedId: null,
   folder: null,
   q: '',
+  tri: 'date',           // pendant une recherche : date | pertinence
   tag: null,
   layout: 'magazine',    // magazine (la une) | list (sommaire) | compact (dépêches)
   articles: [],
@@ -423,6 +424,8 @@ async function loadArticles(reset = false) {
   state.loading = true;
   $('#stageTitle').textContent = titreVue();
   $('#stageSub').textContent = sousTitre();
+  $('#triRecherche').hidden = !state.q;
+  $$('#triRecherche [data-tri]').forEach((b) => b.classList.toggle('on', b.dataset.tri === state.tri));
 
   // Ce qui est déjà à l'écran ne sera pas refait : la page qui arrive s'ajoute.
   const depuis = reset ? 0 : state.articles.length;
@@ -435,7 +438,8 @@ async function loadArticles(reset = false) {
       q: state.q,
       tag: state.tag,
       limit: state.layout === 'compact' ? 60 : 34,
-      before: state.cursor
+      before: state.cursor,
+      sort: state.q ? state.tri : null
     });
     state.articles.push(...data.articles);
     state.cursor = data.nextCursor;
@@ -520,6 +524,27 @@ function fondImage(a) {
 const imgFondue = (src, { pressee = false } = {}) => `<img class="fondu" src="${esc(src)}" alt=""` +
   (pressee ? ' loading="eager" fetchpriority="high"' : ' loading="lazy"') + ' decoding="async">';
 
+/* Pendant une recherche, le chapô cède la place au passage qui correspond,
+   le mot cherché en évidence. FTS5 l'entoure de deux caractères de contrôle :
+   on échappe le texte d'abord, on pose les balises ensuite — sinon un article
+   qui contient « <b> » ouvrirait une balise pour de bon. */
+const DEBUT_MARQUE = String.fromCharCode(2);
+const FIN_MARQUE = String.fromCharCode(3);
+const MARQUE = new RegExp(DEBUT_MARQUE + '([\\s\\S]*?)' + FIN_MARQUE, 'g');
+
+function chapo(a) {
+  if (a.extrait) {
+    // FTS5 rend le passage de la colonne qui correspond le mieux : quand c'est
+    // le titre, l'extrait répéterait le titre juste au-dessus. On garde alors
+    // le chapô, qui apprend quelque chose.
+    const nu = a.extrait.replaceAll(DEBUT_MARQUE, '').replaceAll(FIN_MARQUE, '').replace(/^…|…$/g, '').trim();
+    if (nu && !String(a.title || '').includes(nu)) {
+      return esc(a.extrait).replace(MARQUE, '<mark>$1</mark>');
+    }
+  }
+  return esc(a.summary || '');
+}
+
 /** Les étiquettes d'un article, telles qu'elles s'affichent dans une carte. */
 const pastilles = (a) => (a.tags || [])
   .map((nom) => `<span class="art-etiq" style="background:${esc(couleurTag(nom))}">${esc(nom)}</span>`)
@@ -550,7 +575,7 @@ function blocUne(a) {
       <button class="une-corps" data-open="${a.id}">
         <div class="une-sur">${surtitre(a)}</div>
         <h2 class="une-titre">${esc(a.title)}</h2>
-        ${a.summary ? `<p class="une-chapo">${esc(a.summary)}</p>` : ''}
+        ${a.summary || a.extrait ? `<p class="une-chapo">${chapo(a)}</p>` : ''}
         ${puces(a)}
       </button>
     </div>`;
@@ -562,7 +587,7 @@ function blocColonnes(liste) {
       <div class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
       <h3 class="col-titre">${esc(a.title)}</h3>
       <div class="wipe"></div>
-      ${a.summary ? `<p class="chapo">${esc(a.summary)}</p>` : ''}
+      ${a.summary || a.extrait ? `<p class="chapo">${chapo(a)}</p>` : ''}
       <div class="col-pied">${esc(laDuree(a) || 'à lire')}${puces(a)}</div>
     </button>`).join('')}</div>`;
 }
@@ -607,7 +632,7 @@ function blocAplats(liste) {
         ${large.has_full ? '<span class="aplat-badge">Texte complet</span>' : ''}</span>
       <span class="aplat-titre">${esc(large.title)}</span>
       <span class="aplat-pied">
-        ${large.summary ? `<span class="aplat-chapo">${esc(large.summary)}</span>` : '<span></span>'}
+        ${large.summary || large.extrait ? `<span class="aplat-chapo">${chapo(large)}</span>` : '<span></span>'}
         <span class="aplat-duree">${puces(large)}${esc(laDuree(large))}</span>
       </span>
     </button>`;
@@ -774,7 +799,7 @@ function ligneSommaire(a, i) {
       <span>
         <span class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
         <span class="som-titre">${esc(a.title)}</span>
-        ${a.summary ? `<span class="som-chapo">${esc(a.summary)}</span>` : ''}
+        ${a.summary || a.extrait ? `<span class="som-chapo">${chapo(a)}</span>` : ''}
         ${puces(a)}
       </span>
       <span class="som-thumb" style="--teinte:${couleur};${fondImage(a)}">${vignette}</span>
@@ -2446,6 +2471,13 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
     loadArticles(true);
   }, 300);
   $('#search').addEventListener('input', chercher);
+
+  $('#triRecherche').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tri]');
+    if (!b || b.dataset.tri === state.tri) return;
+    state.tri = b.dataset.tri;
+    loadArticles(true);
+  });
 
   // Le bouton « précédent » du navigateur ramène à la vue d'avant.
   addEventListener('popstate', () => {

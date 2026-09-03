@@ -956,7 +956,14 @@ export function expressionFts(q) {
   return mots.map((m, i) => (i === mots.length - 1 ? `"${m}"*` : `"${m}"`)).join(' AND ');
 }
 
-export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before } = {}, u) {
+/* FTS5 sait montrer le passage qui correspond. Les marques d'encadrement sont
+   deux caracteres de controle plutot que des balises : le navigateur echappe
+   le texte d'abord, et ne remplace qu'ensuite — sinon un article contenant
+   « <b> » ouvrirait une balise pour de bon. */
+const DEBUT_MARQUE = String.fromCharCode(2);
+const FIN_MARQUE = String.fromCharCode(3);
+
+export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit = 30, before, sort } = {}, u) {
   // Le cloisonnement passe avant tout le reste : aucune vue ne peut le lever.
   const where = ['f.user_id = @compte'];
   const params = { compte: exigeCompte(u) };
@@ -991,11 +998,19 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   if (ensemble && view === 'unread') where.push("f.priority = 'suivi'");
   if (ensemble && view === 'all') where.push("f.priority <> 'muet'");
 
+  // Une recherche plein texte joint l'index : c'est ce qui permet d'en tirer
+  // l'extrait qui correspond, et le classement par pertinence.
+  let jointureFts = '';
+  let colonneExtrait = 'NULL AS extrait';
+  const expr = q ? expressionFts(q) : null;
+
   if (q) {
-    const expr = expressionFts(q);
     if (expr) {
-      where.push('a.id IN (SELECT rowid FROM articles_fts WHERE articles_fts MATCH @fts)');
+      jointureFts = 'JOIN articles_fts ON articles_fts.rowid = a.id';
+      where.push('articles_fts MATCH @fts');
       params.fts = expr;
+      // -1 : la colonne qui correspond le mieux, titre ou corps.
+      colonneExtrait = `snippet(articles_fts, -1, '${DEBUT_MARQUE}', '${FIN_MARQUE}', '…', 14) AS extrait`;
     } else {
       // Une recherche qui ne contient aucun mot (de la ponctuation seule) n'a
       // rien a donner a FTS : on retombe sur la comparaison litterale.
@@ -1003,7 +1018,12 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
       params.q = '%' + q + '%';
     }
   }
-  if (before) {
+  // Classer par pertinence n'a de sens que sur une recherche, et la
+  // pagination par curseur suit la date : on la coupe alors, la liste tenant
+  // dans une page de resultats.
+  const parPertinence = Boolean(expr) && sort === 'pertinence';
+
+  if (before && !parPertinence) {
     const [ts, id] = String(before).split(',').map(Number);
     if (Number.isFinite(ts) && Number.isFinite(id)) {
       where.push('(a.published_at < @beforeTs OR (a.published_at = @beforeTs AND a.id < @beforeId))');
@@ -1015,17 +1035,19 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   params.limit = Math.min(Number(limit) || 30, 200);
 
   const rows = db.prepare(`
-    SELECT ${ARTICLE_COLUMNS}
-    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    SELECT ${ARTICLE_COLUMNS}, ${colonneExtrait}
+    FROM articles a JOIN feeds f ON f.id = a.feed_id ${jointureFts}
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY a.published_at DESC, a.id DESC
+    ORDER BY ${parPertinence ? 'bm25(articles_fts, 8.0, 2.0, 1.0, 1.0)' : 'a.published_at DESC, a.id DESC'}
     LIMIT @limit
   `).all(params);
 
   const last = rows[rows.length - 1];
   return {
     articles: rows.map(avecTags),
-    nextCursor: rows.length === params.limit && last ? last.published_at + ',' + last.id : null
+    nextCursor: !parPertinence && rows.length === params.limit && last
+      ? last.published_at + ',' + last.id
+      : null
   };
 }
 

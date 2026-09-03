@@ -1273,6 +1273,22 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* Le classement des résultats : deux mots, celui qui tient étant souligné.
+   Pas de boutons dessinés — c'est une nuance de lecture, pas une commande. */
+.tri { display: inline-flex; gap: 12px; }
+.tri button {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--mute);
+}
+.tri button.on { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+.tri button:hover { color: var(--accent); }
+
+/* Le mot cherché, dans l'extrait d'un résultat. */
+mark {
+  background: none; color: inherit; font-weight: 600;
+  box-shadow: inset 0 -.45em 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 /* ============================================================ responsive */
 
 @media (max-width: 1280px) {

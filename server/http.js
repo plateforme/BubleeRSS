@@ -30,13 +30,17 @@ const REDIRECTIONS_MAX = 5;
 
 /** Vrai pour une adresse IPv4 qui ne designe pas l'internet public. */
 function ipv4Privee(ip) {
-  const [a, b] = ip.split('.').map(Number);
+  const [a, b, c] = ip.split('.').map(Number);
   return a === 0 || a === 10 || a === 127
     || (a === 100 && b >= 64 && b <= 127)          // CGNAT
     || (a === 169 && b === 254)                     // lien local, metadonnees cloud
     || (a === 172 && b >= 16 && b <= 31)
     || (a === 192 && b === 168)
-    || (a === 192 && b === 0)                       // 192.0.0.0/24 et 192.0.2.0/24
+    // Deux /24 reserves, et deux seulement : le troisieme octet compte. Sans
+    // lui on refusait tout 192.0.0.0/16, soit soixante-cinq mille adresses
+    // parfaitement publiques — dont celles de WordPress.com, ce qui rendait
+    // injoignables tous les blogs qui y sont heberges.
+    || (a === 192 && b === 0 && (c === 0 || c === 2))
     || (a === 198 && (b === 18 || b === 19))        // bancs d'essai
     || a >= 224;                                    // multicast, reserve, diffusion
 }

@@ -96,3 +96,16 @@ test('httpGet coupe un téléchargement qui dépasse le plafond, annoncé ou non
     serveur.close();
   }
 });
+
+test('les deux /24 réservés de 192.0 sont refusés, le reste du /16 est public', () => {
+  // Le troisième octet compte : sans lui, tout 192.0.0.0/16 était refusé — dont
+  // les serveurs de WordPress.com, ce qui rendait injoignables les blogs qui y
+  // sont hébergés. Huit sources en portaient l'erreur « adresse du réseau local ».
+  for (const ip of ['192.0.0.1', '192.0.0.255', '192.0.2.5']) {
+    assert.equal(ipPrivee(ip), true, ip + ' est réservé');
+  }
+  for (const ip of ['192.0.66.96', '192.0.78.12', '192.0.1.1', '192.0.3.1']) {
+    assert.equal(ipPrivee(ip), false, ip + ' est public');
+  }
+  assert.ok(urlPubliqueOuNull('https://192.0.66.96/feed'), 'une IP publique de WordPress.com passe');
+});

@@ -462,3 +462,31 @@ export function setSetting(key, value, userId = REGLAGES_SERVICE) {
     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
   `).run(userId, key, String(value));
 }
+
+/* ------------------------------------------------ reparation ponctuelle */
+
+/**
+ * Rend leur tour aux sources refusees a tort.
+ *
+ * Le filtre d'adresses prenait tout 192.0.0.0/16 pour du reseau local, alors
+ * que deux /24 seulement y sont reserves. Les blogs heberges chez WordPress.com
+ * etaient donc refuses, et apres cinq echecs ils reculaient loin dans le temps :
+ * corriger le filtre ne suffisait pas, ils auraient attendu leur heure pendant
+ * des jours. On efface donc l'ardoise de celles qui portent cette erreur.
+ *
+ * Une source vraiment locale echouera de nouveau au prochain passage et
+ * reculera comme avant : rien ne se perd a leur redonner un tour. Le drapeau
+ * garde l'operation ponctuelle, pour ne pas relancer a chaque demarrage ce qui
+ * echoue legitimement.
+ */
+{
+  const FAIT = 'reparation_adresses_192';
+  if (!getSetting(FAIT, null, REGLAGES_SERVICE)) {
+    const n = db.prepare(`
+      UPDATE feeds SET last_error = NULL, error_count = 0, next_fetch_at = NULL
+      WHERE last_error LIKE '%réseau local%'
+    `).run().changes;
+    setSetting(FAIT, String(Date.now()), REGLAGES_SERVICE);
+    if (n) console.log(`[bublee] ${n} source(s) refusee(s) a tort ont retrouve leur tour.`);
+  }
+}

@@ -783,6 +783,18 @@ function attrs(a) {
 const classeLue = (a) => (a.read_at ? ' read' : '');
 const curseur = (a) => (indexParId.get(a.id) === state.pointer ? ' cursor' : '');
 
+/**
+ * Le titre d'un article, en vrai lien.
+ *
+ * Les cartes étaient des <button> contenant des <h2> et des <p> : du HTML
+ * qu'aucune spécification n'autorise, et qu'un lecteur d'écran annonce comme
+ * un seul bouton dont le libellé serait toute la carte, surtitre et chapô
+ * compris. Le titre porte maintenant un lien : il nomme la carte, se tabule,
+ * s'ouvre dans un onglet, se copie. La carte entière reste cliquable — c'est
+ * le gestionnaire de la scène qui s'en charge.
+ */
+const lien = (a) => `<a class="art-lien" href="#/article/${a.id}" data-open="${a.id}">${esc(a.title)}</a>`;
+
 /* ------------------------------------------- couleurs d'attente des images */
 
 /**
@@ -857,24 +869,24 @@ function blocUne(a) {
       ${fond}
       <div class="une-voile"></div>
       <div class="une-tampon">La une</div>
-      <button class="une-corps" data-open="${a.id}">
+      <div class="une-corps">
         <div class="une-sur">${surtitre(a)}</div>
         <h2 class="une-titre">${esc(a.title)}</h2>
         ${a.summary || a.extrait ? `<p class="une-chapo">${chapo(a)}</p>` : ''}
         ${puces(a)}
-      </button>
+      </div>
     </div>`;
 }
 
 function blocColonnes(liste) {
   return `<div class="bloc cols">${liste.map((a) => `
-    <button class="col art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+    <article class="col art${classeLue(a)}${curseur(a)}" ${attrs(a)}>
       <div class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}</span></div>
-      <h3 class="col-titre">${esc(a.title)}</h3>
+      <h3 class="col-titre">${lien(a)}</h3>
       <div class="wipe"></div>
       ${a.summary || a.extrait ? `<p class="chapo">${chapo(a)}</p>` : ''}
       <div class="col-pied">${esc(laDuree(a) || 'à lire')}${puces(a)}</div>
-    </button>`).join('')}</div>`;
+    </article>`).join('')}</div>`;
 }
 
 function blocMur(liste) {
@@ -887,16 +899,16 @@ function blocMur(liste) {
         // La pastille ne sert qu'à annoncer ce qui ne se voit pas : une durée.
         : '';
     return `
-      <button class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}" style="${fondImage(a)}">
+      <article class="tuile art${classeLue(a)}${curseur(a)}" ${attrs(a)} style="${fondImage(a)}">
         ${imgFondue(relais(a.image))}
         <span class="tuile-voile"></span>
         ${badge}
         <span class="tuile-corps">
           <span class="tuile-sur">${pastilleDossier(a)}${esc(a.feed_title)} · ${esc(quand(a.published_at))}</span>
-          <span class="tuile-titre">${esc(a.title)}</span>
+          <span class="tuile-titre">${lien(a)}</span>
           ${puces(a)}
         </span>
-      </button>`;
+      </article>`;
   }).join('')}</div>`;
 }
 
@@ -910,17 +922,17 @@ function blocAplats(liste) {
   const couleur = teinte(large.feed_title);
 
   const bloc = `
-    <button class="aplat art${classeLue(large)}${curseur(large)}" ${attrs(large)} data-open="${large.id}"
+    <article class="aplat art${classeLue(large)}${curseur(large)}" ${attrs(large)}
             style="--teinte:${couleur};color:${contraste(couleur)}">
       <span class="aplat-initiale">${esc(initialeDe(large))}</span>
       <span class="sur">${pastilleDossier(large)}${esc(large.feed_title)} · ${esc(quand(large.published_at))}
         ${large.has_full ? '<span class="aplat-badge">Texte complet</span>' : ''}</span>
-      <span class="aplat-titre">${esc(large.title)}</span>
+      <span class="aplat-titre">${lien(large)}</span>
       <span class="aplat-pied">
         ${large.summary || large.extrait ? `<span class="aplat-chapo">${chapo(large)}</span>` : '<span></span>'}
         <span class="aplat-duree">${puces(large)}${esc(laDuree(large))}</span>
       </span>
-    </button>`;
+    </article>`;
 
   return `<div class="bloc aplats">${bloc}${plaques.map(blocPlaque).join('')}</div>`;
 }
@@ -929,17 +941,17 @@ function blocPlaque(a, i = 0) {
   const couleur = teinte(a.feed_title);
   const sombre = i % 2 === 1;
   return `
-    <button class="plaque art ${sombre ? 'sombre' : 'claire'}${classeLue(a)}${curseur(a)}" ${attrs(a)}
-            data-open="${a.id}" style="--teinte:${couleur};--teinte-douce:${rgba(couleur, .22)}">
+    <article class="plaque art ${sombre ? 'sombre' : 'claire'}${classeLue(a)}${curseur(a)}" ${attrs(a)}
+            style="--teinte:${couleur};--teinte-douce:${rgba(couleur, .22)}">
       <span class="plaque-initiale">${esc(initialeDe(a))}</span>
       <span class="plaque-source">${esc(a.feed_title)}</span>
       <span class="plaque-corps">
         <span class="sur">${pastilleDossier(a)}${esc(quand(a.published_at))} · sans illustration</span>
-        <span class="plaque-titre">${esc(a.title)}</span>
+        <span class="plaque-titre">${lien(a)}</span>
         <span class="wipe"></span>
         <span class="plaque-pied">${esc(laDuree(a) || 'texte indisponible')}${puces(a)}</span>
       </span>
-    </button>`;
+    </article>`;
 }
 
 function blocFils(liste) {
@@ -951,12 +963,12 @@ function blocFils(liste) {
         <span class="reste">${nombre(liste.length)} à lire</span>
       </div>
       <div class="fils">${liste.map((a) => `
-        <button class="fil art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+        <article class="fil art${classeLue(a)}${curseur(a)}" ${attrs(a)}>
           <span class="fil-heure">${esc(heure(a.published_at))}</span>
-          <span class="fil-titre">${esc(a.title)}</span>
+          <span class="fil-titre">${lien(a)}</span>
           ${puces(a)}
           <span class="fil-source">${esc(a.feed_title)}</span>
-        </button>`).join('')}</div>
+        </article>`).join('')}</div>
     </div>`;
 }
 
@@ -1079,28 +1091,28 @@ function ligneSommaire(a, i) {
   const couleur = teinte(a.feed_title);
   const vignette = a.image ? imgFondue(relais(a.image)) : '';
   return `
-    <button class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+    <article class="som art${classeLue(a)}${curseur(a)}" ${attrs(a)}>
       <span class="som-num">${String(i + 1).padStart(2, '0')}</span>
       <span>
         <span class="sur">${pastilleDossier(a)}${esc(a.feed_title)} <span class="quand">· ${esc(quand(a.published_at))}${laDuree(a) ? ' · ' + esc(laDuree(a)) : ''}</span></span>
-        <span class="som-titre">${esc(a.title)}</span>
+        <span class="som-titre">${lien(a)}</span>
         ${a.summary || a.extrait ? `<span class="som-chapo">${chapo(a)}</span>` : ''}
         ${puces(a)}
       </span>
       <span class="som-thumb" style="--teinte:${couleur};${fondImage(a)}">${vignette}</span>
-    </button>`;
+    </article>`;
 }
 
 function ligneDepeche(a) {
   return `
-    <button class="dep art${classeLue(a)}${curseur(a)}" ${attrs(a)} data-open="${a.id}">
+    <article class="dep art${classeLue(a)}${curseur(a)}" ${attrs(a)}>
       <span class="dep-puce" aria-hidden="true"></span>
       <span class="dep-heure">${esc(heure(a.published_at))}</span>
-      <span class="dep-titre">${esc(a.title)}</span>
+      <span class="dep-titre">${lien(a)}</span>
       ${puces(a)}
       <span class="dep-source">${esc(a.feed_title)}</span>
       <span class="dep-duree">${esc(a.duration ? '◆ ' + Math.round(a.duration / 60) + ' min' : '')}</span>
-    </button>`;
+    </article>`;
 }
 
 function etatVide() {
@@ -1774,7 +1786,8 @@ function onKey(event) {
     if (partageId !== null) return fermerPartage();
     if (popId !== null) return fermerPopTags();
     if (!$('#reader').hidden) return closeReader();
-    if (!$('#modalShade').hidden) return closeModals();
+    // Une fenêtre se ferme d'elle-même sur Échap : le navigateur s'en charge.
+    if (unModalEstOuvert()) return;
     if (state.q) { $('#search').value = ''; state.q = ''; loadArticles(true); }
     return;
   }
@@ -1914,15 +1927,21 @@ const fermerLirePop = () => { $('#lirePop').hidden = true; };
 
 /* -------------------------------------------------------------- fenêtres */
 
+/* Les fenêtres sont des <dialog> : le navigateur pose lui-même le voile,
+   piège le focus à l'intérieur et le rend à ce qui l'avait au moment de
+   l'ouverture. C'était trois choses à écrire, et à tenir à jour. */
+
 function openModal(sel) {
   closeModals();
-  $('#modalShade').hidden = false;
-  $(sel).hidden = false;
+  const fenetre = $(sel);
+  if (!fenetre.open) fenetre.showModal();
 }
+
 function closeModals() {
-  $('#modalShade').hidden = true;
-  $$('.modal').forEach((m) => (m.hidden = true));
+  $$('dialog.modal[open]').forEach((m) => m.close());
 }
+
+const unModalEstOuvert = () => Boolean($('dialog.modal[open]'));
 function closeRail() { $('#app').classList.remove('rail-on'); }
 
 /* ---------------------------------------------------- gestion étiquettes */
@@ -2870,8 +2889,18 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   });
 
   $('#flux').addEventListener('click', (e) => {
-    const open = e.target.closest('[data-open]');
-    if (open) { openArticle(Number(open.dataset.open)); return; }
+    // Le titre est un lien : un clic avec modificateur, ou du milieu, doit
+    // ouvrir un onglet comme partout ailleurs. On ne détourne que le clic nu.
+    const titre = e.target.closest('a.art-lien');
+    if (titre) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      openArticle(Number(titre.dataset.open));
+      return;
+    }
+    // Ailleurs dans la carte : elle est cliquable en entier, comme avant.
+    const carte = e.target.closest('.art');
+    if (carte?.dataset.id) { openArticle(Number(carte.dataset.id)); return; }
     const suggest = e.target.closest('[data-suggest]');
     if (suggest) { ajouterSuggestion(Number(suggest.dataset.suggest), suggest); return; }
     if (e.target.closest('[data-add-feed]')) { openModal('#feedModal'); $('#feedUrl').focus(); return; }
@@ -2966,7 +2995,11 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
     $('#readerProgress').style.width = (max > 0 ? (el.scrollTop / max) * 100 : 0) + '%';
   });
 
-  $('#modalShade').addEventListener('click', closeModals);
+  // Cliquer le voile ferme : le clic tombe alors sur le <dialog> lui-même,
+  // et non sur un de ses enfants.
+  $$('dialog.modal').forEach((fenetre) => {
+    fenetre.addEventListener('click', (e) => { if (e.target === fenetre) fenetre.close(); });
+  });
   $$('[data-close]').forEach((b) => b.addEventListener('click', closeModals));
   $('#openSettings').addEventListener('click', ouvrirReglages);
   $('#shortcutsBtn').addEventListener('click', () => openModal('#shortcutsModal'));

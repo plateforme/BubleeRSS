@@ -92,7 +92,13 @@ export function editionDuJour(userId, { refaire = false } = {}) {
 
   if (gardee) {
     const ids = JSON.parse(gardee.ids);
-    return { jour, ids, composee: false };
+    // Une edition gardee vide n'est pas une pile finie : c'est une composition
+    // qui n'a rien trouve — le plus souvent parce qu'aucun article frais n'etait
+    // encore arrive a la premiere demande du jour, juste apres un redemarrage.
+    // La garder gelerait l'edition a vide toute la journee : la ligne disparait
+    // et l'ouverture retombe sur les non-lus. On la recompose donc tant qu'elle
+    // est vide. Une pile deja remplie, elle, ne bouge plus — meme entierement lue.
+    if (ids.length) return { jour, ids, composee: false };
   }
 
   const { articles } = composer(candidats(userId));

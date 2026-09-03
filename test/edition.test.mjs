@@ -126,3 +126,28 @@ test('une source en survol n’entre pas dans l’édition', () => {
   ).all(...ids).map((r) => r.feed_id);
   assert.ok(!dansLEdition.includes(discrete), 'le survol reste hors de l’édition');
 });
+
+test('une édition composée vide ne gèle pas la journée : elle se recompose', async () => {
+  // Un compte à part, pour maîtriser ce qu'il a à lire.
+  const seul = await comptes.creerCompte({ email: 'vide@bublee.test', motDePasse: 'dix-caracteres-au-moins', role: 'super' });
+  const flux = Number(db.prepare(
+    'INSERT INTO feeds (url, title, folder, created_at, user_id, priority) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run('https://vide.test/rss', 'vide', '', Date.now(), seul.id, 'suivi').lastInsertRowid);
+
+  // Première demande du jour, sans aucun article : l'édition se compose vide
+  // et se met en cache — c'est le moment qui, en prod, tombait juste après un
+  // redémarrage, avant l'arrivée des articles frais.
+  const avant = edition.editionDuJour(seul.id);
+  assert.equal(avant.ids.length, 0, 'rien à composer pour l’instant');
+
+  // Les articles arrivent ensuite.
+  store.saveItems(flux, [{
+    guid: 'tardif-1', url: 'https://vide.test/1', title: 'Un article arrivé après la première demande, bien assez long',
+    author: null, summary: '', content: '<p>x</p>', image: null,
+    published_at: Date.now(), duration: null, word_count: 400
+  }], seul.id);
+
+  // Sans refaire : l'édition doit maintenant les voir, pas rester gelée vide.
+  const apres = edition.editionDuJour(seul.id);
+  assert.ok(apres.ids.length > 0, 'l’édition se recompose au lieu de rester vide toute la journée');
+});

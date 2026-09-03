@@ -10,6 +10,16 @@ import { app, scheduleRefresh, stopRefresh } from './app.js';
 const PORT = Number(process.env.PORT || 4321);
 const HOST = process.env.HOST || '127.0.0.1';
 
+/* Le filet. Bublee parle a des serveurs qu'il ne choisit pas : un flux tordu,
+   une reponse HTTP malformee, une bibliotheque tierce qui leve dans un rappel
+   de socket — tout cela peut jeter une exception hors de portee d'un
+   try/catch, et sur un service au long cours, la faire tomber en boucle de
+   redemarrage. Un lecteur perso a tout interet a la noter et a continuer :
+   l'etat vit dans SQLite, en ecritures synchrones, et ne reste jamais a moitie
+   ecrit entre deux requetes. On garde donc le serveur debout. */
+process.on('uncaughtException', (e) => console.error('[bublee] exception non capturée :', e?.stack || e));
+process.on('unhandledRejection', (e) => console.error('[bublee] rejet non traité :', e?.stack || e));
+
 function openBrowser(url) {
   if (process.env.BUBLEE_NO_OPEN) return;
   const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]

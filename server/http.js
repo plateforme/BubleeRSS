@@ -117,27 +117,28 @@ export function decodeBody(buffer, contentType) {
 
 /* ------------------------------------------------------------------ GET */
 
-/** Lit le corps par morceaux et abandonne des que le plafond est depasse :
-    on ne garde pas un gigaoctet en memoire pour le jeter ensuite. */
-async function lireCorps(res, maxBytes, controller) {
+/**
+ * Lit le corps en entier, puis verifie le plafond.
+ *
+ * On ne coupe jamais une lecture en cours — ni `abort()` a mi-parcours, ni
+ * `cancel()` sur un corps a moitie lu. Undici, le client HTTP de Node, plante
+ * alors son parseur quand la socket se ferme : `assert(!this.paused)`, une
+ * exception levee dans un rappel de socket, hors de portee de tout try/catch,
+ * qui emporte le processus entier. On lit donc jusqu'au bout et on rejette
+ * apres : un peu plus de reseau sur une reponse trop grosse, jamais de chute.
+ *
+ * Le content-length declare permet quand meme de refuser tot ce qui s'annonce
+ * demesure — apres avoir vide ce que le serveur a deja envoye, proprement.
+ */
+async function lireCorps(res, maxBytes) {
   const annonce = Number(res.headers.get('content-length'));
   if (Number.isFinite(annonce) && annonce > maxBytes) {
-    controller.abort();
+    await res.arrayBuffer().catch(() => {});   // drainer sans planter
     throw new Error('Réponse trop volumineuse.');
   }
-  if (!res.body) return Buffer.alloc(0);
-
-  const morceaux = [];
-  let total = 0;
-  for await (const morceau of res.body) {
-    total += morceau.length;
-    if (total > maxBytes) {
-      controller.abort();
-      throw new Error('Réponse trop volumineuse.');
-    }
-    morceaux.push(morceau);
-  }
-  return Buffer.concat(morceaux);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length > maxBytes) throw new Error('Réponse trop volumineuse.');
+  return buffer;
 }
 
 /**
@@ -170,8 +171,10 @@ export async function httpGet(url, {
 
       const vers = res.headers.get('location');
       if (res.status >= 300 && res.status < 400 && vers) {
-        // Le corps d'une redirection ne sert a rien : on le libere et on repart.
-        res.body?.cancel().catch(() => {});
+        // Le corps d'une redirection ne sert a rien, mais il faut le lire
+        // jusqu'au bout : l'abandonner (cancel) ferait planter undici, comme
+        // ci-dessus. On le vide donc, sans le garder.
+        await res.arrayBuffer().catch(() => {});
         if (saut >= REDIRECTIONS_MAX) throw new Error('Trop de redirections.');
         let suivante;
         try { suivante = new URL(vers, cible.href).href; } catch { throw new Error('Redirection illisible.'); }
@@ -179,7 +182,7 @@ export async function httpGet(url, {
         continue;
       }
 
-      const buffer = await lireCorps(res, maxBytes, controller);
+      const buffer = await lireCorps(res, maxBytes);
       // fetch ne renseigne res.url qu'en mode follow : on le pose nous-memes.
       Object.defineProperty(res, 'url', { value: cible.href, configurable: true });
       return { res, buffer };

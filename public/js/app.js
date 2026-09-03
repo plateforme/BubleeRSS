@@ -12,6 +12,7 @@ const state = {
   folder: null,
   q: '',
   tri: 'date',           // pendant une recherche : date | pertinence
+  edition: null,         // { total, restants, minutes } dans la vue « édition »
   tag: null,
   layout: 'magazine',    // magazine (la une) | list (sommaire) | compact (dépêches)
   articles: [],
@@ -581,6 +582,10 @@ function peindreCompteurs() {
   $('#countStarred').textContent = nombre(state.counts.starred);
   $('#countSurvol').textContent = nombre(state.counts.survol || 0);
   $('#rowSurvol').hidden = !state.counts.survol && state.view !== 'survol';
+  // L'édition ne s'affiche que s'il y a une édition : pas de ligne morte pour
+  // qui vient de tout lire.
+  $('#countEdition').textContent = nombre(state.counts.edition || 0);
+  $('#rowEdition').hidden = !state.counts.edition && state.view !== 'edition';
   $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
   $('#toolbarCount').textContent =
     `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;
@@ -731,13 +736,22 @@ function titreVue() {
   if (state.feedId) return state.feeds.find((f) => f.id === state.feedId)?.title || 'Source';
   if (state.tag) return '#' + state.tag;
   if (state.folder) return state.folder;
-  return { unread: 'Non lus', all: 'Tout', starred: 'Favoris', survol: 'Survol' }[state.view];
+  return {
+    unread: 'Non lus', all: 'Tout', starred: 'Favoris', survol: 'Survol', edition: 'L’édition du jour'
+  }[state.view];
 }
 
 function sousTitre() {
   const n = state.articles.length;
   if (state.loading && !n) return 'Chargement';
   if (!n) return '';
+  // L'édition annonce ce qu'elle demande : c'est ce qui en fait une pile
+  // qu'on peut finir, et non un fond qui se dérobe.
+  if (state.edition) {
+    const { total, restants, minutes } = state.edition;
+    return `${pluriel(total, 'article')} · ${minutes} min`
+      + (restants && restants < total ? ` · ${nombre(restants)} à lire` : '');
+  }
   return nombre(n) + (state.done ? '' : '+') + ' articles';
 }
 
@@ -748,6 +762,7 @@ async function loadArticles(reset = false) {
     state.cursor = null;
     state.done = false;
     state.pointer = -1;
+    state.edition = null;
     // La liste qu'on recharge contient ce qui vient d'arriver : le bandeau
     // n'a plus rien à annoncer.
     entrants = 0;
@@ -780,6 +795,7 @@ async function loadArticles(reset = false) {
     state.articles.push(...data.articles);
     state.cursor = data.nextCursor;
     state.done = !data.nextCursor;
+    state.edition = data.edition || null;
   } catch (error) {
     toast('Chargement impossible : ' + error.message, 'bad');
     state.done = true;
@@ -1200,6 +1216,15 @@ function etatVide() {
     return `<div class="empty"><h2>Aucun favori</h2>
       <p>Appuie sur <kbd>S</kbd> sur un article pour le garder sous la main.</p></div>`;
   }
+  if (state.view === 'edition') {
+    return `<div class="empty"><h2>Pas d’édition aujourd’hui</h2>
+      <p>Elle se compose à partir des sources suivies, avec ce qui est arrivé ces
+         derniers jours. Rafraîchis, ou va voir dans « Tout ».</p>
+      <div class="empty-actions">
+        <button class="btn" data-refresh>Rafraîchir</button>
+        <button class="btn" data-goto-view="all">Voir tout</button>
+      </div></div>`;
+  }
   return `<div class="empty"><h2>Rien à afficher</h2>
     <div class="empty-actions"><button class="btn" data-refresh>Rafraîchir</button></div></div>`;
 }
@@ -1227,7 +1252,7 @@ function setView({ view, feedId = null, folder = null, tag = null }) {
      #/dossier/Tech               #/etiquette/veille     #/recherche/quebec
      #/unread/article/482         #/article/482          (l'ancienne forme)  */
 
-const VUES = ['unread', 'all', 'starred', 'survol'];
+const VUES = ['unread', 'all', 'starred', 'survol', 'edition'];
 
 function hashDeLEtat() {
   // La vue n'accompagne une source, un dossier ou une étiquette que si elle

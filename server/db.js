@@ -117,6 +117,17 @@ CREATE TABLE IF NOT EXISTS rules (
   created_at INTEGER NOT NULL
 );
 
+-- L'edition du jour : une pile finie, composee une fois, qui ne bouge plus
+-- jusqu'au lendemain. C'est ce qui la distingue des non-lus, dont le fond se
+-- derobe a mesure qu'on avance.
+CREATE TABLE IF NOT EXISTS editions (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  jour       TEXT NOT NULL,
+  ids        TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, jour)
+);
+
 CREATE TABLE IF NOT EXISTS article_tags (
   article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
   tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,

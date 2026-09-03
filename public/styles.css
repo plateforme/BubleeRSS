@@ -1282,6 +1282,11 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* L'édition du jour ouvre l'index : c'est la pile qu'on peut finir. Sa marque
+   est pleine, là où les autres vues n'ont qu'un contour. */
+.view-row.edition .view-mark { background: var(--accent); border-color: var(--accent); }
+.view-row.edition .view-label { font-family: var(--display); font-size: 17px; letter-spacing: 0; text-transform: none; }
+
 /* Ce qui est arrivé pendant qu'on lisait. Un filet à l'accent, pas une
    fenêtre : c'est une nouvelle, pas une interruption. */
 .nouveautes {

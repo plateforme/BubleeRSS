@@ -126,6 +126,13 @@
     </div>
 
     <nav class="index-views" aria-label="Vues">
+      <!-- Une pile finie, composée une fois par jour : elle passe devant les
+           non-lus, dont le fond se dérobe. -->
+      <button class="view-row edition" data-view="edition" id="rowEdition" hidden>
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">L’édition</span>
+        <span class="view-count" id="countEdition">0</span>
+      </button>
       <button class="view-row" data-view="unread">
         <span class="view-mark" aria-hidden="true"></span>
         <span class="view-label">Non lus</span>

@@ -6,6 +6,7 @@ import { extraireTexteComplet, extraireImageDeLaPage, extraireIconeDuSite } from
 import { estYouTube } from './youtube.js';
 import { purgerSessionsExpirees } from './comptes.js';
 import { reglesActives, verdict, crediter, correspond } from './regles.js';
+import { editionDuJour, minutesDe } from './edition.js';
 
 const now = () => Date.now();
 
@@ -1134,6 +1135,18 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   // Hors d'un flux precis, on n'affiche qu'un exemplaire de chaque histoire.
   if (!feedId) where.push('a.dupe_of IS NULL');
 
+  /* L'edition du jour est une liste close : on montre exactement ce qui a ete
+     choisi ce matin, y compris ce qu'on a deja lu — sinon la pile fondrait
+     sous les yeux et on perdrait le compte de ce qu'on a fait.
+     Les identifiants sont nommes, comme le reste des parametres. */
+  let edition = null;
+  if (view === 'edition') {
+    edition = editionDuJour(params.compte);
+    if (!edition.ids.length) return { articles: [], nextCursor: null, edition: { jour: edition.jour, total: 0 } };
+    where.push(`a.id IN (${edition.ids.map((_, i) => '@ed' + i).join(',')})`);
+    edition.ids.forEach((id, i) => { params['ed' + i] = id; });
+  }
+
   if (view === 'unread') where.push('a.read_at IS NULL');
   if (view === 'starred') where.push('a.starred = 1');
   if (view === 'survol') { where.push('a.read_at IS NULL'); where.push("f.priority = 'survol'"); }
@@ -1192,8 +1205,24 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   `).all(params);
 
   const last = rows[rows.length - 1];
+  const articles = rows.map(avecTags);
+
+  // Une edition se lit en entier : elle annonce ce qu'elle demande.
+  if (edition) {
+    return {
+      articles,
+      nextCursor: null,
+      edition: {
+        jour: edition.jour,
+        total: articles.length,
+        restants: articles.filter((a) => !a.read_at).length,
+        minutes: articles.reduce((n, a) => n + minutesDe(a), 0)
+      }
+    };
+  }
+
   return {
-    articles: rows.map(avecTags),
+    articles,
     nextCursor: !parPertinence && rows.length === params.limit && last
       ? last.published_at + ',' + last.id
       : null
@@ -1463,6 +1492,13 @@ export function counts(u) {
      WHERE a.read_at IS NULL AND a.dupe_of IS NULL AND f.user_id = @compte
        AND f.priority = '${priorite}')`;
 
+  // L'edition du jour : ce qu'il reste a lire de la pile close d'aujourd'hui.
+  const { ids } = editionDuJour(compte);
+  const edition = ids.length
+    ? db.prepare(`SELECT COUNT(*) n FROM articles WHERE read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`)
+      .get(...ids).n
+    : 0;
+
   const global = db.prepare(`
     SELECT
       ${nonLus('suivi')}  AS unread,
@@ -1484,7 +1520,7 @@ export function counts(u) {
     GROUP BY f.folder
   `).all(compte);
 
-  return { ...global, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
+  return { ...global, edition, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
 }
 
 export { getSetting, setSetting };

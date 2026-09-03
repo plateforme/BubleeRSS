@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { sanitizeHtml, toPlainText, firstImage, decodeEntities, countWords, absolutize } from './html.js';
 import { httpGet, decodeBody, MAX_BYTES } from './http.js';
 import { estYouTube, resoudreFluxYouTube, contenuVideo } from './youtube.js';
+import { estSpotify, resoudreFluxSpotify } from './spotify.js';
 import { fluxDePlateforme } from './plateformes.js';
 
 const parser = new XMLParser({
@@ -331,6 +332,14 @@ export async function discoverFeeds(input) {
   // YouTube n'annonce pas son flux dans la page : on le deduit de l'adresse.
   if (estYouTube(url)) {
     const trouve = await verifier(await resoudreFluxYouTube(url).catch(() => null));
+    if (trouve) return trouve;
+  }
+
+  // Spotify n'heberge aucun flux : on remonte du lien au vrai RSS du podcast,
+  // celui que Spotify lui-meme reprend. Une exclusivite, elle, n'en a nulle
+  // part — on retombe alors sur la decouverte ordinaire plutot que d'inventer.
+  if (estSpotify(url)) {
+    const trouve = await verifier(await resoudreFluxSpotify(url).catch(() => null));
     if (trouve) return trouve;
   }
 

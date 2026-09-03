@@ -278,28 +278,33 @@ async function boot() {
   // .app, qui porte la grille — sans transition pour ce premier passage.
   if (document.documentElement.dataset.plie === '1') $('#app').classList.add('plie');
 
-  // Rien ne se charge tant que personne n'est entré.
-  await ouvrirLaPorte();
-  $('#indexDate').textContent = dateJournal();
-  $('#mastheadDate').textContent = dateJournal();
-
-  // La vue vient de l'adresse avant le premier chargement : sans ça, on
-  // chargeait les non-lus puis la vraie liste, deux fois.
-  const ecran = ECRANS[location.hash];
-  const depart = ecran ? null : lireAdresse();
+  // La vue de départ est décidée avant tout — et avant même la connexion :
+  // sinon le titre « Non lus » du HTML s'affiche, puis l'aller-retour réseau
+  // le fait basculer sur l'édition, ce qui clignote. On pose donc tout de
+  // suite le bon titre, et on ne le corrigera qu'un jour sans édition.
+  //
   // Une ouverture « maison » vise l'édition du jour plutôt que les non-lus :
   // une pile finie qu'on peut terminer, pas un fond qui se dérobe. Sont
   // « maison » l'ouverture nue et les deux vues d'accueil — c'est aussi ce
-  // par quoi la version installée démarre. Un lien précis vers une source,
-  // un dossier, une étiquette ou une recherche, lui, est respecté.
+  // par quoi la version installée démarre. Un lien précis vers une source, un
+  // dossier, une étiquette ou une recherche, lui, est respecté.
+  const ecran = ECRANS[location.hash];
+  const depart = ecran ? null : lireAdresse();
   const accueil = location.hash.replace(/^#\/?/, '');
   const neutre = Boolean(depart) && (accueil === '' || accueil === 'unread' || accueil === 'edition');
   if (depart) {
     Object.assign(state, {
-      view: depart.view, feedId: depart.feedId, folder: depart.folder, tag: depart.tag, q: depart.q
+      view: neutre ? 'edition' : depart.view,
+      feedId: depart.feedId, folder: depart.folder, tag: depart.tag, q: depart.q
     });
     $('#search').value = depart.q;
+    $('#stageTitle').textContent = titreVue();
   }
+
+  // Rien ne se charge tant que personne n'est entré.
+  await ouvrirLaPorte();
+  $('#indexDate').textContent = dateJournal();
+  $('#mastheadDate').textContent = dateJournal();
 
   try {
     const data = await api.state();

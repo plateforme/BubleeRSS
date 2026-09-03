@@ -126,6 +126,12 @@ export function fichiers(racine) {
     const duree = fichier.startsWith(polices + path.sep)
       ? 'public, max-age=31536000, immutable'
       : 'no-cache';
+    // Le service worker doit pouvoir prendre toute l'origine sous son aile,
+    // et jamais etre servi d'un cache : c'est lui qui gere les autres.
+    if (relatif === '/sw.js') {
+      res.set('service-worker-allowed', '/');
+      res.set('cache-control', 'no-cache');
+    }
     return servir(req, res, entree, duree);
   };
 }

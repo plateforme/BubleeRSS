@@ -568,9 +568,13 @@ app.get('*', (req, res, suite) => {
  
 app.use((error, req, res, next) => {
   const status = error.status || 500;
-  if (status >= 500) console.error('[bublee]', error);
-  // Un message d'erreur interne — SQL, pile, chemin — ne regarde pas le client.
-  const message = status >= 500 ? 'Erreur interne.' : error.message || 'Erreur.';
+  if (!error.status) console.error('[bublee]', error);
+  /* Ce qui porte un statut a ete leve pour etre lu : « le site refuse la
+     lecture automatique », « la page n'existe plus ». Ce qui n'en porte pas
+     est une panne — message SQL, pile, chemin de fichier — et ne regarde pas
+     le client. La distinction est l'intention, pas le code de retour : une
+     extraction impossible repond 502 et a pourtant quelque chose a dire. */
+  const message = error.status ? error.message || 'Erreur.' : 'Erreur interne.';
   res.status(status).json({ error: message, ...(error.feedId ? { feedId: error.feedId } : {}) });
 });
 

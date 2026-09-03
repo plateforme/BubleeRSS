@@ -28,6 +28,9 @@ const CSP = [
   'media-src https: http:',
   'frame-src ' + CADRES.join(' '),
   "connect-src 'self'",
+  // Le service worker vit ici, et n'est jamais charge d'ailleurs.
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

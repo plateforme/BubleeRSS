@@ -324,3 +324,53 @@ test('la sauvegarde rend une base SQLite valide, et seulement à un super', asyn
   assert.equal(base2.pragma('integrity_check')[0].integrity_check, 'ok');
   base2.close();
 });
+
+/* ---------------------------------------------------------------- PWA */
+
+test('le manifeste, le service worker et les icônes sont servis', async () => {
+  const m = await fetch(base + '/manifest.webmanifest');
+  assert.equal(m.status, 200);
+  assert.match(m.headers.get('content-type'), /manifest\+json/);
+  const manifeste = JSON.parse(await m.text());
+  assert.equal(manifeste.name, 'Bublee');
+  assert.equal(manifeste.share_target.action, '/partage');
+  for (const icone of manifeste.icons) {
+    const r = await fetch(base + icone.src);
+    assert.equal(r.status, 200, icone.src);
+    assert.equal(r.headers.get('content-type'), 'image/png');
+    const octets = Buffer.from(await r.arrayBuffer());
+    assert.equal(octets.subarray(1, 4).toString('latin1'), 'PNG', icone.src + ' est bien un PNG');
+  }
+
+  const sw = await fetch(base + '/sw.js');
+  assert.equal(sw.status, 200);
+  assert.match(sw.headers.get('content-type'), /javascript/);
+  assert.equal(sw.headers.get('service-worker-allowed'), '/');
+  assert.equal(sw.headers.get('cache-control'), 'no-cache');
+});
+
+test('/partage rend l’application, qui lira l’adresse partagée', async () => {
+  const r = await fetch(base + '/partage?url=' + encodeURIComponent('https://exemple.fr/blog'));
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/html/);
+});
+
+test('la CSP autorise le service worker et le manifeste', async () => {
+  const csp = (await fetch(base + '/api/ping')).headers.get('content-security-policy');
+  assert.match(csp, /worker-src 'self'/);
+  assert.match(csp, /manifest-src 'self'/);
+});
+
+test('un message d’erreur voulu passe, une panne reste muette', async () => {
+  // Un article sans lien : le magasin lève un 422 explicite, qu'on veut lire.
+  const [greg] = db.prepare('SELECT id FROM users ORDER BY id').all().map((r) => r.id);
+  const flux = db.prepare('SELECT id FROM feeds WHERE user_id = ?').get(greg).id;
+  const id = Number(db.prepare(`
+    INSERT INTO articles (feed_id, guid, url, title, published_at, fetched_at)
+    VALUES (?, 'sans-lien', NULL, 'Un article sans lien', ?, ?)
+  `).run(flux, Date.now(), Date.now()).lastInsertRowid);
+
+  const r = await appel('POST', `/api/articles/${id}/full`, { cookie: cookieGreg });
+  assert.equal(r.statut, 422);
+  assert.match(r.json.error, /lien vers sa source/, 'le message voulu arrive au client');
+});

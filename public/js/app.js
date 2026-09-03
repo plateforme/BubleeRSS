@@ -185,6 +185,35 @@ async function renderComptes() {
     </div>`).join('');
 }
 
+/* ------------------------------------------------- hors ligne et partage */
+
+/**
+ * Le service worker : il garde la coquille et les articles déjà ouverts, de
+ * sorte que Bublee s'ouvre et se relit sans réseau. Il ne s'enregistre qu'en
+ * contexte sûr — le navigateur refuse ailleurs, et l'application marche très
+ * bien sans lui.
+ */
+function poserLeServiceWorker() {
+  if (!('serviceWorker' in navigator) || !isSecureContext) return;
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* tant pis, on reste en ligne */ });
+}
+
+/**
+ * Une adresse partagée depuis le téléphone arrive sur /partage. On en tire ce
+ * qui ressemble à une adresse — certaines applications mettent le lien dans
+ * le texte plutôt que dans le champ prévu — et on ouvre l'ajout de source.
+ */
+function adressePartagee() {
+  if (location.pathname !== '/partage') return null;
+  const p = new URLSearchParams(location.search);
+  const candidats = [p.get('url'), p.get('text'), p.get('title')].filter(Boolean);
+  for (const c of candidats) {
+    const trouve = /https?:\/\/\S+/.exec(c);
+    if (trouve) return trouve[0];
+  }
+  return candidats[0] || null;
+}
+
 async function boot() {
   applyTheme(localStorage.getItem('bublee.theme') || 'auto');
   // L'amorce a posé l'état replié sur <html> avant le rendu ; on le reporte sur
@@ -217,6 +246,18 @@ async function boot() {
     toast('Le serveur ne répond pas : ' + error.message, 'bad');
   }
   wireEvents();
+
+  poserLeServiceWorker();
+
+  // Une adresse partagée depuis le téléphone, ou « #/ajouter » en marque-page.
+  const partagee = adressePartagee();
+  if (partagee || location.hash === '#/ajouter') {
+    history.replaceState(null, '', '/#/' + state.view);
+    openModal('#feedModal');
+    $('#feedUrl').value = partagee || '';
+    $('#feedUrl').focus();
+    return;
+  }
 
   // Un écran (étiquettes, réglages, raccourcis) s'ouvre par-dessus la vue.
   if (ecran) ecran();

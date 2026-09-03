@@ -26,5 +26,11 @@ export default [
     files: ['public/js/**/*.js'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: { ...globals.browser } },
     rules: commun
+  },
+  {
+    // Le service worker a ses propres globales : ni `window`, ni `document`.
+    files: ['public/sw.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: { ...globals.serviceworker } },
+    rules: commun
   }
 ];

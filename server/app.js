@@ -15,6 +15,7 @@ import { adopterOrphelins } from './db.js';
 import * as cacheImages from './cache-images.js';
 import { entetes } from './entetes.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
+import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
 
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -451,8 +452,16 @@ app.get('/api/image', wrap(async (req, res) => {
 // doit pas repondre index.html a un script qui s'est trompe d'adresse.
 app.all('/api/*', (req, res) => res.status(404).json({ error: 'Route inconnue : ' + req.method + ' ' + req.path }));
 
-app.use(express.static(path.join(root, 'public'), { maxAge: 0, etag: true, index: 'index.html' }));
-app.get('*', (req, res) => res.sendFile(path.join(root, 'public', 'index.html')));
+const PUBLIC = path.join(root, 'public');
+app.use(fichiers(PUBLIC));
+
+// Toute autre adresse est une vue de l'application : c'est l'index qui repond,
+// et le routage se fait dans le navigateur.
+app.get('*', (req, res, suite) => {
+  const index = lireStatique(path.join(PUBLIC, 'index.html'));
+  if (!index) return suite();
+  servirStatique(req, res, index, 'no-cache');
+});
 
  
 app.use((error, req, res, next) => {

@@ -211,3 +211,39 @@ test('déconnexion : le cookie ne vaut plus rien', async () => {
   assert.equal(r.statut, 200);
   assert.equal((await appel('GET', '/api/auth/moi', { cookie: cookieAlice })).statut, 401);
 });
+
+/* ------------------------------------------------------------- statique */
+
+test('les fichiers de l’interface sont compressés, avec ETag et 304', async () => {
+  const brut = await fetch(base + '/js/app.js', { headers: { 'accept-encoding': 'identity' } });
+  const compresse = await fetch(base + '/js/app.js', { headers: { 'accept-encoding': 'br, gzip' } });
+  assert.equal(brut.status, 200);
+  assert.match(brut.headers.get('content-type'), /javascript/);
+  assert.equal(compresse.headers.get('content-encoding'), 'br');
+  const gagne = Number(brut.headers.get('content-length')) / Number(compresse.headers.get('content-length'));
+  assert.ok(gagne > 3, `la compression doit diviser par plus de trois (ici ${gagne.toFixed(1)})`);
+
+  const etag = brut.headers.get('etag');
+  assert.ok(etag);
+  const revisite = await fetch(base + '/js/app.js', { headers: { 'if-none-match': etag } });
+  assert.equal(revisite.status, 304);
+});
+
+test('les polices sont mises en cache pour longtemps, et ne sont pas recompressées', async () => {
+  const r = await fetch(base + '/fonts/newsreader-normal-300-700-latin.woff2');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'font/woff2');
+  assert.match(r.headers.get('cache-control'), /immutable/);
+  assert.equal(r.headers.get('content-encoding'), null);
+});
+
+test('une adresse de vue rend l’index, et rien ne sort du dossier public', async () => {
+  const vue = await fetch(base + '/reglages');
+  assert.equal(vue.status, 200);
+  assert.match(vue.headers.get('content-type'), /text\/html/);
+
+  // Une remontée de dossier ne doit jamais servir un fichier du projet.
+  const dehors = await fetch(base + '/../package.json');
+  const corps = await dehors.text();
+  assert.ok(!corps.includes('"better-sqlite3"'), 'le package.json ne doit pas être servi');
+});

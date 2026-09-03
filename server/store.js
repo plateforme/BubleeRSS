@@ -1324,7 +1324,13 @@ export function counts(u) {
        AND f.priority = '${priorite}')`;
 
   // L'edition du jour : ce qu'il reste a lire de la pile close d'aujourd'hui.
+  // Deux nombres, pas un : ce qu'il reste a lire de l'edition (le compteur), et
+  // sa taille (existe-t-elle aujourd'hui ?). Les confondre faisait disparaitre
+  // la ligne des qu'on avait tout lu — le compteur a zero valant « pas
+  // d'edition ». La taille, elle, ne bouge pas de la journee : la ligne reste,
+  // meme une fois la pile finie.
   const { ids } = editionDuJour(compte);
+  const editionTotal = ids.length;
   const edition = ids.length
     ? db.prepare(`SELECT COUNT(*) n FROM articles WHERE read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`)
       .get(...ids).n
@@ -1351,7 +1357,7 @@ export function counts(u) {
     GROUP BY f.folder
   `).all(compte);
 
-  return { ...global, edition, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
+  return { ...global, edition, editionTotal, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
 }
 
 export { getSetting, setSetting };

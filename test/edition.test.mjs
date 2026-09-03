@@ -151,3 +151,13 @@ test('une édition composée vide ne gèle pas la journée : elle se recompose',
   const apres = edition.editionDuJour(seul.id);
   assert.ok(apres.ids.length > 0, 'l’édition se recompose au lieu de rester vide toute la journée');
 });
+
+test('la ligne de l’édition survit à sa lecture complète : le total demeure, le reste tombe à zéro', () => {
+  const { ids } = edition.editionDuJour(moi.id);
+  assert.ok(ids.length > 0, 'il y a bien une édition');
+  for (const id of ids) store.setRead(id, true, moi.id);
+
+  const c = store.counts(moi.id);
+  assert.equal(c.edition, 0, 'plus rien à lire — le compteur est à zéro');
+  assert.equal(c.editionTotal, ids.length, 'mais l’édition existe toujours aujourd’hui : la ligne ne disparaît pas');
+});

@@ -1293,6 +1293,8 @@ kbd {
    est pleine, là où les autres vues n'ont qu'un contour. */
 .view-row.edition .view-mark { background: var(--accent); border-color: var(--accent); }
 .view-row.edition .view-label { font-family: var(--display); font-size: 17px; letter-spacing: 0; text-transform: none; }
+/* Édition du jour terminée : la coche dit « à jour », pas un zéro éteint. */
+.view-row.edition.finie .view-count { color: var(--accent); font-size: 13px; }
 
 /* Ce qui est arrivé pendant qu'on lisait. Un filet à l'accent, pas une
    fenêtre : c'est une nouvelle, pas une interruption. */

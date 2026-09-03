@@ -408,10 +408,16 @@ function peindreCompteurs() {
   $('#countStarred').textContent = nombre(state.counts.starred);
   $('#countSurvol').textContent = nombre(state.counts.survol || 0);
   $('#rowSurvol').hidden = !state.counts.survol && state.view !== 'survol';
-  // L'édition ne s'affiche que s'il y a une édition : pas de ligne morte pour
-  // qui vient de tout lire.
-  $('#countEdition').textContent = nombre(state.counts.edition || 0);
-  $('#rowEdition').hidden = !state.counts.edition && state.view !== 'edition';
+  // La ligne s'affiche dès qu'il y a une édition aujourd'hui, et y reste la
+  // journée durant — même une fois tous ses articles lus. La faire disparaître
+  // au dernier lu était déroutant : l'édition semblait perdue alors qu'elle
+  // n'était que finie. Le compteur montre ce qu'il reste ; terminée, un ✓ dit
+  // « à jour » plutôt qu'un zéro muet.
+  const resteEdition = state.counts.edition || 0;
+  const aUneEdition = (state.counts.editionTotal || 0) > 0;
+  $('#countEdition').textContent = aUneEdition && !resteEdition ? '✓' : nombre(resteEdition);
+  $('#rowEdition').classList.toggle('finie', aUneEdition && !resteEdition);
+  $('#rowEdition').hidden = !aUneEdition && state.view !== 'edition';
   $('#lastRefresh').textContent = state.counts.lastRefreshAt ? 'Màj ' + quand(state.counts.lastRefreshAt) : '';
   $('#toolbarCount').textContent =
     `${nombre(state.counts.unread)} non lus · ${nombre(state.feeds.length)} sources`;

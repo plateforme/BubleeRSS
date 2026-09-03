@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "lint": "eslint ."
   },
   "engines": {
     "node": ">=18"
@@ -21,5 +22,10 @@
   },
   "overrides": {
     "qs": "^6.16.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "globals": "^17.12.0"
   }
 }

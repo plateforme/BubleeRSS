@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, quand, heure, dateLongue, dateJournal, tempsLecture, duree, relais, hote, debounce, pluriel, nombre } from './util.js';
+import { esc, quand, heure, dateJournal, tempsLecture, duree, relais, hote, debounce, nombre } from './util.js';
 
 const $ = (sel, scope = document) => scope.querySelector(sel);
 const $$ = (sel, scope = document) => [...scope.querySelectorAll(sel)];
@@ -148,7 +148,7 @@ function renderMonCompte() {
 }
 
 async function renderComptes() {
-  let liste = [];
+  let liste;
   try { liste = (await api.comptes()).comptes; } catch { return; }
 
   $('#comptesListe').innerHTML = liste.map((c) => `

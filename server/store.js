@@ -221,7 +221,7 @@ export async function reparerFlux(id, u) {
 
   for (const candidat of candidats) {
     if (db.prepare('SELECT 1 FROM feeds WHERE url = ? AND id <> ? AND user_id = ?')
-        .get(candidat.url, id, feed.user_id)) {
+      .get(candidat.url, id, feed.user_id)) {
       propositions.push({ url: candidat.url, title: candidat.title, deja: true });
       continue;
     }
@@ -771,15 +771,6 @@ export function createTag(nom, u) {
   return db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(id);
 }
 
-function tagsDe(articleId) {
-  return db.prepare(`
-    SELECT t.name FROM tags t
-    JOIN article_tags at ON at.tag_id = t.id
-    WHERE at.article_id = ?
-    ORDER BY t.name COLLATE NOCASE
-  `).all(articleId).map((r) => r.name);
-}
-
 function idDuTag(nom, u, creer = true) {
   const propre = normaliserTag(nom);
   if (!propre) return null;
@@ -1094,7 +1085,6 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
   // Quelle que soit la selection, elle est bornee aux articles du compte.
   const where = ['read_at IS NULL', `id IN ${ARTICLES_DU_COMPTE}`];
   const params = [stamp, compte];
-  let changed = 0;
 
   if (Array.isArray(ids) && ids.length) {
     where.push(`id IN (${ids.map(() => '?').join(',')})`);
@@ -1109,7 +1099,7 @@ export function markRead({ ids, feedId, folder, all, olderThan } = {}, u) {
     if (!feedId && !folder && !all && !olderThan) return 0;
   }
 
-  changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
+  const changed = db.prepare('UPDATE articles SET read_at = ? WHERE ' + where.join(' AND ')).run(...params).changes;
 
   // Les copies de la meme histoire suivent, dans les autres flux aussi.
   if (changed) reconcilierDoublons(compte);

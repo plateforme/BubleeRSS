@@ -453,7 +453,7 @@ app.all('/api/*', (req, res) => res.status(404).json({ error: 'Route inconnue : 
 app.use(express.static(path.join(root, 'public'), { maxAge: 0, etag: true, index: 'index.html' }));
 app.get('*', (req, res) => res.sendFile(path.join(root, 'public', 'index.html')));
 
-// eslint-disable-next-line no-unused-vars
+ 
 app.use((error, req, res, next) => {
   const status = error.status || 500;
   if (status >= 500) console.error('[bublee]', error);

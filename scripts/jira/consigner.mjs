@@ -53,7 +53,7 @@ const entetes = {
 async function api(chemin, options = {}) {
   const res = await fetch(SITE + '/rest/api/3' + chemin, { ...options, headers: { ...entetes, ...(options.headers || {}) } });
   const texte = await res.text();
-  let corps = null;
+  let corps;
   try { corps = texte ? JSON.parse(texte) : null; } catch { corps = texte; }
   if (!res.ok) throw new Error(`${options.method || 'GET'} ${chemin} → ${res.status} ${JSON.stringify(corps).slice(0, 400)}`);
   return corps;

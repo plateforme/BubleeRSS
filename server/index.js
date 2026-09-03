@@ -13,6 +13,7 @@ import * as comptes from './comptes.js';
 import { adopterOrphelins, orphelinsEnAttente } from './db.js';
 import * as cacheImages from './cache-images.js';
 import { entetes } from './entetes.js';
+import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -62,7 +63,7 @@ app.post('/api/auth/installer', wrap(async (req, res) => {
 
 /* ------------------------------------------------------------ connexion */
 
-app.post('/api/auth/login', wrap(async (req, res) => {
+app.post('/api/auth/login', gardeConnexion, wrap(async (req, res) => {
   const { email, motDePasse } = req.body || {};
   const compte = comptes.compteParEmail(email);
 
@@ -71,8 +72,10 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const ok = compte && compte.actif && await comptes.verifierMotDePasse(motDePasse || '', compte.mot_de_passe);
   if (!ok) {
     if (!compte) await comptes.verifierMotDePasse(String(motDePasse || ''), 'scrypt$32768$8$1$AAAA$AAAA');
+    req.limiteur.echec();
     return res.status(401).json({ error: 'Adresse ou mot de passe incorrect.' });
   }
+  req.limiteur.reussite();
 
   const jetonSession = comptes.ouvrirSession(compte.id, { agent: req.get('user-agent'), ip: req.ip });
   comptes.poserCookie(res, jetonSession, req.secure || req.get('x-forwarded-proto') === 'https');
@@ -462,6 +465,7 @@ function scheduleRefresh() {
   const minutes = Number(store.getSetting('refresh_minutes', '30', patron?.id ?? 0));
   if (!Number.isFinite(minutes) || minutes <= 0) return;
   refreshTimer = setInterval(() => {
+    nettoyerLimiteur();
     store.refreshAll()
       .then((r) => {
         if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`);

@@ -25,10 +25,12 @@ export function regenererJeton(userId) {
   return valeur;
 }
 
+/* Le jeton ne voyage que dans un en-tete. En query string, il finissait dans
+   les journaux, l'historique du navigateur et le Referer envoye aux editeurs. */
 function jetonFourni(req) {
   const entete = req.get('authorization');
   if (entete && /^bearer\s+/i.test(entete)) return entete.replace(/^bearer\s+/i, '').trim();
-  return req.get('x-bublee-token') || (typeof req.query.token === 'string' ? req.query.token : null);
+  return req.get('x-bublee-token') || null;
 }
 
 /** Compare en temps constant, longueurs egalisees. */
@@ -59,7 +61,17 @@ export function compteDuJeton(fourni) {
  * connexion et la mise en route initiale.
  */
 export function identifier(req, res, next) {
-  const parSession = compteDeSession(jetonDuCookie(req));
+  // Une requete venue d'une autre origine n'a droit qu'au jeton : le cookie
+  // n'y vaut rien, meme s'il est arrive (navigateur ancien, SameSite absent).
+  // On compare l'hote, pas le schema : derriere un proxy TLS qui n'est pas
+  // sur la boucle locale, le schema vu d'ici est http alors que l'origine
+  // dit https, et ce n'est pas une attaque.
+  const origine = req.get('origin');
+  let memeOrigine = true;
+  if (origine) {
+    try { memeOrigine = new URL(origine).host === req.get('host'); } catch { memeOrigine = false; }
+  }
+  const parSession = memeOrigine ? compteDeSession(jetonDuCookie(req)) : null;
   if (parSession) {
     req.compte = parSession;
     req.viaSession = true;
@@ -85,17 +97,27 @@ export function exigeSuper(req, res, next) {
   res.status(403).json({ error: 'Réservé à un super-utilisateur.' });
 }
 
-/** Les en-tetes CORS, et la reponse au preflight. */
+/**
+ * Les en-tetes CORS, et la reponse au preflight.
+ *
+ * Une page tierce peut appeler l'API avec un jeton — c'est prevu, c'est a ca
+ * qu'il sert. Elle ne peut pas le faire avec le cookie : l'origine n'est
+ * refletee que pour une requete qui porte un jeton (ou un preflight qui
+ * annonce qu'elle en portera un), et jamais avec allow-credentials. Refleter
+ * toute origine avec credentials ne tenait que par le SameSite du cookie,
+ * c'est-a-dire par un seul fil.
+ */
 export function cors(req, res, next) {
   const origine = req.get('origin');
-  if (origine) {
+  const demandes = String(req.get('access-control-request-headers') || '').toLowerCase();
+  const avecJeton = Boolean(jetonFourni(req)) || /authorization|x-bublee-token/.test(demandes);
+  if (origine && avecJeton) {
     res.set('access-control-allow-origin', origine);
-    res.set('access-control-allow-credentials', 'true');
     res.set('vary', 'origin');
+    res.set('access-control-allow-headers', 'content-type, authorization, x-bublee-token');
+    res.set('access-control-allow-methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+    res.set('access-control-max-age', '86400');
   }
-  res.set('access-control-allow-headers', 'content-type, authorization, x-bublee-token');
-  res.set('access-control-allow-methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
-  res.set('access-control-max-age', '86400');
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 }

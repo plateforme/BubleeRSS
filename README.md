@@ -59,10 +59,18 @@ Le cache disque des images, à côté, se reconstruit tout seul.
 | `PORT`              | `4321`      | port d'écoute                                       |
 | `HOST`              | `127.0.0.1` | mettre `0.0.0.0` pour lire depuis le téléphone      |
 | `BUBLEE_DATA`       | `./data`    | emplacement de la base                              |
-| `BUBLEE_AUTH`       | `lan`       | portée de l'API : `lan`, `strict` ou `off`          |
-| `BUBLEE_TOKEN`      | —           | impose un jeton d'API au lieu de celui généré       |
 | `BUBLEE_NO_OPEN`    | —           | si défini, n'ouvre pas le navigateur au démarrage   |
 | `BUBLEE_IMG_CACHE_MB` | `512`     | plafond du cache disque des images                  |
+
+Le jeton d'API n'est pas une variable d'environnement : il est **personnel**,
+un par compte, dans les réglages de chacun.
+
+En conteneur, `/data` est le seul volume à monter :
+
+```bash
+docker build -t bublee .
+docker run -d --name bublee -p 4321:4321 -v bublee-data:/data bublee
+```
 
 Pour lire depuis un autre appareil du réseau :
 
@@ -602,22 +610,26 @@ curl http://127.0.0.1:4321/api          # la liste des routes
 curl http://127.0.0.1:4321/api/health   # état et compteurs
 ```
 
-**Accès.** Un jeton est généré au premier démarrage et affiché dans la console
-(et dans `GET /api/token` depuis la machine locale). `BUBLEE_AUTH` règle la portée :
-
-| Valeur   | Qui passe sans jeton                    |
-|----------|------------------------------------------|
-| `lan`    | machine locale **et** réseau privé (défaut) |
-| `strict` | machine locale seulement                 |
-| `off`    | tout le monde                            |
-
-Depuis l'extérieur :
+**Accès.** Il n'y a pas de portée à régler : **personne ne passe sans
+s'identifier**, et l'adresse IP ne dispense de rien. Deux façons de le faire —
+la session du navigateur, ou le **jeton personnel** du compte, un par compte,
+visible dans ses réglages et révocable sans toucher aux autres.
 
 ```bash
-curl -H "Authorization: Bearer $BUBLEE_TOKEN" http://192.168.1.20:4321/api/articles?view=unread
+curl -H "Authorization: Bearer $JETON" http://192.168.1.20:4321/api/articles?view=unread
 ```
 
-CORS est ouvert (avec le jeton), donc une page web tierce peut appeler l'API.
+Le jeton ne voyage que dans un en-tête. En paramètre d'adresse il finirait dans
+les journaux du serveur, l'historique du navigateur et le `Referer` envoyé aux
+éditeurs : cette forme a été retirée.
+
+Une page web tierce peut appeler l'API **avec un jeton** — CORS reflète alors
+son origine. Elle ne peut pas le faire avec le cookie de session : l'origine
+n'est jamais reflétée pour lui, et une requête venue d'ailleurs qui le
+présenterait n'est pas authentifiée.
+
+`GET /api/ping` répond sans compte, et ne dit rien d'autre que « je réponds » :
+c'est ce qu'une sonde ou un `HEALTHCHECK` de conteneur peut interroger.
 
 **Routes principales**
 

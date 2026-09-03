@@ -18,6 +18,8 @@ import { entetes } from './entetes.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
 import { listerRegles, creerRegle, modifierRegle, supprimerRegle } from './regles.js';
+import { abonner, annoncer, nombreAbonnes, toutFermer } from './evenements.js';
+import { tailleVoulue, reduire, disponible as vignettesDisponibles } from './vignettes.js';
 
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -154,6 +156,7 @@ app.use('/api', (req, res, next) => {
 
 const ROUTES = [
   ['GET',    '/api/ping',                'vie du service, sans compte'],
+  ['GET',    '/api/events',              'flux d evenements : compteurs, import (SSE)'],
   ['GET',    '/api/auth/etat',           'installe ? qui suis-je ?'],
   ['POST',   '/api/auth/installer',      'creer le premier compte (super)'],
   ['POST',   '/api/auth/login',          'ouvrir une session { email, motDePasse }'],
@@ -189,6 +192,8 @@ const ROUTES = [
   ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
+  ['PATCH',  '/api/folders/:nom',        'renommer un dossier (fusionne si le nom existe) { name }'],
+  ['POST',   '/api/feeds/ordre',         'fixer l ordre des sources { ids }'],
   ['GET',    '/api/feeds/stats',         'ce que chaque source apporte ; parametre jours'],
   ['POST',   '/api/feeds/priorites',     'changer la priorite de plusieurs sources { ids, priority }'],
   ['GET',    '/api/rules',               'les regles de filtrage'],
@@ -201,7 +206,7 @@ const ROUTES = [
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
   ['GET',    '/api/backup',              'telecharger une copie coherente de la base (super)'],
-  ['GET',    '/api/image',               'relais d’images ; parametre url']
+  ['GET',    '/api/image',               'relais d’images ; parametres url et w (largeur voulue)']
 ];
 
 app.get('/api', (req, res) => {
@@ -223,6 +228,8 @@ app.get('/api/health', wrap(async (req, res) => {
   res.json({
     ok: true, version: VERSION, uptime: Math.round(process.uptime()),
     ...counts,
+    ecoutes: nombreAbonnes(),
+    vignettes: await vignettesDisponibles(),
     cacheImages: await cacheImages.etat()
   });
 }));
@@ -424,11 +431,20 @@ app.post('/api/opml/import', wrap(async (req, res) => {
   const xml = typeof req.body === 'string' ? req.body : req.body?.opml;
   if (!xml) return res.status(400).json({ error: 'Fichier OPML vide.' });
 
-  const result = importOpml(xml, { defaultFolder: req.query.folder || '' }, moi(req));
+  const compte = moi(req);
+  const result = importOpml(xml, { defaultFolder: req.query.folder || '' }, compte);
   res.json(result);
 
-  // Le premier telechargement peut durer : on le lance apres avoir repondu.
-  store.refreshAll().catch((error) => console.error('[bublee] refresh apres import :', error.message));
+  /* Le premier telechargement de quatre-vingt-dix-huit sources peut durer une
+     minute. La page attendait huit secondes au hasard avant de recharger ; on
+     lui dit maintenant quand c'est fini. */
+  annoncer(compte, 'import', { etat: 'en-cours', sources: result.added });
+  store.refreshAll()
+    .then((r) => annoncerCompteurs(compte, { added: r.added, import: 'fini' }))
+    .catch((error) => {
+      console.error('[bublee] refresh apres import :', error.message);
+      annoncer(compte, 'import', { etat: 'echec', error: error.message });
+    });
 }));
 
 app.get('/api/opml/export', (req, res) => {
@@ -436,6 +452,33 @@ app.get('/api/opml/export', (req, res) => {
     'Content-Disposition',
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
+});
+
+/* ---------------------------------------------------------- evenements */
+
+// Le serveur pousse ce qu'il a a dire : compteurs apres un rafraichissement,
+// progression d'un import. La page n'a plus a redemander pour savoir.
+app.get('/api/events', (req, res) => abonner(req, res));
+
+/** Les compteurs d'un compte, tels qu'on les annonce. */
+const annoncerCompteurs = (userId, extra = {}) => annoncer(userId, 'compteurs', {
+  ...extra,
+  counts: store.counts(userId),
+  feeds: store.compteursSources(userId)
+});
+
+/* ------------------------------------------------------------ dossiers */
+
+// Un dossier n'est qu'une chaine sur chaque source : le renommer, c'est les
+// reecrire toutes. Vers un nom existant, les deux fusionnent.
+app.patch('/api/folders/:nom', (req, res) => {
+  const changed = store.renommerDossier(req.params.nom, req.body?.name, moi(req));
+  res.json({ changed, folders: store.listFolders(moi(req)) });
+});
+
+// L'ordre voulu dans l'index, dossier par dossier.
+app.post('/api/feeds/ordre', (req, res) => {
+  res.json({ changed: store.ordonnerSources(req.body?.ids, moi(req)) });
 });
 
 /* --------------------------------------------------------------- debit */
@@ -517,8 +560,13 @@ app.get('/api/image', wrap(async (req, res) => {
   const parsed = urlPubliqueOuNull(req.query.url || '');
   if (!parsed) return res.status(400).end();
 
+  // `w` dit la largeur a laquelle l'image sera vue. Elle est ramenee a l'une
+  // des trois tailles connues : chacune coute une entree de cache par image.
+  const largeur = tailleVoulue(req.query.w);
+  const variante = largeur ? 'w' + largeur : '';
+
   // Deja vue : on la sert du disque, sans repartir chez l'editeur.
-  const gardee = await cacheImages.lire(parsed.href);
+  const gardee = await cacheImages.lire(parsed.href, variante);
   if (gardee) {
     return res.set('content-type', gardee.type)
       .set('cache-control', 'public, max-age=604800')
@@ -529,20 +577,29 @@ app.get('/api/image', wrap(async (req, res) => {
   try {
     // Meme couche que les flux : adresse resolue verifiee, redirections
     // revues une a une, et le telechargement coupe au-dela du plafond.
-    const { res: upstream, buffer: corps } = await httpGet(parsed.href, {
+    const { res: upstream, buffer: original } = await httpGet(parsed.href, {
       navigateur: true, timeout: 15000, maxBytes: IMAGE_MAX_BYTES,
       headers: { accept: 'image/*,*/*;q=0.8', referer: parsed.origin + '/' }
     });
     if (!upstream.ok) return res.status(upstream.status).end();
 
-    const type = upstream.headers.get('content-type') || 'image/jpeg';
-    if (!/^image\//i.test(type)) return res.status(415).end();
+    const typeRecu = upstream.headers.get('content-type') || 'image/jpeg';
+    if (!/^image\//i.test(typeRecu)) return res.status(415).end();
+
+    // Reduite si on sait le faire et qu'il y a quelque chose a gagner ;
+    // sinon l'original, ce qui est toujours correct.
+    const reduite = await reduire(original, typeRecu, largeur);
+    const corps = reduite ? reduite.corps : original;
+    const type = reduite ? reduite.type : typeRecu;
 
     res.set('content-type', type).set('cache-control', 'public, max-age=604800')
       .set('x-bublee-cache', 'reseau').send(corps);
 
     // Rangee apres l'envoi : le cache ne doit jamais retarder l'affichage.
-    cacheImages.ranger(parsed.href, type, corps).catch(() => {});
+    cacheImages.ranger(parsed.href, type, corps, variante).catch(() => {});
+    // L'original est garde aussi : le lecteur le demandera en pleine largeur,
+    // et on ne veut pas refaire le voyage chez l'editeur pour ca.
+    if (reduite) cacheImages.ranger(parsed.href, typeRecu, original).catch(() => {});
   } catch (error) {
     res.status(error.status || 504).end();
   }
@@ -606,6 +663,8 @@ export function scheduleRefresh() {
       for (const c of comptes.listerComptes()) {
         await store.completerImages({}, c.id).catch(() => {});
         await store.precharger({}, c.id).catch(() => {});
+        // Chacun apprend ce qui est entre chez lui, sans avoir a demander.
+        annoncerCompteurs(c.id, { added: r.added });
       }
     } catch (error) {
       console.error('[bublee] refresh auto :', error.message);
@@ -620,8 +679,10 @@ export function scheduleRefresh() {
   armer();
 }
 
-/** Desarme le rafraichissement, pour un arret propre ou un test. */
+/** Desarme le rafraichissement et ferme les flux d'evenements, pour un arret
+    propre ou un test : une connexion SSE ne se termine jamais d'elle-meme. */
 export function stopRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = null;
+  toutFermer();
 }

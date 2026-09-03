@@ -1,30 +1,21 @@
-// Toutes les operations metier : flux, articles, deduplication, texte complet.
+// Les operations metier : flux, articles, texte complet, etiquettes, debit.
+//
+// La deduplication vit dans doublons.js, les regles dans regles.js, l edition
+// dans edition.js ; store reste la porte d entree que les routes appellent.
 import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
-import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
+import { urlKey, titleKey } from './dedupe.js';
+import { exigeCompte, now } from './garde.js';
 import { extraireTexteComplet, extraireImageDeLaPage, extraireIconeDuSite } from './readable.js';
 import { estYouTube } from './youtube.js';
 import { purgerSessionsExpirees } from './comptes.js';
 import { reglesActives, verdict, crediter, correspond } from './regles.js';
+import { editionDuJour, minutesDe } from './edition.js';
+import {
+  trouverOriginal, groupe, autresSources, reconcilierDoublons, dedupeExistants,
+  recalculerDoublons, ARTICLES_DU_COMPTE
+} from './doublons.js';
 
-const now = () => Date.now();
-
-/**
- * Tout ce qui suit est cloisonne par compte. Un flux appartient a quelqu'un, et
- * ses articles en descendent par cascade : c'est ce qui rend l'isolation
- * structurelle plutot que dependante d'un WHERE qu'on aurait pu oublier.
- *
- * Les fonctions publiques prennent donc le compte en premier argument. Celles
- * qui n'en prennent pas sont les taches du service — rafraichissement, purge —
- * qui traversent legitimement tous les comptes.
- */
-function exigeCompte(u) {
-  const id = Number(u);
-  if (!Number.isInteger(id) || id <= 0) {
-    throw Object.assign(new Error('Compte manquant : opération refusée.'), { status: 401 });
-  }
-  return id;
-}
 
 /** Le flux, s'il appartient bien a ce compte. */
 function fluxDuCompte(id, u) {
@@ -50,7 +41,7 @@ function articleDuCompte(id, u) {
 export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
-           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext,
+           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext, f.position,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
            -- Le type de source porte sa propre marque dans l'index : on ne lit
@@ -64,8 +55,38 @@ export function listFeeds(u) {
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
     WHERE f.user_id = ?
-    ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, title COLLATE NOCASE
+    ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, f.position, title COLLATE NOCASE
   `).all(exigeCompte(u));
+}
+
+/**
+ * Renomme un dossier : il n'est qu'une chaine portee par chaque source, si
+ * bien qu'il n'y avait aucun moyen de le renommer sans reprendre les sources
+ * une a une. Renommer vers un nom existant fusionne les deux, ce qui est la
+ * seule chose sensee a faire.
+ */
+export function renommerDossier(ancien, nouveau, u) {
+  const compte = exigeCompte(u);
+  const propre = String(nouveau ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return db.prepare('UPDATE feeds SET folder = ? WHERE folder = ? AND user_id = ?')
+    .run(propre, String(ancien ?? ''), compte).changes;
+}
+
+/**
+ * Fixe l'ordre des sources d'un dossier. On renumerote a partir de un : zero
+ * reste la valeur de celles qu'on n'a jamais touchees, et qui se rangent donc
+ * par titre.
+ */
+export function ordonnerSources(ids, u) {
+  const compte = exigeCompte(u);
+  const liste = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite);
+  if (!liste.length) return 0;
+  const poser = db.prepare('UPDATE feeds SET position = ? WHERE id = ? AND user_id = ?');
+  let bouges = 0;
+  db.transaction(() => {
+    liste.forEach((id, rang) => { bouges += poser.run(rang + 1, id, compte).changes; });
+  })();
+  return bouges;
 }
 
 export function getFeed(id, u) {
@@ -432,165 +453,6 @@ export function listFolders(u) {
     SELECT folder AS name, COUNT(*) AS feeds
     FROM feeds WHERE folder <> '' AND user_id = ? GROUP BY folder ORDER BY folder COLLATE NOCASE
   `).all(exigeCompte(u));
-}
-
-/* ------------------------------------------------------------ doublons */
-
-/* Ces deux recherches sont bornees au compte : sans ca, l'article d'une
-   personne pourrait etre rattache comme doublon a celui d'une autre, et l'etat
-   de lecture se propagerait d'un compte a l'autre. */
-const chercheParUrl = db.prepare(`
-  SELECT a.id, a.feed_id, a.read_at, a.starred, a.title_key
-  FROM articles a JOIN feeds f ON f.id = a.feed_id
-  WHERE a.url_key = ? AND a.dupe_of IS NULL AND f.user_id = ?
-  ORDER BY a.id LIMIT 1
-`);
-
-const chercheParTitre = db.prepare(`
-  SELECT a.id, a.feed_id, a.read_at, a.starred, a.title_key
-  FROM articles a JOIN feeds f ON f.id = a.feed_id
-  WHERE a.title_key = ? AND a.dupe_of IS NULL AND ABS(a.published_at - ?) <= ? AND f.user_id = ?
-  ORDER BY a.id LIMIT 1
-`);
-
-/**
- * Cherche un article deja stocke qui raconte la meme chose.
- * L'adresse normalisee prime ; le titre ne sert de secours que s'il est
- * assez long et que les deux publications sont proches dans le temps.
- */
-function trouverOriginal(cleUrl, cleTitre, publieLe, compte) {
-  if (cleUrl) {
-    const parUrl = chercheParUrl.get(cleUrl, compte);
-    if (parUrl) return parUrl;
-  }
-  if (cleTitre && cleTitre.length >= TITRE_FIABLE) {
-    return chercheParTitre.get(cleTitre, publieLe, FENETRE_TITRE_MS, compte) || null;
-  }
-  return null;
-}
-
-/**
- * Aligne l'etat « lu » a l'interieur de chaque groupe de doublons, dans les
- * deux sens : lire une copie suffit a marquer toute l'histoire comme lue.
- */
-/* La deduplication se fait a l'interieur d'un compte : deux personnes qui
-   suivent Le Monde ont chacune leur exemplaire de la meme depeche, et ce ne
-   sont pas des doublons l'un de l'autre. */
-const ARTICLES_DU_COMPTE =
-  '(SELECT a2.id FROM articles a2 JOIN feeds f2 ON f2.id = a2.feed_id WHERE f2.user_id = ?)';
-
-export function reconcilierDoublons(u) {
-  const compte = exigeCompte(u);
-  const stamp = now();
-  db.prepare(`
-    UPDATE articles SET read_at = ?
-    WHERE read_at IS NULL
-      AND id IN ${ARTICLES_DU_COMPTE}
-      AND id IN (SELECT dupe_of FROM articles WHERE dupe_of IS NOT NULL AND read_at IS NOT NULL)
-  `).run(stamp, compte);
-  db.prepare(`
-    UPDATE articles SET read_at = ?
-    WHERE read_at IS NULL
-      AND id IN ${ARTICLES_DU_COMPTE}
-      AND dupe_of IN (SELECT id FROM articles WHERE read_at IS NOT NULL)
-  `).run(stamp, compte);
-}
-
-/**
- * Repasse sur les articles deja stockes pour rattacher ceux qui font doublon.
- * Indispensable apres un import OPML : les histoires reprises par plusieurs
- * sources sont deja en base, personne ne les a encore comparees.
- * Le plus ancien identifiant gagne et devient l'exemplaire de reference.
- */
-export function dedupeExistants(u) {
-  const compte = exigeCompte(u);
-  const lignes = db.prepare(`
-    SELECT a.id, a.feed_id, a.url_key, a.title_key, a.published_at
-    FROM articles a JOIN feeds f ON f.id = a.feed_id
-    WHERE a.dupe_of IS NULL AND f.user_id = ? ORDER BY a.id
-  `).all(compte);
-
-  const parUrl = new Map();
-  const parTitre = new Map();
-  const aRattacher = [];
-
-  for (const ligne of lignes) {
-    let original = null;
-
-    if (ligne.url_key) {
-      const candidat = parUrl.get(ligne.url_key);
-      // Meme garde qu'a l'insertion : dans un meme flux, l'adresse ne suffit pas.
-      const suspect = candidat && candidat.feed_id === ligne.feed_id
-        && ligne.title_key && candidat.title_key && ligne.title_key !== candidat.title_key;
-      if (candidat && !suspect) original = candidat.id;
-    }
-
-    if (!original && ligne.title_key && ligne.title_key.length >= TITRE_FIABLE) {
-      const candidats = parTitre.get(ligne.title_key);
-      const proche = candidats?.find(
-        (c) => Math.abs(c.published_at - ligne.published_at) <= FENETRE_TITRE_MS
-      );
-      if (proche) original = proche.id;
-    }
-
-    if (original) {
-      aRattacher.push([original, ligne.id]);
-      continue;
-    }
-
-    if (ligne.url_key && !parUrl.has(ligne.url_key)) parUrl.set(ligne.url_key, ligne);
-    if (ligne.title_key) {
-      if (!parTitre.has(ligne.title_key)) parTitre.set(ligne.title_key, []);
-      parTitre.get(ligne.title_key).push({ id: ligne.id, published_at: ligne.published_at });
-    }
-  }
-
-  if (aRattacher.length) {
-    const maj = db.prepare('UPDATE articles SET dupe_of = ? WHERE id = ?');
-    db.transaction(() => { for (const [original, copie] of aRattacher) maj.run(original, copie); })();
-    reconcilierDoublons(compte);
-  }
-
-  return aRattacher.length;
-}
-
-/**
- * Recalcule les cles de comparaison de toute la base et refait le
- * rapprochement a zero. A lancer quand les regles de detection changent.
- */
-export function recalculerDoublons(u) {
-  const compte = exigeCompte(u);
-  const lignes = db.prepare(
-    'SELECT a.id, a.url, a.title FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE f.user_id = ?'
-  ).all(compte);
-  const maj = db.prepare('UPDATE articles SET url_key = ?, title_key = ?, dupe_of = NULL WHERE id = ?');
-  db.transaction(() => {
-    for (const ligne of lignes) maj.run(urlKey(ligne.url), titleKey(ligne.title), ligne.id);
-  })();
-  return dedupeExistants(compte);
-}
-
-/** Le canonique et toutes ses copies. */
-function groupe(id) {
-  // Les doublons sont deja calcules a l'interieur d'un compte : le groupe ne
-  // peut donc pas traverser une frontiere de compte.
-  return db.prepare(`
-    SELECT a.id FROM articles a, (SELECT COALESCE(dupe_of, id) AS racine FROM articles WHERE id = ?) g
-    WHERE a.id = g.racine OR a.dupe_of = g.racine
-  `).all(id).map((r) => r.id);
-}
-
-/** Les autres sources qui publient le meme article. */
-function autresSources(id) {
-  return db.prepare(`
-    SELECT a.id, a.url, a.feed_id,
-           COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS feed_title
-    FROM articles a
-    JOIN feeds f ON f.id = a.feed_id,
-         (SELECT COALESCE(dupe_of, id) AS racine FROM articles WHERE id = ?) g
-    WHERE (a.id = g.racine OR a.dupe_of = g.racine) AND a.id <> ?
-    ORDER BY feed_title COLLATE NOCASE
-  `).all(id, id);
 }
 
 /* -------------------------------------------------------- rafraichissement */
@@ -1104,6 +966,18 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   // Hors d'un flux precis, on n'affiche qu'un exemplaire de chaque histoire.
   if (!feedId) where.push('a.dupe_of IS NULL');
 
+  /* L'edition du jour est une liste close : on montre exactement ce qui a ete
+     choisi ce matin, y compris ce qu'on a deja lu — sinon la pile fondrait
+     sous les yeux et on perdrait le compte de ce qu'on a fait.
+     Les identifiants sont nommes, comme le reste des parametres. */
+  let edition = null;
+  if (view === 'edition') {
+    edition = editionDuJour(params.compte);
+    if (!edition.ids.length) return { articles: [], nextCursor: null, edition: { jour: edition.jour, total: 0 } };
+    where.push(`a.id IN (${edition.ids.map((_, i) => '@ed' + i).join(',')})`);
+    edition.ids.forEach((id, i) => { params['ed' + i] = id; });
+  }
+
   if (view === 'unread') where.push('a.read_at IS NULL');
   if (view === 'starred') where.push('a.starred = 1');
   if (view === 'survol') { where.push('a.read_at IS NULL'); where.push("f.priority = 'survol'"); }
@@ -1162,8 +1036,24 @@ export function queryArticles({ view = 'unread', feedId, folder, q, tag, limit =
   `).all(params);
 
   const last = rows[rows.length - 1];
+  const articles = rows.map(avecTags);
+
+  // Une edition se lit en entier : elle annonce ce qu'elle demande.
+  if (edition) {
+    return {
+      articles,
+      nextCursor: null,
+      edition: {
+        jour: edition.jour,
+        total: articles.length,
+        restants: articles.filter((a) => !a.read_at).length,
+        minutes: articles.reduce((n, a) => n + minutesDe(a), 0)
+      }
+    };
+  }
+
   return {
-    articles: rows.map(avecTags),
+    articles,
     nextCursor: !parPertinence && rows.length === params.limit && last
       ? last.published_at + ',' + last.id
       : null
@@ -1433,6 +1323,13 @@ export function counts(u) {
      WHERE a.read_at IS NULL AND a.dupe_of IS NULL AND f.user_id = @compte
        AND f.priority = '${priorite}')`;
 
+  // L'edition du jour : ce qu'il reste a lire de la pile close d'aujourd'hui.
+  const { ids } = editionDuJour(compte);
+  const edition = ids.length
+    ? db.prepare(`SELECT COUNT(*) n FROM articles WHERE read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`)
+      .get(...ids).n
+    : 0;
+
   const global = db.prepare(`
     SELECT
       ${nonLus('suivi')}  AS unread,
@@ -1454,7 +1351,10 @@ export function counts(u) {
     GROUP BY f.folder
   `).all(compte);
 
-  return { ...global, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
+  return { ...global, edition, byFolder, lastRefreshAt: Number(getSetting('last_refresh_at', 0)) || null };
 }
 
 export { getSetting, setSetting };
+
+/* La deduplication vit dans doublons.js ; store reste la porte d'entree. */
+export { reconcilierDoublons, dedupeExistants, recalculerDoublons };

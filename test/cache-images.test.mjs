@@ -48,10 +48,22 @@ test('ce qui n’est pas une image est refusé', async () => {
 
 test('un fichier abîmé est ignoré plutôt que servi', async () => {
   const url = 'https://exemple.test/abime.jpg';
-  await cache.ranger(url, 'image/jpeg', image(16));
+  const marque = Buffer.from('abime-marque-unique');
+  await cache.ranger(url, 'image/jpeg', marque);
+
+  /* On retrouve le fichier par son contenu, pas par son rang dans le dossier :
+     l'empreinte est un détail interne, et le premier fichier venu n'est pas
+     forcément le nôtre. */
+  const dir = path.join(dossier, 'cache-images');
+  const fichiers = await fsp.readdir(dir);
+  let cible = null;
+  for (const f of fichiers) {
+    const contenu = await fsp.readFile(path.join(dir, f)).catch(() => null);
+    if (contenu?.includes(marque)) { cible = path.join(dir, f); break; }
+  }
+  assert.ok(cible, 'le fichier rangé se retrouve');
+
   // On écrase par un contenu sans en-tête de type.
-  const fichiers = await fsp.readdir(path.join(dossier, 'cache-images'));
-  const cible = path.join(dossier, 'cache-images', fichiers.find((f) => /^[0-9a-f]{64}$/.test(f)));
   await fsp.writeFile(cible, Buffer.alloc(200, 0xff));
   assert.equal(await cache.lire(url), null);
 });

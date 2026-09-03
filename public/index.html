@@ -126,6 +126,13 @@
     </div>
 
     <nav class="index-views" aria-label="Vues">
+      <!-- Une pile finie, composée une fois par jour : elle passe devant les
+           non-lus, dont le fond se dérobe. -->
+      <button class="view-row edition" data-view="edition" id="rowEdition" hidden>
+        <span class="view-mark" aria-hidden="true"></span>
+        <span class="view-label">L’édition</span>
+        <span class="view-count" id="countEdition">0</span>
+      </button>
       <button class="view-row" data-view="unread">
         <span class="view-mark" aria-hidden="true"></span>
         <span class="view-label">Non lus</span>
@@ -217,6 +224,10 @@
         </div>
       </header>
 
+      <!-- Ce qui vient d'arriver pendant qu'on lisait. On ne réordonne pas la
+           page sous les yeux : on le propose. -->
+      <button class="nouveautes" id="nouveautes" hidden></button>
+
       <section class="flux" id="flux" tabindex="-1"></section>
       <div class="sentinel" id="sentinel"></div>
       <div class="end-note" id="endNote" hidden>— fin de l’édition —</div>
@@ -301,9 +312,8 @@
 </div>
 
 <!-- ============================================================= fenêtres -->
-<div class="modal-shade" id="modalShade" hidden></div>
 
-<div class="modal" id="feedModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedModalTitle">
+<dialog class="modal" id="feedModal" aria-labelledby="feedModalTitle">
   <h2 id="feedModalTitle">Ajouter une source</h2>
   <p class="modal-hint">L’adresse d’un flux RSS/Atom, ou simplement celle du site :
     Bublee cherchera le flux. Une chaîne YouTube et un podcast fonctionnent aussi.</p>
@@ -328,9 +338,9 @@
     <a class="btn" href="/api/opml/export">Exporter</a>
     <input type="file" id="opmlFile" accept=".opml,.xml,text/xml,application/xml" hidden>
   </div>
-</div>
+</dialog>
 
-<div class="modal" id="settingsModal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+<dialog class="modal" id="settingsModal" aria-labelledby="settingsTitle">
   <h2 id="settingsTitle">Réglages</h2>
   <form id="settingsForm">
     <div class="field">
@@ -484,9 +494,9 @@
   <div class="modal-io">
     <button class="btn" id="openShortcuts">Tous les raccourcis</button>
   </div>
-</div>
+</dialog>
 
-<div class="modal wide" id="shortcutsModal" hidden role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+<dialog class="modal wide" id="shortcutsModal" aria-labelledby="shortcutsTitle">
   <h2 id="shortcutsTitle">Raccourcis clavier</h2>
   <p class="modal-hint">Bublee se pilote sans souris. <kbd>?</kbd> revient ici à tout moment.</p>
 
@@ -531,9 +541,9 @@
   <div class="modal-actions">
     <button type="button" class="btn solid" data-close>Compris</button>
   </div>
-</div>
+</dialog>
 
-<div class="modal" id="feedEditModal" hidden role="dialog" aria-modal="true" aria-labelledby="feedEditTitle">
+<dialog class="modal" id="feedEditModal" aria-labelledby="feedEditTitle">
   <h2 id="feedEditTitle">Modifier la source</h2>
   <form id="feedEditForm">
     <input type="hidden" id="editFeedId">
@@ -579,9 +589,9 @@
       <button type="submit" class="btn solid">Enregistrer</button>
     </div>
   </form>
-</div>
+</dialog>
 
-<div class="modal" id="tagsModal" hidden role="dialog" aria-modal="true" aria-labelledby="tagsModalTitle">
+<dialog class="modal" id="tagsModal" aria-labelledby="tagsModalTitle">
   <h2 id="tagsModalTitle">Étiquettes</h2>
   <p class="modal-hint">Renomme, reteins ou supprime. Renommer une étiquette avec le nom
     d’une autre fusionne les deux.</p>
@@ -593,16 +603,16 @@
   <div class="modal-actions">
     <button type="button" class="btn" data-close>Fermer</button>
   </div>
-</div>
+</dialog>
 
-<div class="modal wide" id="repairModal" hidden role="dialog" aria-modal="true" aria-labelledby="repairTitle">
+<dialog class="modal wide" id="repairModal" aria-labelledby="repairTitle">
   <h2 id="repairTitle">Sources injoignables</h2>
   <p class="modal-hint" id="repairSummary"></p>
   <div class="repair-list" id="repairList"></div>
   <div class="modal-actions">
     <button type="button" class="btn" data-close>Fermer</button>
   </div>
-</div>
+</dialog>
 
 <!-- ====================================================== le baladeur ====
      Un seul lecteur audio, hors du panneau de lecture : fermer l'article ne

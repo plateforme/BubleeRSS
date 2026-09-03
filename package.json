@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "fumee": "node scripts/fumee.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -26,6 +27,10 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.9.1",
-    "globals": "^17.12.0"
+    "globals": "^17.12.0",
+    "playwright": "^1.62.1"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.35.4"
   }
 }

@@ -59,10 +59,18 @@ Le cache disque des images, à côté, se reconstruit tout seul.
 | `PORT`              | `4321`      | port d'écoute                                       |
 | `HOST`              | `127.0.0.1` | mettre `0.0.0.0` pour lire depuis le téléphone      |
 | `BUBLEE_DATA`       | `./data`    | emplacement de la base                              |
-| `BUBLEE_AUTH`       | `lan`       | portée de l'API : `lan`, `strict` ou `off`          |
-| `BUBLEE_TOKEN`      | —           | impose un jeton d'API au lieu de celui généré       |
 | `BUBLEE_NO_OPEN`    | —           | si défini, n'ouvre pas le navigateur au démarrage   |
 | `BUBLEE_IMG_CACHE_MB` | `512`     | plafond du cache disque des images                  |
+
+Le jeton d'API n'est pas une variable d'environnement : il est **personnel**,
+un par compte, dans les réglages de chacun.
+
+En conteneur, `/data` est le seul volume à monter :
+
+```bash
+docker build -t bublee .
+docker run -d --name bublee -p 4321:4321 -v bublee-data:/data bublee
+```
 
 Pour lire depuis un autre appareil du réseau :
 
@@ -76,20 +84,28 @@ HOST=0.0.0.0 npm start
   la découverte lit les `<link rel="alternate">` de la page, et à défaut teste
   les chemins classiques (`/feed`, `/rss.xml`, `/atom.xml`…).
 - **Importer / exporter en OPML** — l'export Feedly passe tel quel, dossiers compris.
-- **Chaînes YouTube et podcasts** agrégés comme n'importe quelle source, avec
-  leur lecteur intégré (voir plus bas).
+- **Chaînes YouTube, podcasts, Mastodon, Bluesky, Reddit, dépôts GitHub**
+  agrégés comme n'importe quelle source : coller le profil suffit.
 - **Étiquettes** colorées, posées à la main, interrogeables par l'API.
 - **Formats** : RSS 2.0, RSS 1.0 (RDF) et Atom, avec `content:encoded`,
   `media:content`, `dc:creator`, encodages latin-1, ETag / Last-Modified.
 - **Texte complet** des articles que le flux ne publie qu'en résumé (voir plus bas).
 - **Déduplication** des histoires reprises par plusieurs sources (voir plus bas).
+- **L'édition du jour** : une pile finie, composée une fois par jour (voir plus bas).
+- **Règles** : un mot dans un titre suffit à écarter un article (voir plus bas).
 - **Trois mises en page** : magazine (une + grille), liste, compact.
 - **Lecture intégrée** : contenu nettoyé, lettrine, temps de lecture,
-  barre de progression, enchaînement vers l'article suivant.
-- **Priorité par source** : toutes les sources ne se lisent pas pareil (voir plus bas).
-- **Recherche plein texte** dans le corps des articles, accents ignorés.
-- **Non lus / favoris / recherche**, dossiers, compteurs, rafraîchissement
-  automatique, purge des vieux articles lus (jamais les non-lus ni les favoris).
+  barre de progression, enchaînement vers l'article suivant, corps et colonne
+  réglables.
+- **Un baladeur** qui survit à la fermeture de l'article, avec reprise et vitesse.
+- **Priorité par source**, et un tableau de bord du **débit** qui dit laquelle
+  coûte vraiment (voir plus bas).
+- **Recherche plein texte** dans le corps des articles, accents ignorés, avec
+  le passage qui correspond et le classement par pertinence au choix.
+- **Non lus / favoris / recherche**, dossiers renommables et sources rangeables
+  à la main, compteurs, rafraîchissement automatique annoncé en direct, purge
+  des vieux articles lus (jamais les non-lus, les favoris ni les étiquetés).
+- **S'installe sur un écran d'accueil** et se relit **hors ligne**.
 - **Thème clair « kiosque » et sombre « encre »**, ou automatique, et **couleur d’accent** au choix.
 
 ## Comptes et rôles
@@ -213,6 +229,17 @@ Dans l'index, la **pastille de type** distingue les sources : rien pour un
 article, un carré rouge à triangle pour une chaîne vidéo, un carré ocre à barres
 de niveau pour un podcast.
 
+**Le lecteur se règle à l'œil de chacun** : corps, interligne, largeur de
+colonne, dans les réglages. Un lecteur qu'on utilise une heure par jour n'a pas
+de raison d'imposer sa mesure. Comme le thème et la largeur de l'index, ça vit
+dans le navigateur — c'est un réglage d'écran, pas de compte — et l'amorce le
+pose avant le premier rendu, pour qu'aucun texte ne saute une fois affiché.
+
+Un **dossier se renomme** d'un double-clic sur son nom ; lui donner le nom d'un
+autre fusionne les deux. Et les **sources se rangent au glissé** dans leur
+dossier : celle qu'on lit tous les jours n'a pas à rester en bas parce qu'elle
+commence par un W. Tant qu'on n'a touché à rien, l'ordre reste l'alphabet.
+
 L'**index** se replie entièrement — le chevron dans son en-tête, ou <kbd>B</kbd> —
 et la scène récupère toute la largeur ; le ☰ de la barre d'outils le ramène.
 Replier plutôt que réduire à une barre de pictogrammes : un nom de source ne se
@@ -308,6 +335,64 @@ garde en base : les fois suivantes, l'affichage est instantané.
   ce contrôle ; `--purger` efface ceux qui ne passent plus.
 - Désactivable dans les réglages.
 
+**Le seuil est global, donc il se trompe.** Une source ne publie jamais qu'un
+résumé de vingt lignes ; une autre publie tout et n'a rien à aller chercher.
+Chaque source porte donc son propre réglage — *automatique*, *toujours*,
+*jamais* — dans « Modifier la source ». En « toujours », le texte est récupéré
+juste après le rafraîchissement, par petits paquets : l'ouverture est alors
+immédiate au lieu d'attendre un aller-retour chez l'éditeur au moment précis où
+l'on veut lire.
+
+## L'édition du jour
+
+« Non lus » a un défaut de nature : son fond se dérobe. On en lit dix, il en
+arrive douze, et le compteur monte pendant qu'on travaille. Il n'y a pas de
+fin, donc pas de moment où l'on a fini — et une pile sans fin finit par ne plus
+appeler du tout.
+
+L'édition est une **pile close** : une quinzaine d'articles choisis une fois
+par jour, annoncés avec leur durée — « 15 articles · 19 min » —, et qui ne
+bougent plus jusqu'au lendemain.
+
+- Elle **tourne d'une source à l'autre** plutôt que de prendre les plus
+  récents. Pris à la file, les quinze articles viendraient des deux sources les
+  plus bavardes et l'édition ressemblerait à leur sommaire.
+- Une source en **survol** ou **muette** n'y entre pas ; un article **long** y
+  entre encore quand l'édition est presque vide, sinon une enquête de quarante
+  minutes ne serait jamais choisie.
+- Un article **lu y reste** : la pile ne doit pas fondre sous les yeux, sans
+  quoi on perdrait le compte de ce qu'on a fait. Le sous-titre dit ce qui reste.
+
+Ce qui n'y est pas n'est pas perdu — tout demeure dans « Tout », dans sa
+source, dans la recherche. Ce qui n'y est pas cesse seulement d'appeler.
+
+## Règles
+
+La priorité par source répond au « qui » ; les règles répondent au « quoi ».
+Un mot dans un titre suffit à écarter un article **avant qu'il n'apparaisse**.
+
+Le motif est une suite de mots, **tous requis**, dans n'importe quel ordre,
+accents et casse ignorés ; « entre guillemets » cherche l'expression exacte.
+Rien de ce qu'on tape ne devient une expression régulière : c'est un champ de
+saisie, pas un langage. Une règle porte sur le titre, le corps, l'auteur ou
+tout, se borne à une source si on veut, et **marque lu**, **étiquette** ou
+**met en favori**.
+
+Elles s'appliquent dans la transaction qui insère l'article : il n'existe donc
+jamais, même brièvement, sans être passé devant elles.
+
+- **« Essayer »** montre ce qu'une règle attraperait sans rien changer.
+- **Poser une règle la rejoue** sur les non-lus d'hier — sinon elle ne servirait
+  qu'aux articles à venir, et la corvée resterait sur les bras. Rejouer ne
+  défait jamais une lecture déjà faite.
+- Chaque règle **compte ce qu'elle a pris**, se suspend et se supprime.
+
+```bash
+curl -X POST http://127.0.0.1:4321/api/rules \
+  -H 'content-type: application/json' \
+  -d '{"motif":"bon plan","champ":"titre","action":"lu"}'
+```
+
 ## Priorité par source
 
 Le vrai problème d'un agrégateur n'est pas de collecter, c'est le débit. Sur
@@ -338,6 +423,23 @@ pas de ligne morte pour qui ne se sert pas de la fonction.
 curl -X PATCH http://127.0.0.1:4321/api/feeds/17   -H 'content-type: application/json' -d '{"priority":"survol"}'
 ```
 
+### Le débit, en clair
+
+Le chapitre ci-dessus posait la bonne question et laissait la réponse à
+l'intuition : on réglait source par source, sans savoir laquelle coûtait
+vraiment. La base savait — reçus, lus, favoris — il suffisait de le montrer.
+
+Les réglages affichent les vingt-cinq sources les plus prolifiques, leur part
+lue en barre, leur rythme quotidien. Une source **suivie** qui a beaucoup
+publié et qu'on ne lit presque jamais est **proposée en survol**, seule ou
+toutes ensemble.
+
+Avec un garde-fou : comparer une source aux autres suppose qu'on lise quelque
+part. Sur une bibliothèque à peine ouverte — un import OPML de la veille —
+tout paraît ignoré, et proposer d'en mettre les deux tiers en survol serait un
+conseil tiré d'un dossier vide. En dessous de quinze pour cent de lecture
+globale, Bublee se tait, et dit pourquoi.
+
 ## Recherche
 
 La recherche portait sur le titre, le résumé et l'auteur. Elle porte maintenant
@@ -357,6 +459,18 @@ index FTS5.
   de la table quel que soit le chemin d'écriture.
 
 L'index se remplit tout seul au premier démarrage qui suit la mise à jour.
+
+**Un résultat montre le passage qui correspond**, le mot en évidence, plutôt
+que le chapô de l'article — qui ne disait pas pourquoi il ressortait. Les
+marques sont deux caractères de contrôle et non des balises : le navigateur
+échappe le texte d'abord et pose le balisage ensuite, sinon un article
+contenant `<b>` ouvrirait une balise pour de bon. Et quand la correspondance
+est dans le titre, l'extrait le répéterait juste en dessous : on garde alors le
+chapô, qui apprend quelque chose.
+
+« Récents / Pertinents », dans la manchette, n'apparaît que pendant une
+recherche — le reste du temps il n'y a rien à classer autrement que par date.
+La pertinence pèse le titre huit fois le corps.
 
 ## Déduplication
 
@@ -496,33 +610,38 @@ curl http://127.0.0.1:4321/api          # la liste des routes
 curl http://127.0.0.1:4321/api/health   # état et compteurs
 ```
 
-**Accès.** Un jeton est généré au premier démarrage et affiché dans la console
-(et dans `GET /api/token` depuis la machine locale). `BUBLEE_AUTH` règle la portée :
-
-| Valeur   | Qui passe sans jeton                    |
-|----------|------------------------------------------|
-| `lan`    | machine locale **et** réseau privé (défaut) |
-| `strict` | machine locale seulement                 |
-| `off`    | tout le monde                            |
-
-Depuis l'extérieur :
+**Accès.** Il n'y a pas de portée à régler : **personne ne passe sans
+s'identifier**, et l'adresse IP ne dispense de rien. Deux façons de le faire —
+la session du navigateur, ou le **jeton personnel** du compte, un par compte,
+visible dans ses réglages et révocable sans toucher aux autres.
 
 ```bash
-curl -H "Authorization: Bearer $BUBLEE_TOKEN" http://192.168.1.20:4321/api/articles?view=unread
+curl -H "Authorization: Bearer $JETON" http://192.168.1.20:4321/api/articles?view=unread
 ```
 
-CORS est ouvert (avec le jeton), donc une page web tierce peut appeler l'API.
+Le jeton ne voyage que dans un en-tête. En paramètre d'adresse il finirait dans
+les journaux du serveur, l'historique du navigateur et le `Referer` envoyé aux
+éditeurs : cette forme a été retirée.
+
+Une page web tierce peut appeler l'API **avec un jeton** — CORS reflète alors
+son origine. Elle ne peut pas le faire avec le cookie de session : l'origine
+n'est jamais reflétée pour lui, et une requête venue d'ailleurs qui le
+présenterait n'est pas authentifiée.
+
+`GET /api/ping` répond sans compte, et ne dit rien d'autre que « je réponds » :
+c'est ce qu'une sonde ou un `HEALTHCHECK` de conteneur peut interroger.
 
 **Routes principales**
 
 | Méthode  | Route                     | Rôle |
 |----------|---------------------------|------|
 | `GET`    | `/api/state`              | flux, dossiers, compteurs, réglages |
-| `GET`    | `/api/articles`           | `view=unread\|all\|starred`, `feed`, `folder`, `q`, `limit`, `before` |
+| `GET`    | `/api/articles`           | `view=unread\|all\|starred\|survol\|edition`, `feed`, `folder`, `q`, `tag`, `sort`, `limit`, `before` |
 | `GET`    | `/api/articles/:id`       | un article et son contenu |
 | `PATCH`  | `/api/articles/:id`       | `{ "read": true }` · `{ "starred": true }` |
 | `POST`   | `/api/articles/:id/full`  | récupérer le texte complet (`?force=1`) |
-| `POST`   | `/api/articles/read`      | `{ "all": true }` · `{ "feedId": 3 }` · `{ "ids": [1,2] }` |
+| `POST`   | `/api/articles/read`      | `{ "all": true }` · `{ "feedId": 3 }` · `{ "ids": [1,2] }` · `{ "olderThan": … }` |
+| `POST`   | `/api/articles/unread`    | annuler un marquage en masse `{ "stamp": … }` |
 | `POST`   | `/api/feeds`              | `{ "url": "…", "folder": "…" }` |
 | `DELETE` | `/api/feeds/:id`          | supprimer une source |
 | `POST`   | `/api/refresh`            | rafraîchir toutes les sources |
@@ -534,9 +653,20 @@ CORS est ouvert (avec le jeton), donc une page web tierce peut appeler l'API.
 | `POST`   | `/api/articles/:id/tags`  | `{ "add": [...] }` · `{ "remove": [...] }` · `{ "set": [...] }` |
 | `PATCH`  | `/api/tags/:id`           | renommer (fusionne) ou reteindre `{ name?, color? }` |
 | `DELETE` | `/api/tags/:id`           | supprimer une étiquette |
+| `GET`    | `/api/rules`              | les règles de filtrage |
+| `POST`   | `/api/rules`              | `{ "motif": "bon plan", "champ": "titre", "action": "lu" }` |
+| `POST`   | `/api/rules/essai`        | ce qu'une règle attraperait, sans rien changer |
+| `POST`   | `/api/rules/rejouer`      | rejouer les règles sur les non-lus |
+| `GET`    | `/api/feeds/stats`        | ce que chaque source apporte ; `?jours=90` |
+| `POST`   | `/api/feeds/priorites`    | `{ "ids": [3, 7], "priority": "survol" }` |
+| `POST`   | `/api/feeds/ordre`        | l'ordre voulu dans l'index `{ "ids": [...] }` |
+| `PATCH`  | `/api/folders/:nom`       | renommer un dossier (fusionne) `{ "name": "…" }` |
 | `POST`   | `/api/dedupe`             | rapprocher les doublons (`?rebuild=1`) |
 | `POST`   | `/api/opml/import`        | corps = XML OPML |
 | `GET`    | `/api/opml/export`        | export OPML |
+| `GET`    | `/api/backup`             | une copie cohérente de la base (super) |
+| `GET`    | `/api/events`             | ce que le serveur annonce, en direct (SSE) |
+| `GET`    | `/api/ping`               | vie du service, sans compte — pour une sonde |
 
 Exemples :
 
@@ -552,6 +682,32 @@ curl -s -X POST http://127.0.0.1:4321/api/feeds \
   -H 'content-type: application/json' \
   -d '{"url":"korben.info","folder":"Tech"}'
 ```
+
+## Sur le téléphone, et hors ligne
+
+Bublee **s'installe sur un écran d'accueil** : un manifeste, une icône, le
+plein écran. Ce qui compte davantage, c'est ce que le service worker rend
+possible — **lire sans réseau**.
+
+Trois régimes, un par nature de ressource :
+
+- **la coquille** — HTML, JavaScript, CSS, polices — est servie du cache et
+  rafraîchie derrière : l'application démarre sans réseau ;
+- **les articles déjà ouverts et les images du relais** sont gardés au passage,
+  et rendus du cache quand le réseau manque ;
+- **le reste de l'API n'est jamais mis en cache** : un compteur périmé
+  tromperait plus qu'une erreur franche.
+
+**Recevoir un partage.** Une adresse partagée depuis le navigateur du téléphone
+arrive sur `/partage` et ouvre « Ajouter une source » pré-remplie — le lien est
+cherché dans le champ prévu, puis dans le texte, certaines applications ne
+faisant pas la différence. `#/ajouter` fait la même chose en marque-page.
+
+**En direct.** Le rafraîchissement automatique entrait en silence : les
+compteurs restaient ceux du chargement. Le serveur pousse maintenant ce qu'il a
+à dire par un flux d'évènements. La liste ne se réordonne jamais sous les yeux
+de qui lit : un bandeau propose les nouveautés, et c'est le lecteur qui décide
+de le suivre.
 
 ## Chaînes YouTube
 
@@ -597,10 +753,17 @@ système reste le chemin le plus sûr vers Signal quand elle est disponible.
 ## Podcasts
 
 Un podcast, c'est un flux RSS. Colle son adresse et Bublee en fait des
-articles écoutables : le lecteur audio ouvre le contenu, la durée annoncée
-par le flux (`itunes:duration`) remplace le temps de lecture, et la carte
-porte un bouton de lecture. Rien à récupérer sur la page d'origine : le
-contenu d'un épisode, c'est son audio.
+articles écoutables : la durée annoncée par le flux (`itunes:duration`)
+remplace le temps de lecture, et la carte porte un bouton de lecture. Rien à
+récupérer sur la page d'origine : le contenu d'un épisode, c'est son audio.
+
+**Le baladeur est unique et vit en pied de page.** L'épisode vivait d'abord
+dans le panneau de lecture, et le fermer coupait le son — exactement ce qu'on
+ne veut pas d'une écoute. Il survit maintenant à tout : changer d'article,
+revenir à la liste, chercher autre chose. La **position est retenue** par
+épisode, ce qui est la moitié de ce qu'on attend d'un baladeur — reprendre une
+heure d'entretien là où on l'avait laissée. La vitesse se règle de 1× à 2×, et
+les commandes de l'écran verrouillé fonctionnent là où le navigateur les porte.
 
 Où trouver l'adresse : la plupart des podcasts publient leur flux RSS sur
 leur propre site. Pour ceux hébergés ailleurs, Apple Podcasts, Podcast Addict
@@ -678,7 +841,7 @@ de clavier en bas de la colonne de gauche.
 | `F` | forcer le texte complet |
 | `R` | rafraîchir |
 | `A` | ajouter une source |
-| `Maj+A` | tout marquer comme lu |
+| `Maj+A` | tout marquer comme lu — le bouton « Tout lire », lui, propose d’abord la portée |
 | `G` | changer de mise en page |
 | `T` | étiqueter — l’article ouvert, ou celui au curseur dans la liste |
 | `P` | partager l’article au curseur |
@@ -692,19 +855,42 @@ de clavier en bas de la colonne de gauche.
 
 ```
 server/
-  index.js    routes HTTP, rafraîchissement périodique, relais d'images
-  store.js    logique métier : flux, articles, doublons, texte complet
-  feed.js     téléchargement et analyse RSS / RDF / Atom, découverte
-  dedupe.js   normalisation des adresses et des titres
-  readable.js extraction du texte complet (Readability)
-  opml.js     import / export OPML
-  html.js     nettoyage du HTML des articles
-  youtube.js  chaînes YouTube : résolution du flux, lecteur intégré
-  http.js     couche réseau commune, garde-fous SSRF
-  apikey.js   jeton d'API, portée réseau, CORS
-  db.js       schéma SQLite et migrations
+  index.js      écoute, ouverture du navigateur, arrêt propre
+  app.js        les routes HTTP — l'application, sans écouter
+  store.js      logique métier : flux, articles, texte complet, étiquettes, débit
+  doublons.js   rapprochement des copies d'une même histoire
+  edition.js    composition de l'édition du jour
+  regles.js     motifs, champs, actions ; appliquées à l'insertion
+  garde.js      exigeCompte : le contrôle par lequel tout passe
+  feed.js       téléchargement et analyse RSS / RDF / Atom, découverte
+  plateformes.js Mastodon, Bluesky, Reddit, GitHub : l'adresse du flux devinée
+  dedupe.js     normalisation des adresses et des titres
+  readable.js   extraction du texte complet (Readability), icône d'un site
+  opml.js       import / export OPML
+  html.js       nettoyage du HTML des articles
+  youtube.js    chaînes YouTube : résolution du flux, lecteur intégré
+  http.js       couche réseau commune, garde-fou SSRF, plafond de taille
+  vignettes.js  réduction des illustrations (sharp, optionnel)
+  cache-images.js  cache disque du relais
+  statique.js   les fichiers de l'interface, compressés, servis de la mémoire
+  entetes.js    CSP et en-têtes de sécurité
+  limiteur.js   les tentatives de connexion, comptées
+  evenements.js le flux d'évènements poussés vers la page (SSE)
+  apikey.js     jeton d'API, CORS
+  comptes.js    comptes, mots de passe, sessions, rôles
+  db.js         schéma SQLite et migrations
 public/
-  index.html · styles.css · js/{app,api,util}.js
+  index.html · styles.css · manifest.webmanifest · sw.js
+  js/etat.js      l'état partagé, la palette, le message passager
+  js/cartes.js    les gabarits, la composition de la une, le rendu
+  js/couleurs.js  les teintes d'attente, mesurées par le navigateur
+  js/baladeur.js  le lecteur audio persistant
+  js/glisse.js    le geste du doigt dans le lecteur
+  js/app.js       le reste : démarrage, lecteur, réglages, adresse, clavier
+  js/{api,util,amorce}.js
+scripts/
+  icones.mjs      dessine la marque en PNG, sans bibliothèque d'images
+  telecharger-polices.mjs   rapatrie les trois familles dans public/fonts
 ```
 
 Le front est en JavaScript natif (modules ES) : aucune étape de build,
@@ -716,8 +902,19 @@ Quelques choix à connaître :
   scripts, styles, `on*`, `javascript:` sont supprimés ; seules les `<iframe>`
   de lecteurs connus (YouTube, Vimeo, Spotify…) survivent.
 - **Les images passent par `/api/image`**, ce qui contourne les protections
-  anti-hotlink et évite que les éditeurs voient le lecteur. Le relais refuse
-  les adresses privées (anti-SSRF), tout comme l'extraction de texte.
+  anti-hotlink et évite que les éditeurs voient le lecteur. Elles arrivent à la
+  taille où elles seront vues : une tuile de 150 px ne reçoit plus l'original
+  de deux mégaoctets. Le redimensionnement demande `sharp`, dépendance
+  *optionnelle* — là où il ne s'installe pas, l'original est servi comme avant.
+- **Tout ce que le serveur télécharge passe par `httpGet`**, et c'est là que
+  vit le garde-fou anti-SSRF : le nom est résolu, la moindre adresse privée
+  refuse la requête en IPv4 comme en IPv6, chaque redirection repasse devant le
+  contrôle, et le corps est coupé au-delà du plafond. Un flux, une image ou une
+  page d'article ne peuvent donc pas faire sonder le réseau local.
+- **Aucun script inline**, et une `Content-Security-Policy` qui n'admet que les
+  scripts de Bublee, les images du relais et les lecteurs vidéo connus : si une
+  charge utile passait un jour à travers le nettoyeur, le navigateur refuserait
+  de l'exécuter.
 - **Déduplication** sur `(feed_id, guid)` d'abord, puis sur adresse et titre
   normalisés. Un article déjà lu n'est jamais réécrit par une mise à jour du flux.
 
@@ -727,7 +924,20 @@ Quelques choix à connaître :
 npm test
 ```
 
-47 tests : nettoyage HTML, analyse des trois formats de flux, chaînes
-YouTube et podcasts, normalisation des clés de comparaison, étiquettes, et
-comportement complet de la déduplication — y compris les faux positifs
-rencontrés sur de vrais flux.
+214 tests : nettoyage HTML — dont trente-cinq charges utiles XSS classiques —,
+analyse des trois formats de flux, chaînes YouTube et plateformes, garde-fou
+SSRF, routes de l'API et cloisonnement entre comptes, règles de filtrage,
+édition du jour, rétention, vignettes, et comportement complet de la
+déduplication, y compris les faux positifs rencontrés sur de vrais flux.
+
+```bash
+npm run lint
+npm run fumee
+```
+
+`npm run fumee` lance vraiment Bublee et s'en sert : la porte, l'index, les
+trois mises en page, un article qu'on ouvre et qui décompte les non-lus, une
+étiquette, la recherche, l'édition, les réglages, une règle, le clavier. Douze
+épreuves, aucun réseau — la bibliothèque est semée en base. Il demande
+Playwright (`npm i -D playwright && npx playwright install chromium`) ; sans
+lui, il le dit et s'arrête sans échouer.

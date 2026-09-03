@@ -19,3 +19,18 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+
+  # Le test de fumée lance vraiment l'application et s'en sert. Il demande un
+  # navigateur, donc une tâche à part : le reste ne doit pas attendre son
+  # téléchargement.
+  fumee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run fumee

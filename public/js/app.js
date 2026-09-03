@@ -192,6 +192,17 @@ async function boot() {
   $('#indexDate').textContent = dateJournal();
   $('#mastheadDate').textContent = dateJournal();
 
+  // La vue vient de l'adresse avant le premier chargement : sans ça, on
+  // chargeait les non-lus puis la vraie liste, deux fois.
+  const ecran = ECRANS[location.hash];
+  const depart = ecran ? null : lireAdresse();
+  if (depart) {
+    Object.assign(state, {
+      view: depart.view, feedId: depart.feedId, folder: depart.folder, tag: depart.tag, q: depart.q
+    });
+    $('#search').value = depart.q;
+  }
+
   try {
     const data = await api.state();
     absorb(data);
@@ -203,11 +214,10 @@ async function boot() {
   }
   wireEvents();
 
-  const article = /^#\/article\/(\d+)$/.exec(location.hash);
-  if (article) openArticle(Number(article[1]));
-  else if (location.hash === '#/tags') ouvrirGestionTags();
-  else if (location.hash === '#/shortcuts') openModal('#shortcutsModal');
-  else if (location.hash === '#/reglages') ouvrirReglages();
+  // Un écran (étiquettes, réglages, raccourcis) s'ouvre par-dessus la vue.
+  if (ecran) ecran();
+  else if (depart.openId) openArticle(depart.openId);
+  else ecrireAdresse({ remplacer: true });
 }
 
 function absorb(data) {
@@ -828,7 +838,86 @@ function setView({ view, feedId = null, folder = null, tag = null }) {
   state.tag = tag;
   closeRail();
   renderIndex();
+  ecrireAdresse();
   loadArticles(true);
+}
+
+/* ------------------------------------------------------------- l'adresse */
+
+/* Seul l'article ouvert tenait dans l'adresse : recharger la page revenait
+   aux non-lus, le bouton « précédent » ne faisait rien, et une recherche ne
+   se mettait pas en marque-page. L'adresse dit maintenant ce qu'on regarde.
+
+     #/unread                     #/source/17            #/source/17/all
+     #/dossier/Tech               #/etiquette/veille     #/recherche/quebec
+     #/unread/article/482         #/article/482          (l'ancienne forme)  */
+
+const VUES = ['unread', 'all', 'starred', 'survol'];
+
+function hashDeLEtat() {
+  // La vue n'accompagne une source, un dossier ou une étiquette que si elle
+  // n'est pas celle par défaut : une adresse courte se lit mieux.
+  const vue = state.view !== 'unread' ? '/' + state.view : '';
+  let base;
+  if (state.q) base = '/recherche/' + encodeURIComponent(state.q);
+  else if (state.feedId) base = '/source/' + state.feedId + vue;
+  else if (state.tag) base = '/etiquette/' + encodeURIComponent(state.tag) + vue;
+  else if (state.folder) base = '/dossier/' + encodeURIComponent(state.folder) + vue;
+  else base = '/' + state.view;
+  return '#' + base + (state.openId ? '/article/' + state.openId : '');
+}
+
+/** Vrai le temps d'écrire nous-mêmes : on ne réagit pas à notre propre trace. */
+let ecritureInterne = false;
+
+function ecrireAdresse({ remplacer = false } = {}) {
+  const cible = hashDeLEtat();
+  if (location.hash === cible) return;
+  ecritureInterne = true;
+  if (remplacer) history.replaceState(null, '', cible);
+  else history.pushState(null, '', cible);
+  ecritureInterne = false;
+}
+
+/** Les écrans qui ne sont pas des vues : ils gardent leur adresse à eux. */
+const ECRANS = { '#/tags': ouvrirGestionTags, '#/reglages': ouvrirReglages, '#/shortcuts': () => openModal('#shortcutsModal') };
+
+function lireAdresse(hash = location.hash) {
+  const morceaux = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  const etat = { view: 'unread', feedId: null, folder: null, tag: null, q: '', openId: null };
+
+  // L'article se lit à la fin, quelle que soit la liste qui le porte — et
+  // « #/article/482 » tout court reste une adresse valable.
+  const i = morceaux.indexOf('article');
+  if (i >= 0) {
+    etat.openId = Number(morceaux[i + 1]) || null;
+    morceaux.splice(i);
+  }
+
+  const [quoi, valeur, vue] = morceaux;
+  const val = valeur ? decodeURIComponent(valeur) : '';
+  if (quoi === 'source') etat.feedId = Number(val) || null;
+  else if (quoi === 'dossier') etat.folder = val || null;
+  else if (quoi === 'etiquette') etat.tag = val || null;
+  else if (quoi === 'recherche') { etat.q = val; etat.view = 'all'; }
+  else if (VUES.includes(quoi)) etat.view = quoi;
+  if (VUES.includes(vue)) etat.view = vue;
+  return etat;
+}
+
+/** Applique ce que dit l'adresse, sans la réécrire. */
+function appliquerAdresse(etat) {
+  const memeListe = etat.view === state.view && etat.feedId === state.feedId
+    && etat.folder === state.folder && etat.tag === state.tag && etat.q === state.q;
+
+  if (!memeListe) {
+    Object.assign(state, { view: etat.view, feedId: etat.feedId, folder: etat.folder, tag: etat.tag, q: etat.q });
+    $('#search').value = etat.q;
+    renderIndex();
+    loadArticles(true);
+  }
+  if (etat.openId && etat.openId !== state.openId) openArticle(etat.openId);
+  else if (!etat.openId && state.openId) closeReader();
 }
 
 function applyLayout(layout) {
@@ -911,7 +1000,7 @@ async function openArticle(id, { enchaine = false } = {}) {
   const index = indexParId.get(id);
   if (index !== undefined) setPointer(index, false);
   state.openId = id;
-  history.replaceState(null, '', '#/article/' + id);
+  ecrireAdresse({ remplacer: true });
 
   $('#readerShade').hidden = false;
   // Le panneau ne s'annonce qu'en venant de la liste. Enchaîné — glissé, touche
@@ -1304,7 +1393,7 @@ function closeReader() {
   fermerPartage();
   state.openId = null;
   state.ouvert = null;
-  history.replaceState(null, '', location.pathname);
+  ecrireAdresse({ remplacer: true });
   $('#reader').hidden = true;
   $('#readerShade').hidden = true;
   document.body.style.overflow = '';
@@ -2345,11 +2434,25 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   }, { root: $('#scroller'), rootMargin: '700px' }).observe($('#sentinel'));
 
   const chercher = debounce(() => {
+    const avant = state.q;
     state.q = $('#search').value.trim();
     if (state.q) { state.feedId = null; state.folder = null; state.tag = null; state.view = 'all'; renderIndex(); }
+    // La recherche s'ouvre comme une vue — elle s'empile une fois, pour qu'on
+    // puisse en revenir. Les lettres suivantes remplacent : chacune n'est pas
+    // une étape de l'historique.
+    ecrireAdresse({ remplacer: Boolean(avant) });
     loadArticles(true);
   }, 300);
   $('#search').addEventListener('input', chercher);
+
+  // Le bouton « précédent » du navigateur ramène à la vue d'avant.
+  addEventListener('popstate', () => {
+    if (ecritureInterne) return;
+    const ecran = ECRANS[location.hash];
+    if (ecran) { ecran(); return; }
+    closeModals();
+    appliquerAdresse(lireAdresse());
+  });
 
   $('#refreshBtn').addEventListener('click', rafraichir);
   $('#markAllRead').addEventListener('click', (e) => ouvrirLirePop(e.currentTarget));

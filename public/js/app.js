@@ -1959,6 +1959,7 @@ function ouvrirEditionFlux(id) {
   $('#editFeedFolder').value = feed.folder || '';
   $('#editFeedUrl').value = feed.url;
   $('#editFeedPriority').value = feed.priority || 'suivi';
+  $('#editFeedFulltext').value = feed.fulltext || 'auto';
   $('#editFeedError').textContent = feed.last_error ? '⚠ ' + feed.last_error : '';
   $('#repairFeed').hidden = !feed.last_error;
   openModal('#feedEditModal');
@@ -1975,6 +1976,7 @@ async function enregistrerFlux(event) {
       custom_title: $('#editFeedTitle').value.trim(),
       folder: $('#editFeedFolder').value.trim(),
       priority: $('#editFeedPriority').value,
+      fulltext: $('#editFeedFulltext').value,
       ...(url && url !== feed?.url ? { url } : {})
     });
     if (url && url !== feed?.url) await api.refreshFeed(id);

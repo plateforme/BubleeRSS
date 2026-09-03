@@ -196,3 +196,27 @@ test('changer les priorités refuse une valeur inconnue, et ne sort pas du compt
   assert.throws(() => store.changerPriorites([flux], 'nawak', moi.id), /Priorite inconnue/);
   assert.equal(store.changerPriorites([fluxAutre], 'muet', moi.id), 0, 'la source d’un autre n’est pas touchée');
 });
+
+/* ------------------------------------------------ texte complet par source */
+
+test('une source réglée sur « jamais » n’est plus jugée tronquée', () => {
+  store.saveItems(fluxB, [article('Un article court, mais complet', { word_count: 30 })], moi.id);
+  const id = db.prepare('SELECT id FROM articles WHERE title = ?').get('Un article court, mais complet').id;
+
+  assert.equal(store.getArticle(id, moi.id).truncated, true, 'par défaut, trente mots paraissent tronqués');
+  store.updateFeed(fluxB, { fulltext: 'jamais' }, moi.id);
+  assert.equal(store.getArticle(id, moi.id).truncated, false, 'la source dit que son flux publie tout');
+  assert.equal(store.getArticle(id, moi.id).should_fetch_full, false);
+});
+
+test('une source réglée sur « toujours » l’est même pour un long article', () => {
+  store.saveItems(fluxB, [article('Un article déjà long dans le flux', { word_count: 5000 })], moi.id);
+  const id = db.prepare('SELECT id FROM articles WHERE title = ?').get('Un article déjà long dans le flux').id;
+  store.updateFeed(fluxB, { fulltext: 'toujours' }, moi.id);
+  assert.equal(store.getArticle(id, moi.id).truncated, true);
+  store.updateFeed(fluxB, { fulltext: 'auto' }, moi.id);
+});
+
+test('le réglage de texte complet refuse une valeur inconnue', () => {
+  assert.throws(() => store.updateFeed(fluxB, { fulltext: 'nawak' }, moi.id), /texte complet inconnu/);
+});

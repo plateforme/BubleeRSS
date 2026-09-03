@@ -536,6 +536,16 @@
     <p class="field-note">Toutes les sources ne se lisent pas pareil. Une source
       en survol ou muette reste consultable en cliquant dessus, par étiquette et
       par la recherche : rien n’est perdu, seul le flot d’arrivée change.</p>
+    <label class="field">
+      <span>Texte complet</span>
+      <select id="editFeedFulltext">
+        <option value="auto">Automatique — si l’article paraît tronqué</option>
+        <option value="toujours">Toujours — cette source ne publie qu’un résumé</option>
+        <option value="jamais">Jamais — son flux publie déjà tout</option>
+      </select>
+      <small class="field-note">En « toujours », le texte est récupéré dès l’arrivée :
+        l’ouverture est alors immédiate.</small>
+    </label>
     <p class="field-note" id="editFeedError"></p>
     <div class="modal-actions spread">
       <button type="button" class="btn" id="deleteFeed">Supprimer</button>

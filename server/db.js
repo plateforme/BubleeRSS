@@ -253,7 +253,10 @@ export const migrationApplied = [
   addColumn('feeds', 'icon_checked', 'INTEGER'),
   // Avant cette date, le rafraichissement automatique passe son tour : recul
   // apres une erreur, ou Retry-After demande par le serveur.
-  addColumn('feeds', 'next_fetch_at', 'INTEGER')
+  addColumn('feeds', 'next_fetch_at', 'INTEGER'),
+  // Le texte complet, source par source : auto (le seuil de mots decide),
+  // toujours (on va le chercher des l'arrivee), jamais (le flux suffit).
+  addColumn('feeds', 'fulltext', "TEXT NOT NULL DEFAULT 'auto'")
 ].some(Boolean);
 
 /* Les icones demandees a Google disaient a Google quelles sources on lit.

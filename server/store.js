@@ -50,7 +50,7 @@ function articleDuCompte(id, u) {
 export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
-           f.last_fetched_at, f.last_error, f.error_count, f.created_at,
+           f.last_fetched_at, f.last_error, f.error_count, f.created_at, f.fulltext,
            COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS title,
            f.custom_title,
            -- Le type de source porte sa propre marque dans l'index : on ne lit
@@ -127,6 +127,10 @@ export async function addFeed(u, input, folder = '', title = '') {
     archive seulement, on n'y va que par la source, l'etiquette ou la recherche. */
 export const PRIORITES = new Set(['suivi', 'survol', 'muet']);
 
+/** Le texte complet, source par source : le seuil global ne peut pas avoir
+    raison sur toutes — certaines ne publient jamais qu'un resume. */
+export const TEXTES_COMPLETS = new Set(['auto', 'toujours', 'jamais']);
+
 export function updateFeed(id, patch, u) {
   const feed = fluxDuCompte(id, u);
   if (!feed) throw Object.assign(new Error('Flux introuvable.'), { status: 404 });
@@ -139,6 +143,13 @@ export function updateFeed(id, patch, u) {
     }
     fields.push('priority = ?');
     values.push(patch.priority);
+  }
+  if (patch.fulltext !== undefined) {
+    if (!TEXTES_COMPLETS.has(patch.fulltext)) {
+      throw Object.assign(new Error('Réglage de texte complet inconnu : ' + patch.fulltext), { status: 400 });
+    }
+    fields.push('fulltext = ?');
+    values.push(patch.fulltext);
   }
   for (const key of ['custom_title', 'folder', 'url']) {
     if (patch[key] !== undefined) {
@@ -1166,8 +1177,41 @@ function estTronque(row, u) {
   if (estYouTube(row.url)) return false;
   // Un episode de podcast non plus : son contenu, c'est l'audio.
   if (row.duration || /<audio/i.test(row.content || '')) return false;
+  // La source a le dernier mot : certaines ne publient jamais qu'un resume,
+  // d'autres publient tout, et un seuil global se trompe sur les unes ou les
+  // autres.
+  if (row.feed_fulltext === 'jamais') return false;
+  if (row.feed_fulltext === 'toujours') return true;
   const seuil = Number(getSetting('fulltext_min_words', '250', u));
   return row.word_count < (Number.isFinite(seuil) ? seuil : 250);
+}
+
+/**
+ * Va chercher d'avance le texte des sources reglees sur « toujours ».
+ * L'ouverture est alors instantanee, au lieu d'attendre un aller-retour chez
+ * l'editeur au moment precis ou on veut lire.
+ */
+export async function precharger({ limite = 20, concurrency = 3 } = {}, u) {
+  const compte = exigeCompte(u);
+  const lignes = db.prepare(`
+    SELECT a.id FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND f.fulltext = 'toujours'
+      AND a.full_content IS NULL AND a.full_error IS NULL
+      AND a.url LIKE 'http%' AND a.read_at IS NULL
+    ORDER BY a.published_at DESC LIMIT ?
+  `).all(compte, limite);
+  if (!lignes.length) return { cherches: 0, obtenus: 0 };
+
+  let obtenus = 0;
+  let curseur = 0;
+  async function worker() {
+    while (curseur < lignes.length) {
+      const { id } = lignes[curseur++];
+      try { await fetchFullText(id, {}, compte); obtenus++; } catch { /* l'echec est deja note en base */ }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, lignes.length) }, worker));
+  return { cherches: lignes.length, obtenus };
 }
 
 /** Deux teintes hexadecimales separees d'une virgule, rien d'autre. */
@@ -1195,7 +1239,7 @@ export function getArticle(id, u) {
   const compte = exigeCompte(u);
   const row = db.prepare(`
     SELECT ${ARTICLE_COLUMNS}, a.content, a.full_content, a.full_error, a.full_fetched_at,
-           f.site_url AS feed_site_url
+           f.site_url AS feed_site_url, f.fulltext AS feed_fulltext
     FROM articles a JOIN feeds f ON f.id = a.feed_id
     WHERE a.id = ? AND f.user_id = ?
   `).get(id, compte);

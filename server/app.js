@@ -170,7 +170,7 @@ const ROUTES = [
   ['PUT',    '/api/settings',            'modifier les reglages'],
   ['GET',    '/api/feeds',               'liste des sources'],
   ['POST',   '/api/feeds',               'ajouter une source { url, folder?, title? }'],
-  ['PATCH',  '/api/feeds/:id',           'renommer, deplacer, ou changer la priorite { suivi | survol | muet }'],
+  ['PATCH',  '/api/feeds/:id',           'renommer, deplacer, changer la priorite ou le texte complet'],
   ['DELETE', '/api/feeds/:id',           'supprimer une source'],
   ['POST',   '/api/feeds/:id/refresh',   'rafraichir une source'],
   ['POST',   '/api/refresh',             'rafraichir toutes les sources'],
@@ -305,8 +305,10 @@ app.post('/api/refresh', wrap(async (req, res) => {
   // Demande a la main : on reessaie meme les sources qui ont reculé.
   const resultat = await store.refreshAll({ force: true });
   res.json(resultat);
-  // Les illustrations manquantes se cherchent apres coup, sans faire attendre.
+  // Illustrations manquantes et textes des sources reglees sur « toujours » :
+  // apres coup, sans faire attendre la reponse.
   store.completerImages({}, moi(req)).catch(() => {});
+  store.precharger({}, moi(req)).catch(() => {});
 }));
 
 // Retrouve l'adresse actuelle des flux devenus injoignables.
@@ -597,7 +599,10 @@ export function scheduleRefresh() {
       const r = await store.refreshAll();
       if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`);
       // Tache du service : elle passe sur chaque compte a son tour.
-      for (const c of comptes.listerComptes()) await store.completerImages({}, c.id).catch(() => {});
+      for (const c of comptes.listerComptes()) {
+        await store.completerImages({}, c.id).catch(() => {});
+        await store.precharger({}, c.id).catch(() => {});
+      }
     } catch (error) {
       console.error('[bublee] refresh auto :', error.message);
     }

@@ -1215,7 +1215,6 @@ function onKey(event) {
   if (key === '/') { event.preventDefault(); $('#search').focus(); return; }
   if (key === 'a') { event.preventDefault(); openModal('#feedModal'); $('#feedUrl').focus(); return; }
   if (key === 'A') { event.preventDefault(); toutMarquerLu(); return; }
-  if (key === 'U' || (key === 'a' && event.shiftKey)) { event.preventDefault(); toutMarquerLu(); return; }
   if (key === 'r') { event.preventDefault(); rafraichir(); return; }
   if (key === '?') { event.preventDefault(); openModal('#shortcutsModal'); return; }
   if (key === ',') { event.preventDefault(); ouvrirReglages(); return; }

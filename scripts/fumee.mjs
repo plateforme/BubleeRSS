@@ -192,6 +192,25 @@ await verifier('l’édition du jour se compose et s’annonce', async () => {
   }
 });
 
+await verifier('entrer dans une source depuis l’édition montre ses articles', async () => {
+  // L'édition est une pile close d'une quinzaine d'articles : la croiser avec
+  // une source ne laisse rien. On demandait une source et on obtenait
+  // « Pas d'édition aujourd'hui », alors que la source, elle, avait de quoi lire.
+  await page.click('.view-row[data-view="edition"]');
+  await page.waitForTimeout(900);
+  await page.$eval('.feed-row', (el) => el.click());
+  await page.waitForTimeout(1100);
+  const vide = await page.$eval('#flux', (n2) => n2.querySelector('.empty h2')?.textContent.trim() || '');
+  const cartes = await page.$$eval('#flux .art', (l) => l.length);
+  if (!cartes) throw new Error(`aucune carte${vide ? ' — « ' + vide + ' »' : ''}`);
+  // Le compte de cartes ne suffit pas à juger : selon la bibliothèque, l'édition
+  // peut contenir quelques articles de cette source, et l'intersection n'être
+  // pas vide par chance. Ce qui doit être vrai dans tous les cas, c'est qu'on a
+  // quitté l'édition — sinon on ne regarde que son intersection avec la source.
+  const adresse = await page.evaluate(() => location.hash);
+  if (/edition/.test(adresse)) throw new Error(`la vue est restée l’édition : ${adresse}`);
+});
+
 await verifier('en magazine, le lecteur suit l’ordre affiché, pas celui des données', async () => {
   // Le lecteur avance vers la carte suivante à l'écran, pas vers celle que
   // l'ordre des données donnerait : en « une », la mise en page remonte un

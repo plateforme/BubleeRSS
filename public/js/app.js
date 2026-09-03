@@ -656,6 +656,15 @@ function renderSkeleton() {
 
 /* ------------------------------------------------------------------ vues */
 
+/* Entrer dans une source ou un dossier depuis une vue qui restreint déjà la
+   liste ne montrerait que l'intersection des deux — presque toujours vide. On
+   demandait une source, on obtenait « Pas d'édition aujourd'hui » : l'édition
+   est une pile close d'une quinzaine d'articles, et la croiser avec une source
+   ne laisse rien. Les favoris et le survol posent le même piège. Dans ces
+   trois cas, entrer quelque part veut dire « tout de cet endroit ». */
+const VUES_ETROITES = new Set(['edition', 'starred', 'survol']);
+const vuePourEntrer = () => (VUES_ETROITES.has(state.view) ? 'all' : state.view);
+
 function setView({ view, feedId = null, folder = null, tag = null }) {
   state.view = view ?? state.view;
   state.feedId = feedId;
@@ -2013,7 +2022,7 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
 
   $('#feedList').addEventListener('click', (e) => {
     const open = e.target.closest('[data-open-folder]');
-    if (open) { setView({ view: state.view, folder: open.dataset.openFolder }); return; }
+    if (open) { setView({ view: vuePourEntrer(), folder: open.dataset.openFolder }); return; }
     const toggle = e.target.closest('[data-toggle]');
     if (toggle) {
       const n = toggle.dataset.toggle;
@@ -2023,7 +2032,7 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
       return;
     }
     const row = e.target.closest('[data-feed]');
-    if (row) setView({ view: state.view === 'starred' ? 'all' : state.view, feedId: Number(row.dataset.feed) });
+    if (row) setView({ view: vuePourEntrer(), feedId: Number(row.dataset.feed) });
   });
   $('#feedList').addEventListener('contextmenu', (e) => {
     const row = e.target.closest('[data-feed]');

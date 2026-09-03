@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { sanitizeHtml, toPlainText, firstImage, decodeEntities, countWords, absolutize } from './html.js';
 import { httpGet, decodeBody, MAX_BYTES } from './http.js';
 import { estYouTube, resoudreFluxYouTube, contenuVideo } from './youtube.js';
+import { fluxDePlateforme } from './plateformes.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -314,19 +315,28 @@ export async function discoverFeeds(input) {
   let url = String(input).trim();
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
 
+  /** Un candidat deduit n'est retenu que s'il repond vraiment. */
+  const verifier = async (candidat) => {
+    if (!candidat) return null;
+    try {
+      const { res, buffer } = await getFlux(candidat);
+      if (!res.ok) return null;
+      const parsed = parseFeed(decodeBody(buffer, res.headers.get('content-type')), candidat);
+      return parsed.items?.length ? [{ url: candidat, title: parsed.title }] : null;
+    } catch {
+      return null;   // on retombe sur la decouverte classique
+    }
+  };
+
   // YouTube n'annonce pas son flux dans la page : on le deduit de l'adresse.
   if (estYouTube(url)) {
-    const fluxYT = await resoudreFluxYouTube(url);
-    if (fluxYT) {
-      try {
-        const { res, buffer } = await getFlux(fluxYT);
-        if (res.ok) {
-          const parsed = parseFeed(decodeBody(buffer, res.headers.get('content-type')), fluxYT);
-          return [{ url: fluxYT, title: parsed.title }];
-        }
-      } catch { /* on retombe sur la decouverte classique */ }
-    }
+    const trouve = await verifier(await resoudreFluxYouTube(url).catch(() => null));
+    if (trouve) return trouve;
   }
+
+  // Mastodon, Bluesky, Reddit, GitHub : meme silence, meme deduction.
+  const dePlateforme = await verifier(fluxDePlateforme(input));
+  if (dePlateforme) return dePlateforme;
 
   const found = new Map();
 

@@ -302,3 +302,25 @@ test('« olderThan » ne marque que ce qui a vieilli', async () => {
   assert.equal(r.json.changed, 1, 'seul le vieil article est marqué');
   assert.equal(r.json.counts.unread, 1, 'le récent reste non lu');
 });
+
+/* ------------------------------------------------------------ sauvegarde */
+
+test('la sauvegarde rend une base SQLite valide, et seulement à un super', async () => {
+  assert.equal((await appel('GET', '/api/backup', { cookie: cookieAlice })).statut, 403);
+
+  const r = await fetch(base + '/api/backup', { headers: { cookie: cookieGreg } });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-disposition'), /bublee-\d{4}-\d{2}-\d{2}\.db/);
+  const octets = Buffer.from(await r.arrayBuffer());
+  assert.equal(octets.subarray(0, 15).toString('latin1'), 'SQLite format 3', 'c’est bien une base');
+
+  // Elle s'ouvre, et porte les mêmes comptes.
+  const copie = path.join(dossier, 'copie.db');
+  fs.writeFileSync(copie, octets);
+  const Database = (await import('better-sqlite3')).default;
+  const base2 = new Database(copie, { readonly: true });
+  assert.equal(base2.prepare('SELECT COUNT(*) n FROM users').get().n,
+    db.prepare('SELECT COUNT(*) n FROM users').get().n);
+  assert.equal(base2.pragma('integrity_check')[0].integrity_check, 'ok');
+  base2.close();
+});

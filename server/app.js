@@ -3,6 +3,7 @@
 // deux permet de tester chaque route sur un port ephemere, sans serveur.
 import express from 'express';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,7 +12,7 @@ import { importOpml, exportOpml } from './opml.js';
 import { urlPubliqueOuNull, httpGet } from './http.js';
 import { identifier, exigeCompte, exigeSuper, cors, cookies, jeton, regenererJeton } from './apikey.js';
 import * as comptes from './comptes.js';
-import { adopterOrphelins } from './db.js';
+import { adopterOrphelins, db } from './db.js';
 import * as cacheImages from './cache-images.js';
 import { entetes } from './entetes.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
@@ -190,6 +191,7 @@ const ROUTES = [
   ['POST',   '/api/dedupe',              'rechercher les doublons deja en base'],
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
+  ['GET',    '/api/backup',              'telecharger une copie coherente de la base (super)'],
   ['GET',    '/api/image',               'relais d’images ; parametre url']
 ];
 
@@ -423,6 +425,36 @@ app.get('/api/opml/export', (req, res) => {
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
 });
+
+/* ---------------------------------------------------------- sauvegarde */
+
+/**
+ * La base est « le seul fichier a sauvegarder » : encore faut-il pouvoir la
+ * prendre. Une copie a chaud pendant un rafraichissement donnerait un fichier
+ * incoherent ; l'API de sauvegarde de SQLite, elle, rend une base valide meme
+ * si des ecritures ont lieu pendant la copie.
+ *
+ * Reserve au super : la base porte tous les comptes, pas seulement le sien.
+ */
+app.get('/api/backup', exigeSuper, wrap(async (req, res) => {
+  const nom = 'bublee-' + new Date().toISOString().slice(0, 10) + '.db';
+  const copie = path.join(os.tmpdir(), `bublee-sauvegarde-${process.pid}-${Date.now()}.db`);
+  try {
+    await db.backup(copie);
+    res.set('content-disposition', `attachment; filename="${nom}"`);
+    res.set('content-type', 'application/vnd.sqlite3');
+    res.set('content-length', String(fs.statSync(copie).size));
+    await new Promise((fini, rate) => {
+      const flot = fs.createReadStream(copie);
+      flot.on('error', rate);
+      res.on('finish', fini);
+      res.on('close', fini);
+      flot.pipe(res);
+    });
+  } finally {
+    fs.promises.unlink(copie).catch(() => {});
+  }
+}));
 
 /* ------------------------------------------- relais d'images (anti hotlink) */
 

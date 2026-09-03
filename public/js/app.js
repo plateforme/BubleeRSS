@@ -157,6 +157,8 @@ function renderMonCompte() {
   const estSuper = moi.role === 'super';
   $('#sepComptes').hidden = !estSuper;
   $('#zoneComptes').hidden = !estSuper;
+  // La base porte tous les comptes : seul un super la télécharge.
+  $('#sauvegarde').hidden = !estSuper;
   if (estSuper) renderComptes();
 }
 

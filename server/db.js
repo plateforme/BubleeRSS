@@ -12,13 +12,23 @@ fs.mkdirSync(dataDir, { recursive: true });
 export const db = new Database(path.join(dataDir, 'bublee.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// En WAL, NORMAL suffit : une coupure de courant peut perdre la derniere
+// transaction, jamais corrompre la base, et on fait bien moins de fsync.
+db.pragma('synchronous = NORMAL');
+// Un autre processus (le script de purge, un outil) qui tient un verrou
+// n'a pas a faire echouer une ecriture sur-le-champ.
+db.pragma('busy_timeout = 5000');
 
 /* ------------------------------------------------------------------ tables */
 
 db.exec(`
+-- L'unicite de l'adresse est par compte, pas globale : deux personnes ont le
+-- droit de suivre Le Monde. Elle est donc portee par un index (plus bas), et
+-- non par une contrainte de colonne — qu'il faudrait ensuite reecrire la table
+-- pour retirer, comme le fait la migration des bases d'avant les comptes.
 CREATE TABLE IF NOT EXISTS feeds (
   id             INTEGER PRIMARY KEY,
-  url            TEXT NOT NULL UNIQUE,
+  url            TEXT NOT NULL,
   site_url       TEXT,
   title          TEXT NOT NULL DEFAULT '',
   custom_title   TEXT,
@@ -85,9 +95,10 @@ CREATE TABLE IF NOT EXISTS settings (
 
 -- Etiquettes posees a la main sur les articles, pour les retrouver ensuite
 -- dans l'interface comme dans l'API.
+-- Meme raison que pour les flux : l'unicite du nom est par compte.
 CREATE TABLE IF NOT EXISTS tags (
   id         INTEGER PRIMARY KEY,
-  name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  name       TEXT NOT NULL COLLATE NOCASE,
   created_at INTEGER NOT NULL
 );
 
@@ -100,6 +111,101 @@ CREATE TABLE IF NOT EXISTS article_tags (
 `);
 
 /* -------------------------------------------------------------- migrations */
+
+/**
+ * Reecrit une table pour lui retirer une contrainte de colonne : SQLite ne
+ * sait pas le faire autrement. Seules les colonnes communes aux deux schemas
+ * sont recopiees — une base d'avant les comptes n'a pas encore `user_id`, et
+ * les colonnes que le nouveau schema ajoute prennent leur valeur par defaut.
+ *
+ * Ces reecritures passent avant `addColumn`, et non apres : dans l'autre
+ * ordre, la table neuve ignorait les colonnes qu'on venait d'ajouter et les
+ * effacait aussitot.
+ */
+function reecrireTable(nom, schema, colonnes) {
+  const anciennes = db.prepare(`PRAGMA table_info(${nom})`).all().map((c) => c.name);
+  const communes = colonnes.filter((c) => anciennes.includes(c)).join(', ');
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    BEGIN;
+    CREATE TABLE ${nom}_nouveau (${schema});
+    INSERT INTO ${nom}_nouveau (${communes}) SELECT ${communes} FROM ${nom};
+    DROP TABLE ${nom};
+    ALTER TABLE ${nom}_nouveau RENAME TO ${nom};
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+}
+
+/* Les reglages d'une base existante n'ont que (key, value) : le CREATE TABLE
+   IF NOT EXISTS plus haut ne les a pas touches. Il faut donc reecrire la table
+   pour lui donner son proprietaire. Tout ce qui existait va au service
+   (user_id = 0) ; `adopterOrphelins` deplacera ensuite vers le premier compte
+   ce qui est personnel. */
+{
+  const colonnes = db.prepare('PRAGMA table_info(settings)').all();
+  if (colonnes.length && !colonnes.some((c) => c.name === 'user_id')) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE settings_nouveau (
+        user_id INTEGER NOT NULL DEFAULT 0,
+        key     TEXT NOT NULL,
+        value   TEXT NOT NULL,
+        PRIMARY KEY (user_id, key)
+      );
+      INSERT INTO settings_nouveau (user_id, key, value) SELECT 0, key, value FROM settings;
+      DROP TABLE settings;
+      ALTER TABLE settings_nouveau RENAME TO settings;
+      COMMIT;
+    `);
+    console.log('[bublee] reglages : passes par compte.');
+  }
+}
+
+/* L'adresse d'un flux etait unique globalement : deux personnes ne pouvaient
+   pas suivre Le Monde toutes les deux. L'unicite passe au compte, portee par
+   un index — il faut donc reecrire la table pour retirer la contrainte. */
+{
+  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='feeds'").all();
+  if (index.some((i) => /sqlite_autoindex_feeds/.test(i.name))) {
+    reecrireTable('feeds', `
+      id             INTEGER PRIMARY KEY,
+      url            TEXT NOT NULL,
+      site_url       TEXT,
+      title          TEXT NOT NULL DEFAULT '',
+      custom_title   TEXT,
+      description    TEXT,
+      folder         TEXT NOT NULL DEFAULT '',
+      icon           TEXT,
+      etag           TEXT,
+      last_modified  TEXT,
+      last_fetched_at INTEGER,
+      last_error     TEXT,
+      error_count    INTEGER NOT NULL DEFAULT 0,
+      created_at     INTEGER NOT NULL,
+      priority       TEXT NOT NULL DEFAULT 'suivi',
+      user_id        INTEGER REFERENCES users(id) ON DELETE CASCADE
+    `, ['id', 'url', 'site_url', 'title', 'custom_title', 'description', 'folder', 'icon', 'etag',
+      'last_modified', 'last_fetched_at', 'last_error', 'error_count', 'created_at', 'priority', 'user_id']);
+    console.log('[bublee] flux : unicite de l adresse passee du global au compte.');
+  }
+}
+
+/* Une etiquette n'est unique que dans le compte qui la porte : deux personnes
+   ont le droit d'avoir chacune une etiquette « veille ». Meme reecriture. */
+{
+  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='tags'").all();
+  if (index.some((i) => /sqlite_autoindex_tags/.test(i.name))) {
+    reecrireTable('tags', `
+      id         INTEGER PRIMARY KEY,
+      name       TEXT NOT NULL COLLATE NOCASE,
+      created_at INTEGER NOT NULL,
+      color      TEXT,
+      user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE
+    `, ['id', 'name', 'created_at', 'color', 'user_id']);
+    console.log('[bublee] etiquettes : unicite passee du global au compte.');
+  }
+}
 
 /** Ajoute les colonnes apparues apres coup, sans toucher aux donnees en place. */
 function addColumn(table, name, definition) {
@@ -129,7 +235,10 @@ export const migrationApplied = [
   addColumn('feeds', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE'),
   addColumn('tags', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE'),
   // Date de la recherche d'icone, trouvee ou non : on ne la refait pas.
-  addColumn('feeds', 'icon_checked', 'INTEGER')
+  addColumn('feeds', 'icon_checked', 'INTEGER'),
+  // Avant cette date, le rafraichissement automatique passe son tour : recul
+  // apres une erreur, ou Retry-After demande par le serveur.
+  addColumn('feeds', 'next_fetch_at', 'INTEGER')
 ].some(Boolean);
 
 /* Les icones demandees a Google disaient a Google quelles sources on lit.
@@ -142,7 +251,10 @@ export const migrationApplied = [
 db.exec(`
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_feed      ON articles(feed_id, published_at DESC);
-CREATE INDEX IF NOT EXISTS idx_articles_unread    ON articles(read_at, published_at DESC);
+-- La vue « Non lus » trie par (published_at, id) : l'index doit porter les
+-- deux, sinon SQLite retrie en memoire le dernier terme a chaque page.
+DROP INDEX IF EXISTS idx_articles_unread;
+CREATE INDEX IF NOT EXISTS idx_articles_lecture   ON articles(read_at, published_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_starred   ON articles(starred, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_urlkey    ON articles(url_key);
 CREATE INDEX IF NOT EXISTS idx_articles_titlekey  ON articles(title_key, published_at);
@@ -152,107 +264,11 @@ CREATE INDEX IF NOT EXISTS idx_feeds_priority     ON feeds(priority);
 CREATE INDEX IF NOT EXISTS idx_feeds_user         ON feeds(user_id);
 CREATE INDEX IF NOT EXISTS idx_tags_user          ON tags(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expire    ON sessions(expires_at);
+-- L'unicite qui compte : une adresse par compte, un nom d'etiquette par compte.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_url_par_compte ON feeds(user_id, url);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_nom_par_compte  ON tags(user_id, name);
 `);
-
-/* Les reglages d'une base existante n'ont que (key, value) : le CREATE TABLE
-   IF NOT EXISTS plus haut ne les a pas touches. Il faut donc reecrire la table
-   pour lui donner son proprietaire. Tout ce qui existait va au service
-   (user_id = 0) ; `adopterOrphelins` deplacera ensuite vers le premier compte
-   ce qui est personnel. */
-{
-  const colonnes = db.prepare('PRAGMA table_info(settings)').all();
-  if (colonnes.length && !colonnes.some((c) => c.name === 'user_id')) {
-    db.exec(`
-      BEGIN;
-      CREATE TABLE settings_nouveau (
-        user_id INTEGER NOT NULL DEFAULT 0,
-        key     TEXT NOT NULL,
-        value   TEXT NOT NULL,
-        PRIMARY KEY (user_id, key)
-      );
-      INSERT INTO settings_nouveau (user_id, key, value) SELECT 0, key, value FROM settings;
-      DROP TABLE settings;
-      ALTER TABLE settings_nouveau RENAME TO settings;
-      COMMIT;
-    `);
-    console.log('[bublee] reglages : passes par compte.');
-  }
-}
-
-/* Meme raison pour l'adresse d'un flux : deux personnes ont le droit de suivre
-   Le Monde. L'unicite globale d'origine devient une unicite par compte. */
-{
-  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='feeds'").all();
-  if (index.some((i) => /sqlite_autoindex_feeds/.test(i.name)) &&
-      !index.some((i) => i.name === 'idx_feeds_url_par_compte')) {
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      BEGIN;
-      CREATE TABLE feeds_nouveau (
-        id             INTEGER PRIMARY KEY,
-        url            TEXT NOT NULL,
-        site_url       TEXT,
-        title          TEXT NOT NULL DEFAULT '',
-        custom_title   TEXT,
-        description    TEXT,
-        folder         TEXT NOT NULL DEFAULT '',
-        icon           TEXT,
-        etag           TEXT,
-        last_modified  TEXT,
-        last_fetched_at INTEGER,
-        last_error     TEXT,
-        error_count    INTEGER NOT NULL DEFAULT 0,
-        created_at     INTEGER NOT NULL,
-        priority       TEXT NOT NULL DEFAULT 'suivi',
-        user_id        INTEGER REFERENCES users(id) ON DELETE CASCADE
-      );
-      INSERT INTO feeds_nouveau SELECT id, url, site_url, title, custom_title, description,
-        folder, icon, etag, last_modified, last_fetched_at, last_error, error_count,
-        created_at, priority, user_id FROM feeds;
-      DROP TABLE feeds;
-      ALTER TABLE feeds_nouveau RENAME TO feeds;
-      CREATE UNIQUE INDEX idx_feeds_url_par_compte ON feeds(user_id, url);
-      CREATE INDEX idx_feeds_priority ON feeds(priority);
-      CREATE INDEX idx_feeds_user ON feeds(user_id);
-      COMMIT;
-      PRAGMA foreign_keys = ON;
-    `);
-    console.log('[bublee] flux : unicite de l adresse passee du global au compte.');
-  }
-}
-
-/* Une etiquette n'est unique que dans le compte qui la porte : deux personnes
-   ont le droit d'avoir chacune une etiquette « veille ». L'unicite globale
-   d'origine doit donc ceder la place a une unicite par compte. */
-{
-  const index = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='tags'").all();
-  const global = index.find((i) => /sqlite_autoindex_tags/.test(i.name));
-  const parCompte = index.find((i) => i.name === 'idx_tags_nom_par_compte');
-  if (global && !parCompte) {
-    // On ne peut pas retirer une contrainte UNIQUE de colonne sans reecrire la
-    // table : c'est ce que fait ce bloc, une seule fois.
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      BEGIN;
-      CREATE TABLE tags_nouveau (
-        id         INTEGER PRIMARY KEY,
-        name       TEXT NOT NULL COLLATE NOCASE,
-        created_at INTEGER NOT NULL,
-        color      TEXT,
-        user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE
-      );
-      INSERT INTO tags_nouveau (id, name, created_at, color, user_id)
-        SELECT id, name, created_at, color, user_id FROM tags;
-      DROP TABLE tags;
-      ALTER TABLE tags_nouveau RENAME TO tags;
-      CREATE UNIQUE INDEX idx_tags_nom_par_compte ON tags(user_id, name);
-      CREATE INDEX idx_tags_user ON tags(user_id);
-      COMMIT;
-      PRAGMA foreign_keys = ON;
-    `);
-    console.log('[bublee] etiquettes : unicite passee du global au compte.');
-  }
-}
 
 /* ------------------------------------------------------------- recherche */
 

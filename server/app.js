@@ -289,7 +289,8 @@ app.post('/api/feeds/:id/refresh', wrap(async (req, res) => {
 }));
 
 app.post('/api/refresh', wrap(async (req, res) => {
-  const resultat = await store.refreshAll();
+  // Demande a la main : on reessaie meme les sources qui ont reculé.
+  const resultat = await store.refreshAll({ force: true });
   res.json(resultat);
   // Les illustrations manquantes se cherchent apres coup, sans faire attendre.
   store.completerImages({}, moi(req)).catch(() => {});
@@ -466,28 +467,43 @@ app.use((error, req, res, next) => {
 
 let refreshTimer = null;
 
-/** Arme (ou re-arme) le rafraichissement periodique au rythme du premier super. */
+/**
+ * Arme (ou re-arme) le rafraichissement periodique au rythme du premier super.
+ *
+ * Un setTimeout rechaine plutot qu'un setInterval : l'intervalle comptait a
+ * partir du depart de la passe, si bien qu'une passe plus longue que le
+ * rythme faisait empiler les suivantes. Ici le delai part de l'arrivee.
+ */
 export function scheduleRefresh() {
-  if (refreshTimer) clearInterval(refreshTimer);
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = null;
   // Le rythme du service : celui du premier super, a defaut trente minutes.
   const patron = comptes.listerComptes().find((c) => c.role === 'super');
   const minutes = Number(store.getSetting('refresh_minutes', '30', patron?.id ?? 0));
   if (!Number.isFinite(minutes) || minutes <= 0) return;
-  refreshTimer = setInterval(() => {
-    nettoyerLimiteur();
-    store.refreshAll()
-      .then((r) => {
-        if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`);
-        // Tache du service : elle passe sur chaque compte a son tour.
-        return Promise.all(comptes.listerComptes().map((c) => store.completerImages({}, c.id).catch(() => {})));
-      })
-      .catch((error) => console.error('[bublee] refresh auto :', error.message));
-  }, minutes * 60 * 1000);
-  refreshTimer.unref?.();
+
+  const tour = async () => {
+    try {
+      nettoyerLimiteur();
+      const r = await store.refreshAll();
+      if (r.added) console.log(`[bublee] ${r.added} nouvel(s) article(s).`);
+      // Tache du service : elle passe sur chaque compte a son tour.
+      for (const c of comptes.listerComptes()) await store.completerImages({}, c.id).catch(() => {});
+    } catch (error) {
+      console.error('[bublee] refresh auto :', error.message);
+    }
+    if (refreshTimer !== null) armer();
+  };
+
+  const armer = () => {
+    refreshTimer = setTimeout(tour, minutes * 60 * 1000);
+    refreshTimer.unref?.();
+  };
+  armer();
 }
 
 /** Desarme le rafraichissement, pour un arret propre ou un test. */
 export function stopRefresh() {
-  if (refreshTimer) clearInterval(refreshTimer);
+  if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = null;
 }

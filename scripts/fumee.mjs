@@ -255,6 +255,51 @@ await verifier('le clavier pilote la liste', async () => {
   await page.keyboard.press('Escape');
 });
 
+await verifier('le glissé survit à un article qui déborde en largeur', async () => {
+  // Déclarer le seul overflow-y fait calculer l'autre axe en « auto » : le
+  // panneau passait alors pour une zone à défilement horizontal dès qu'un
+  // article dépassait de deux pixels, et le glissé — qui cède la priorité à ces
+  // zones-là — mourait sur cet article, dans les deux sens. On le rejoue au
+  // doigt, avec un débord fabriqué.
+  const tactile = await nav.newContext({ viewport: { width: 400, height: 820 }, isMobile: true, hasTouch: true });
+  try {
+    const p = await tactile.newPage();
+    const cdp = await tactile.newCDPSession(p);
+    await p.goto(BASE);
+    await p.waitForSelector('#porte:not([hidden])');
+    await p.fill('#porteEmail', IDENTIFIANTS.email);
+    await p.fill('#portePass', IDENTIFIANTS.motDePasse);
+    await p.click('#porteBouton');
+    await p.waitForSelector('.art', { timeout: 20000 });
+    await p.$eval('#flux .art[data-id]', (el) => el.click());
+    await p.waitForSelector('#reader:not([hidden]) .reader-titre', { timeout: 15000 });
+    await p.waitForTimeout(500);
+
+    doitEtre(await p.evaluate(() => getComputedStyle(document.getElementById('readerScroll')).overflowX),
+      'hidden', 'overflow-x du panneau de lecture');
+
+    await p.evaluate(() => {
+      const large = document.createElement('div');
+      large.style.cssText = 'width:3000px;height:8px';
+      document.querySelector('.reader-body').appendChild(large);
+    });
+    const avant = await p.$eval('#reader .reader-titre', (n) => n.textContent.trim());
+    const doigt = (x) => [{ x, y: 520, radiusX: 12, radiusY: 12, force: 1, id: 1 }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: doigt(350) });
+    for (let i = 1; i <= 12; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: doigt(350 - (310 * i) / 12) });
+      await new Promise((r) => setTimeout(r, 16));
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await p.waitForTimeout(900);
+    if (await p.$eval('#reader .reader-titre', (n) => n.textContent.trim()) === avant) {
+      throw new Error('le glissé est resté mort sur un article large');
+    }
+  } finally {
+    await tactile.close();
+  }
+});
+
 await page.screenshot({ path: path.join(dossier, 'fumee.png'), fullPage: false });
 await nav.close();
 serveur.kill();

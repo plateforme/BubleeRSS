@@ -889,7 +889,15 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 /* pan-y : le défilement vertical reste au navigateur, la direction horizontale
    est réservée au glissé (glisse.js). Sans ça, le navigateur dispute le geste
    au doigt et le glissé se fige à mi-course. */
-.reader-scroll { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; touch-action: pan-y; }
+/* overflow-x explicite, et surtout pas laissé implicite : déclarer le seul
+   overflow-y fait calculer l'autre axe en « auto » (la règle CSS : un axe non
+   « visible » force l'autre à sortir de « visible »). Le panneau passait donc
+   pour une zone à défilement horizontal dès qu'un article débordait de deux
+   pixels — une image large, une URL insécable —, et le glissé, qui cède la
+   priorité à ces zones-là, mourait sur cet article. Le lecteur défile
+   verticalement, point ; ce qui dépasse est rogné plutôt que de faire dériver
+   la page de côté. */
+.reader-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; touch-action: pan-y; }
 .reader-scroll::-webkit-scrollbar { width: 10px; }
 .reader-scroll::-webkit-scrollbar-thumb { background: #c6c3b9; }
 

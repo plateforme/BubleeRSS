@@ -44,7 +44,14 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Vrai si le doigt est parti dans une zone qui défile déjà horizontalement —
     un tableau, un bloc de code : elle garde la priorité. */
 function dansUnDefilementHorizontal(cible) {
-  for (let el = cible; el && el !== document.body; el = el.parentElement) {
+  // On s'arrête au panneau de lecture : lui défile verticalement, et son
+  // éventuel débord horizontal — une image large, une URL insécable — n'est pas
+  // une zone qu'on fait glisser du doigt. Le laisser dans la remontée revenait à
+  // lui confisquer le geste : un seul article un peu large et le glissé mourait
+  // dessus, dans les deux sens. Seules comptent les zones internes faites pour
+  // défiler de côté : un tableau, un bloc de code.
+  const panneau = document.getElementById('readerScroll');
+  for (let el = cible; el && el !== panneau && el !== document.body; el = el.parentElement) {
     if (el.scrollWidth > el.clientWidth + 1) {
       const debordement = getComputedStyle(el).overflowX;
       if (debordement === 'auto' || debordement === 'scroll') return true;

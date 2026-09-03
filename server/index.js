@@ -434,13 +434,19 @@ app.get('/api/image', wrap(async (req, res) => {
 
 /* --------------------------------------------------------------- statique */
 
+// Une route d'API inconnue est une erreur, pas une page : l'application ne
+// doit pas repondre index.html a un script qui s'est trompe d'adresse.
+app.all('/api/*', (req, res) => res.status(404).json({ error: 'Route inconnue : ' + req.method + ' ' + req.path }));
+
 app.use(express.static(path.join(root, 'public'), { maxAge: 0, etag: true, index: 'index.html' }));
 app.get('*', (req, res) => res.sendFile(path.join(root, 'public', 'index.html')));
 
 app.use((error, req, res, next) => {
   const status = error.status || 500;
   if (status >= 500) console.error('[bublee]', error);
-  res.status(status).json({ error: error.message || 'Erreur interne.', ...(error.feedId ? { feedId: error.feedId } : {}) });
+  // Un message d'erreur interne — SQL, pile, chemin — ne regarde pas le client.
+  const message = status >= 500 ? 'Erreur interne.' : error.message || 'Erreur.';
+  res.status(status).json({ error: message, ...(error.feedId ? { feedId: error.feedId } : {}) });
 });
 
 /* ------------------------------------------------ rafraichissement auto */

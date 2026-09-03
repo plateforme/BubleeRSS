@@ -1475,7 +1475,7 @@ async function adopterAdresse(feedId, url, bouton) {
       $('.repair-tag', ligne).className = 'repair-tag ok';
       $('.repair-tag', ligne).textContent = 'réparée';
     }
-    toast(`${esc(r.feed.title)} · ${nombre(r.added || 0)} articles`);
+    toast(`${r.feed.title} · ${nombre(r.added || 0)} articles`);
     loadArticles(true);
   } catch (error) {
     bouton.disabled = false;

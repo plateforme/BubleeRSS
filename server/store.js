@@ -4,6 +4,7 @@ import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
 import { extraireTexteComplet, extraireImageDeLaPage } from './readable.js';
 import { estYouTube } from './youtube.js';
+import { purgerSessionsExpirees } from './comptes.js';
 
 const now = () => Date.now();
 
@@ -118,6 +119,11 @@ export function updateFeed(id, patch, u) {
       fields.push(key + ' = ?');
       values.push(patch[key] === '' && key === 'custom_title' ? null : patch[key]);
     }
+  }
+  // Une nouvelle adresse repart de zero : l'ETag de l'ancienne ne vaut rien
+  // chez le nouveau serveur, et pourrait lui faire repondre 304 a tort.
+  if (patch.url !== undefined && patch.url !== feed.url) {
+    fields.push('etag = NULL', 'last_modified = NULL');
   }
   if (!fields.length) return feed;
   values.push(id, feed.user_id);
@@ -623,6 +629,9 @@ export async function refreshAll(concurrency = 6) {
   for (const { id } of db.prepare('SELECT id FROM users').all()) reconcilierDoublons(id);
   setSetting('last_refresh_at', now());
   pruneArticles();
+  // Meme rythme pour les sessions : sans ca, une session n'etait effacee que
+  // si son porteur revenait apres l'expiration, et la table grossissait sans fin.
+  purgerSessionsExpirees();
 
   return {
     feeds: ids.length,
@@ -666,8 +675,11 @@ export async function completerImages({ limite = 40, concurrency = 4 } = {}, u) 
   return { checked: lignes.length, found: trouvees };
 }
 
-/** Supprime les articles lus et anciens ; garde toujours les non-lus et les favoris. */
 /**
+ * Supprime les articles lus et anciens ; garde toujours les non-lus, les
+ * favoris et les articles etiquetes — poser une etiquette, c'est vouloir
+ * retrouver l'article, et la retention n'a pas a defaire ce choix.
+ *
  * Tache du service : elle traverse les comptes, mais la duree de retention est
  * propre a chacun — on purge donc compte par compte, avec son reglage a lui.
  */
@@ -681,6 +693,7 @@ export function pruneArticles() {
       DELETE FROM articles
       WHERE starred = 0 AND read_at IS NOT NULL AND published_at < ?
         AND feed_id IN (SELECT id FROM feeds WHERE user_id = ?)
+        AND id NOT IN (SELECT article_id FROM article_tags)
     `).run(now() - jours * 24 * 3600 * 1000, compte).changes;
   }
   return supprimes;

@@ -15,6 +15,7 @@ import * as comptes from './comptes.js';
 import { adopterOrphelins, db } from './db.js';
 import * as cacheImages from './cache-images.js';
 import { entetes } from './entetes.js';
+import { compresserJson } from './compression.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
 import { listerRegles, creerRegle, modifierRegle, supprimerRegle } from './regles.js';
@@ -35,7 +36,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.set('trust proxy', 'loopback');
 app.use(cookies);
-app.use('/api', cors, identifier);
+app.use('/api', cors, identifier, compresserJson);
 
 /** Le compte de la requete, une fois pour toutes. */
 const moi = (req) => req.compte.id;

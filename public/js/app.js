@@ -306,15 +306,45 @@ async function boot() {
   $('#indexDate').textContent = dateJournal();
   $('#mastheadDate').textContent = dateJournal();
 
+  // L'état (l'index) et les articles se demandent en même temps : deux
+  // requêtes, une seule attente au lieu de deux enchaînées. La vue par défaut
+  // étant l'édition, on charge déjà ses articles ; un jour sans édition, on
+  // rectifiera en rechargeant les non-lus — le seul cas qui coûte un aller
+  // de plus, et il est rare.
+  renderSkeleton();
+  const premiers = api.articles({
+    view: state.view, feed: state.feedId, folder: state.folder, q: state.q, tag: state.tag,
+    limit: state.layout === 'compact' ? 60 : 34
+  }).catch((error) => ({ erreur: error }));
+
   try {
     const data = await api.state();
     // Les jours sans édition — rien de neuf chez les sources suivies — on
     // retombe sur les non-lus, pour ne pas ouvrir sur un écran vide.
-    if (neutre) state.view = data.counts.edition ? 'edition' : 'unread';
+    const videEdition = neutre && !data.counts.edition;
+    if (videEdition) state.view = 'unread';
     absorb(data);
     applyAccent(data.settings.accent);
     applyLayout(data.settings.layout || 'magazine');
-    await loadArticles(true);
+
+    if (videEdition) {
+      // L'optimisme était faux : la fournée en vol visait l'édition, on la
+      // laisse tomber et on charge la bonne vue.
+      premiers.catch(() => {});
+      await loadArticles(true);
+    } else {
+      const fournee = await premiers;
+      if (fournee.erreur) throw fournee.erreur;
+      state.articles = fournee.articles || [];
+      state.cursor = fournee.nextCursor;
+      state.done = !fournee.nextCursor;
+      state.edition = fournee.edition || null;
+      state.loading = false;
+      renderFlux({ depuis: 0 });
+      $('#stageTitle').textContent = titreVue();
+      $('#stageSub').textContent = sousTitre();
+      $('#triRecherche').hidden = !state.q;
+    }
   } catch (error) {
     toast('Le serveur ne répond pas : ' + error.message, 'bad');
   }

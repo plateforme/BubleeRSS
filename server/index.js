@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as store from './store.js';
 import { migrationApplied } from './db.js';
 import { importOpml, exportOpml } from './opml.js';
-import { urlPubliqueOuNull, USER_AGENT_NAVIGATEUR } from './http.js';
+import { urlPubliqueOuNull, httpGet } from './http.js';
 import { identifier, exigeCompte, exigeSuper, cors, cookies, jeton, regenererJeton } from './apikey.js';
 import * as comptes from './comptes.js';
 import { adopterOrphelins, orphelinsEnAttente } from './db.js';
@@ -396,6 +396,9 @@ app.get('/api/opml/export', (req, res) => {
 
 /* ------------------------------------------- relais d'images (anti hotlink) */
 
+/** Au-dela, ce n'est plus une illustration d'article. */
+const IMAGE_MAX_BYTES = 20 * 1024 * 1024;
+
 app.get('/api/image', wrap(async (req, res) => {
   const parsed = urlPubliqueOuNull(req.query.url || '');
   if (!parsed) return res.status(400).end();
@@ -409,28 +412,25 @@ app.get('/api/image', wrap(async (req, res) => {
       .send(gardee.corps);
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
   try {
-    const upstream = await fetch(parsed.href, {
-      signal: controller.signal,
-      headers: { 'user-agent': USER_AGENT_NAVIGATEUR, accept: 'image/*,*/*;q=0.8', referer: parsed.origin + '/' }
+    // Meme couche que les flux : adresse resolue verifiee, redirections
+    // revues une a une, et le telechargement coupe au-dela du plafond.
+    const { res: upstream, buffer: corps } = await httpGet(parsed.href, {
+      navigateur: true, timeout: 15000, maxBytes: IMAGE_MAX_BYTES,
+      headers: { accept: 'image/*,*/*;q=0.8', referer: parsed.origin + '/' }
     });
     if (!upstream.ok) return res.status(upstream.status).end();
 
     const type = upstream.headers.get('content-type') || 'image/jpeg';
     if (!/^image\//i.test(type)) return res.status(415).end();
 
-    const corps = Buffer.from(await upstream.arrayBuffer());
     res.set('content-type', type).set('cache-control', 'public, max-age=604800')
       .set('x-bublee-cache', 'reseau').send(corps);
 
     // Rangee apres l'envoi : le cache ne doit jamais retarder l'affichage.
     cacheImages.ranger(parsed.href, type, corps).catch(() => {});
-  } catch {
-    res.status(504).end();
-  } finally {
-    clearTimeout(timer);
+  } catch (error) {
+    res.status(error.status || 504).end();
   }
 }));
 

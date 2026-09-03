@@ -413,6 +413,34 @@
       articles et ses étiquettes n’appartiennent qu’à lui. Le supprimer emporte tout son contenu.</p>
   </div>
 
+  <!-- Les règles : ce qu'on ne veut plus voir arriver, décidé une fois. -->
+  <div class="modal-sep"><span>règles</span></div>
+  <p class="field-note">Un mot dans un titre suffit à écarter un article avant qu’il n’apparaisse.
+    Tous les mots du motif doivent être présents, dans n’importe quel ordre ; les accents et la casse
+    sont ignorés ; « entre guillemets » cherche l’expression exacte.</p>
+  <div class="regles-liste" id="reglesListe"></div>
+  <form id="regleForm" class="regle-neuve">
+    <input type="text" id="regleMotif" placeholder="bon plan, sponsorisé, « black friday »…" maxlength="200" required autocomplete="off">
+    <select id="regleChamp" aria-label="Où chercher">
+      <option value="titre">dans le titre</option>
+      <option value="corps">dans le corps</option>
+      <option value="auteur">dans l’auteur</option>
+      <option value="partout">partout</option>
+    </select>
+    <select id="regleSource" aria-label="Sur quelle source">
+      <option value="">de toutes les sources</option>
+    </select>
+    <select id="regleAction" aria-label="Quoi faire">
+      <option value="lu">marquer lu</option>
+      <option value="favori">mettre en favori</option>
+      <option value="etiquette">étiqueter</option>
+    </select>
+    <input type="text" id="regleValeur" placeholder="nom de l’étiquette" maxlength="60" hidden autocomplete="off" list="tagOptions">
+    <button type="button" class="btn" id="regleEssai">Essayer</button>
+    <button type="submit" class="btn solid">Ajouter</button>
+  </form>
+  <p class="field-note" id="regleApercu" hidden></p>
+
   <div class="modal-sep"><span>entretien</span></div>
   <div class="modal-io">
     <button class="btn" id="repairAll">Réparer les sources</button>

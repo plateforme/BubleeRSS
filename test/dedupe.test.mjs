@@ -84,8 +84,8 @@ const fluxB = creerFlux('B');
 
 test('un guid deja connu ne cree pas de seconde ligne', () => {
   const item = article({ guid: 'stable', url: 'https://presse.test/stable' });
-  assert.deepEqual(store.saveItems(fluxA, [item], U), { ajoutes: 1, doublons: 0 });
-  assert.deepEqual(store.saveItems(fluxA, [item], U), { ajoutes: 0, doublons: 0 });
+  assert.deepEqual(store.saveItems(fluxA, [item], U), { ajoutes: 1, doublons: 0, filtres: 0 });
+  assert.deepEqual(store.saveItems(fluxA, [item], U), { ajoutes: 0, doublons: 0, filtres: 0 });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM articles WHERE feed_id = ?').get(fluxA).n, 1);
 });
 
@@ -100,7 +100,7 @@ test('meme flux, guid change, meme adresse : rien n est duplique', () => {
     title: 'Un article republie par son editeur maladroit'
   })], U);
 
-  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1 });
+  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1, filtres: 0 });
   assert.equal(db.prepare('SELECT COUNT(*) n FROM articles').get().n, avant);
 });
 
@@ -110,7 +110,7 @@ test('deux flux relaient la meme adresse : la copie est rattachee a l originale'
   store.saveItems(fluxA, [article({ guid: 'a-reprise', url, title: titre })], U);
   const resultat = store.saveItems(fluxB, [article({ guid: 'b-reprise', url: url + '?utm_medium=rss', title: titre })], U);
 
-  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1 });
+  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1, filtres: 0 });
 
   const original = db.prepare('SELECT id FROM articles WHERE guid = ?').get('a-reprise');
   const copie = db.prepare('SELECT id, dupe_of FROM articles WHERE guid = ?').get('b-reprise');
@@ -127,7 +127,7 @@ test('titre identique et dates proches suffisent quand l adresse differe', () =>
     published_at: Date.parse('2026-05-04T22:00:00Z')
   })], U);
 
-  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1 });
+  assert.deepEqual(resultat, { ajoutes: 0, doublons: 1, filtres: 0 });
   assert.ok(db.prepare('SELECT dupe_of FROM articles WHERE guid = ?').get('b-pont').dupe_of);
 });
 
@@ -135,7 +135,7 @@ test('un titre court ne suffit pas a declarer un doublon', () => {
   store.saveItems(fluxA, [article({ guid: 'a-court', url: 'https://a.test/breve', title: 'Revue de presse' })], U);
   const resultat = store.saveItems(fluxB, [article({ guid: 'b-court', url: 'https://b.test/breve', title: 'Revue de presse' })], U);
 
-  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0 });
+  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0, filtres: 0 });
   assert.equal(db.prepare('SELECT dupe_of FROM articles WHERE guid = ?').get('b-court').dupe_of, null);
 });
 
@@ -149,7 +149,7 @@ test('un titre identique mais publie bien plus tard reste un article distinct', 
     published_at: Date.parse('2026-05-11T10:00:00Z')
   })], U);
 
-  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0 });
+  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0, filtres: 0 });
 });
 
 test('les doublons sont masques globalement mais visibles dans leur flux', () => {
@@ -237,7 +237,7 @@ test('un podcast qui met la racine du site sur chaque episode garde ses episodes
     article({ guid: 'ep2', url: racine, title: 'Averroes passeur de savoirs : Averroes et la philosophie grecque' }),
     article({ guid: 'ep3', url: racine, title: 'Hannah Arendt, la liberte de philosopher : Arendt et la democratie' })
   ], U);
-  assert.deepEqual(resultat, { ajoutes: 3, doublons: 0 });
+  assert.deepEqual(resultat, { ajoutes: 3, doublons: 0, filtres: 0 });
 });
 
 test('dans un meme flux, une adresse partagee ne replie pas des titres differents', () => {
@@ -246,7 +246,7 @@ test('dans un meme flux, une adresse partagee ne replie pas des titres different
   const resultat = store.saveItems(fluxA, [
     article({ guid: 'em2', url: lien, title: 'Le second episode parle longuement de Leibniz' })
   ], U);
-  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0 });
+  assert.deepEqual(resultat, { ajoutes: 1, doublons: 0, filtres: 0 });
 });
 
 test('recalculerDoublons defait les rapprochements devenus faux', () => {

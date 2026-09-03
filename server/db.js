@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS tags (
   created_at INTEGER NOT NULL
 );
 
+-- Ce qu'on ne veut plus voir arriver, ou qu'on veut retrouver : un motif, un
+-- champ, une action. Un feed_id NUL vaut « partout ».
+CREATE TABLE IF NOT EXISTS rules (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  feed_id    INTEGER REFERENCES feeds(id) ON DELETE CASCADE,
+  champ      TEXT NOT NULL DEFAULT 'titre',
+  motif      TEXT NOT NULL,
+  action     TEXT NOT NULL,
+  valeur     TEXT,
+  actif      INTEGER NOT NULL DEFAULT 1,
+  touches    INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS article_tags (
   article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
   tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
@@ -265,6 +280,7 @@ CREATE INDEX IF NOT EXISTS idx_feeds_user         ON feeds(user_id);
 CREATE INDEX IF NOT EXISTS idx_tags_user          ON tags(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user      ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expire    ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_rules_user         ON rules(user_id, actif);
 -- L'unicite qui compte : une adresse par compte, un nom d'etiquette par compte.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_url_par_compte ON feeds(user_id, url);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_nom_par_compte  ON tags(user_id, name);

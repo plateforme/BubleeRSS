@@ -17,6 +17,7 @@ import * as cacheImages from './cache-images.js';
 import { entetes } from './entetes.js';
 import { gardeConnexion, nettoyer as nettoyerLimiteur } from './limiteur.js';
 import { fichiers, lire as lireStatique, servir as servirStatique } from './statique.js';
+import { listerRegles, creerRegle, modifierRegle, supprimerRegle } from './regles.js';
 
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -188,6 +189,12 @@ const ROUTES = [
   ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
+  ['GET',    '/api/rules',               'les regles de filtrage'],
+  ['POST',   '/api/rules',               'ajouter une regle { motif, champ?, action?, valeur?, feedId? }'],
+  ['POST',   '/api/rules/essai',         'ce qu une regle attraperait, sans rien changer'],
+  ['POST',   '/api/rules/rejouer',       'rejouer les regles sur les non-lus { id? }'],
+  ['PATCH',  '/api/rules/:id',           'activer ou desactiver une regle { actif }'],
+  ['DELETE', '/api/rules/:id',           'supprimer une regle'],
   ['POST',   '/api/dedupe',              'rechercher les doublons deja en base'],
   ['POST',   '/api/opml/import',         'importer un OPML (corps = XML)'],
   ['GET',    '/api/opml/export',         'exporter les sources en OPML'],
@@ -425,6 +432,33 @@ app.get('/api/opml/export', (req, res) => {
     'Content-Disposition',
     'attachment; filename="bublee-' + new Date().toISOString().slice(0, 10) + '.opml"'
   ).send(exportOpml(moi(req)));
+});
+
+/* -------------------------------------------------------------- regles */
+
+app.get('/api/rules', (req, res) => res.json({ rules: listerRegles(moi(req)) }));
+
+app.post('/api/rules', (req, res) => {
+  const regle = creerRegle(moi(req), req.body || {});
+  // On rejoue tout de suite sur la pile : une règle écrite aujourd'hui doit
+  // pouvoir nettoyer les non-lus d'hier.
+  const rejoue = req.query.rejouer === '0' ? null : store.rejouerRegles(moi(req), { regleId: regle.id });
+  res.status(201).json({ rule: regle, rejoue, counts: store.counts(moi(req)), feeds: store.compteursSources(moi(req)) });
+});
+
+// Ce qu'une regle attraperait, sans rien changer.
+app.post('/api/rules/essai', (req, res) => res.json(store.essayerRegle(moi(req), req.body || {})));
+
+app.patch('/api/rules/:id', (req, res) => res.json({ rule: modifierRegle(req.params.id, moi(req), req.body || {}) }));
+
+app.delete('/api/rules/:id', (req, res) => {
+  const ok = supprimerRegle(req.params.id, moi(req));
+  res.status(ok ? 200 : 404).json({ ok });
+});
+
+app.post('/api/rules/rejouer', (req, res) => {
+  const rejoue = store.rejouerRegles(moi(req), { regleId: req.body?.id ?? null });
+  res.json({ ...rejoue, counts: store.counts(moi(req)), feeds: store.compteursSources(moi(req)) });
 });
 
 /* ---------------------------------------------------------- sauvegarde */

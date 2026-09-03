@@ -1273,6 +1273,35 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* --------------------------------------------------------------- règles */
+
+.regles-liste { display: flex; flex-direction: column; margin-bottom: 12px; }
+.regle {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px; align-items: center;
+  padding: 9px 0; border-top: 1px solid var(--rule-list);
+}
+.regle.eteinte { opacity: .45; }
+.regle-quoi { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.regle-quoi b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.regle-ou, .regle-compte {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.regle button {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--mute);
+}
+.regle button:hover { color: var(--ink); }
+.regle .lien-danger:hover { color: #d63a2a; }
+
+.regle-neuve { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.regle-neuve input[type="text"] { flex: 1 1 190px; min-width: 0; }
+/* Bornés : sans ça, « de toutes les sources » et les noms de sources longs
+   poussaient le menu sur toute la largeur et cassaient la ligne. */
+.regle-neuve select { flex: 0 1 auto; max-width: 170px; }
+.regle-neuve .btn { flex: 0 0 auto; }
+
 /* Le classement des résultats : deux mots, celui qui tient étant souligné.
    Pas de boutons dessinés — c'est une nuance de lecture, pas une commande. */
 .tri { display: inline-flex; gap: 12px; }

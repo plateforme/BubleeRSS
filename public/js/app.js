@@ -27,6 +27,7 @@ const state = {
   folders: [],
   counts: { unread: 0, starred: 0, total: 0 },
   tags: [],
+  regles: [],
   palette: [],
   accents: [],
   settings: {}
@@ -1749,6 +1750,7 @@ function ouvrirReglages() {
   $('#setFulltext').value = state.settings.fulltext ?? 'auto';
   renderAccents();
   renderMonCompte();
+  chargerRegles();
   openModal('#settingsModal');
 }
 
@@ -1771,6 +1773,62 @@ async function enregistrerReglages(event) {
     toast('Réglages enregistrés');
   } catch (error) {
     toast('Échec : ' + error.message, 'bad');
+  }
+}
+
+/* ---------------------------------------------------------------- règles */
+
+const LIBELLE_ACTION = { lu: 'marquer lu', favori: 'mettre en favori', etiquette: 'étiqueter' };
+const LIBELLE_CHAMP = { titre: 'titre', corps: 'corps', auteur: 'auteur', partout: 'partout' };
+
+function renderRegles(liste) {
+  state.regles = liste;
+  $('#reglesListe').innerHTML = liste.length
+    ? liste.map((r) => `
+      <div class="regle${r.actif ? '' : ' eteinte'}" data-regle="${r.id}">
+        <span class="regle-quoi">
+          <b>${esc(r.motif)}</b>
+          <span class="regle-ou">${esc(LIBELLE_CHAMP[r.champ] || r.champ)}${
+  r.feed_title ? ' · ' + esc(r.feed_title) : ''} → ${esc(LIBELLE_ACTION[r.action] || r.action)}${
+  r.valeur ? ' « ' + esc(r.valeur) + ' »' : ''}</span>
+        </span>
+        <span class="regle-compte">${r.touches ? nombre(r.touches) + ' pris' : '—'}</span>
+        <button type="button" data-bascule="${r.id}" data-actif="${r.actif ? 0 : 1}">${r.actif ? 'Suspendre' : 'Reprendre'}</button>
+        <button type="button" class="lien-danger" data-suppr-regle="${r.id}">✕</button>
+      </div>`).join('')
+    : '<p class="field-note">Aucune règle. Le champ ci-dessous en pose une.</p>';
+}
+
+async function chargerRegles() {
+  try { renderRegles((await api.regles()).rules); } catch { /* les réglages restent utilisables */ }
+  // La liste des sources sert à borner une règle à l'une d'elles.
+  $('#regleSource').innerHTML = '<option value="">de toutes les sources</option>'
+    + state.feeds.map((f) => `<option value="${f.id}">${esc(f.title)}</option>`).join('');
+}
+
+/** Ce qu'on est en train d'écrire, sous forme de règle. */
+const regleSaisie = () => ({
+  motif: $('#regleMotif').value.trim(),
+  champ: $('#regleChamp').value,
+  action: $('#regleAction').value,
+  valeur: $('#regleValeur').value.trim() || null,
+  feedId: $('#regleSource').value || null
+});
+
+async function essayerRegle() {
+  const regle = regleSaisie();
+  const apercu = $('#regleApercu');
+  if (!regle.motif) { apercu.hidden = true; return; }
+  try {
+    const r = await api.essayerRegle(regle);
+    apercu.hidden = false;
+    apercu.textContent = r.total
+      ? `${nombre(r.total)} article(s) non lu(s) correspondent — par exemple : `
+        + r.exemples.slice(0, 3).map((a) => `« ${a.title.slice(0, 60)} »`).join(', ')
+      : 'Aucun article non lu ne correspond pour l’instant.';
+  } catch (error) {
+    apercu.hidden = false;
+    apercu.textContent = 'Essai impossible : ' + error.message;
   }
 }
 
@@ -2562,6 +2620,39 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
   $('#settingsForm').addEventListener('submit', enregistrerReglages);
   $('#feedEditForm').addEventListener('submit', enregistrerFlux);
   $('#deleteFeed').addEventListener('click', supprimerFlux);
+
+  /* --- règles --- */
+  // Le nom de l'étiquette n'a de sens que pour l'action qui étiquette.
+  $('#regleAction').addEventListener('change', (e) => {
+    $('#regleValeur').hidden = e.target.value !== 'etiquette';
+  });
+  $('#regleEssai').addEventListener('click', essayerRegle);
+  $('#regleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api.creerRegle(regleSaisie());
+      majCompteurs(r);
+      $('#regleMotif').value = '';
+      $('#regleValeur').value = '';
+      $('#regleApercu').hidden = true;
+      await chargerRegles();
+      const n = (r.rejoue?.lus || 0) + (r.rejoue?.favoris || 0) + (r.rejoue?.etiquetes || 0);
+      toast(n ? `Règle posée — ${nombre(n)} article(s) traité(s)` : 'Règle posée');
+      if (n) loadArticles(true);
+    } catch (error) {
+      toast('Règle : ' + error.message, 'bad');
+    }
+  });
+  $('#reglesListe').addEventListener('click', async (e) => {
+    const bascule = e.target.closest('[data-bascule]');
+    const suppr = e.target.closest('[data-suppr-regle]');
+    try {
+      if (bascule) await api.majRegle(Number(bascule.dataset.bascule), { actif: bascule.dataset.actif === '1' });
+      else if (suppr) await api.supprimerRegle(Number(suppr.dataset.supprRegle));
+      else return;
+      await chargerRegles();
+    } catch (error) { toast('Règle : ' + error.message, 'bad'); }
+  });
 
   $('#manageTags').addEventListener('click', ouvrirGestionTags);
   $('#tagCreateForm').addEventListener('submit', async (e) => {

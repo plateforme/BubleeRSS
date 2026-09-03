@@ -58,6 +58,13 @@ export const api = {
   updateTag: (id, patch) => json('PATCH', '/api/tags/' + id, patch),
   deleteTag: (id) => json('DELETE', '/api/tags/' + id),
 
+  regles:        () => call('/api/rules'),
+  creerRegle:    (regle) => json('POST', '/api/rules', regle),
+  essayerRegle:  (regle) => json('POST', '/api/rules/essai', regle),
+  majRegle:      (id, patch) => json('PATCH', '/api/rules/' + id, patch),
+  supprimerRegle: (id) => json('DELETE', '/api/rules/' + id),
+  rejouerRegles: (id = null) => json('POST', '/api/rules/rejouer', id ? { id } : {}),
+
   addFeed:     (url, folder, title) => json('POST', '/api/feeds', { url, folder, title }),
   updateFeed:  (id, patch) => json('PATCH', '/api/feeds/' + id, patch),
   deleteFeed:  (id) => json('DELETE', '/api/feeds/' + id),

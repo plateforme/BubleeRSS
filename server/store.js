@@ -5,6 +5,7 @@ import { urlKey, titleKey, TITRE_FIABLE, FENETRE_TITRE_MS } from './dedupe.js';
 import { extraireTexteComplet, extraireImageDeLaPage, extraireIconeDuSite } from './readable.js';
 import { estYouTube } from './youtube.js';
 import { purgerSessionsExpirees } from './comptes.js';
+import { reglesActives, verdict, crediter, correspond } from './regles.js';
 
 const now = () => Date.now();
 
@@ -528,6 +529,13 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
   let ajoutes = 0;
   let doublons = 0;
 
+  // Les regles du compte, chargees une fois pour tout le lot. Elles decident
+  // avant l'insertion : un article n'existe jamais, meme brievement, sans
+  // etre passe devant elles.
+  const regles = proprietaire ? reglesActives(proprietaire) : [];
+  const marques = new Map();
+  const posees = [];
+
   for (const item of items) {
     const guid = String(item.guid).slice(0, 512);
     const cleUrl = urlKey(item.url);
@@ -564,7 +572,9 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
 
     // 3. Autre flux : on garde la ligne (le flux reste complet) mais elle est
     //    rattachee a l'original et reprend son etat de lecture.
-    insertArticle.run({
+    const decide = regles.length ? verdict(item, feedId, regles) : null;
+
+    const info = insertArticle.run({
       feed_id: feedId,
       guid,
       url: item.url,
@@ -572,15 +582,28 @@ export const saveItems = db.transaction((feedId, items, proprietaire) => {
       published_at: item.published_at,
       fetched_at: now(),
       dupe_of: original ? original.id : null,
-      read_at: original ? original.read_at : null,
-      starred: original ? original.starred : 0,
+      // Une regle qui marque comme lu l'emporte : c'est ce qu'on lui demande.
+      read_at: decide?.lu ? now() : original ? original.read_at : null,
+      starred: decide?.favori || original?.starred ? 1 : 0,
       ...commun
     });
+
+    if (decide) {
+      for (const id of decide.touchees) marques.set(id, (marques.get(id) || 0) + 1);
+      if (decide.etiquettes) posees.push([Number(info.lastInsertRowid), decide.etiquettes]);
+    }
 
     if (original) doublons++; else ajoutes++;
   }
 
-  return { ajoutes, doublons };
+  // Les etiquettes des regles, apres les insertions : elles s'appliquent au
+  // groupe de doublons, comme celles posees a la main.
+  for (const [articleId, noms] of posees) {
+    tagArticle(articleId, { add: noms }, proprietaire);
+  }
+  if (marques.size) crediter([...marques]);
+
+  return { ajoutes, doublons, filtres: [...marques.values()].reduce((n, x) => n + x, 0) };
 });
 
 /**
@@ -1207,6 +1230,69 @@ export function annulerLecture(stamp, u) {
     UPDATE articles SET read_at = NULL
     WHERE read_at = ? AND id IN ${ARTICLES_DU_COMPTE}
   `).run(quand, compte).changes;
+}
+
+/**
+ * Rejoue les regles sur ce qui est deja en base. Une regle ecrite aujourd'hui
+ * doit pouvoir nettoyer la pile d'hier — sinon elle ne sert qu'aux articles
+ * a venir, et on garde la corvee sur les bras.
+ *
+ * Ne touche jamais un article deja lu : ce serait defaire une decision prise.
+ */
+export function rejouerRegles(u, { regleId = null } = {}) {
+  const compte = exigeCompte(u);
+  const regles = reglesActives(compte).filter((r) => !regleId || r.id === Number(regleId));
+  if (!regles.length) return { examines: 0, lus: 0, favoris: 0, etiquetes: 0 };
+
+  const lignes = db.prepare(`
+    SELECT a.id, a.feed_id, a.title, a.author, a.summary, a.content, a.read_at, a.starred
+    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND a.read_at IS NULL
+  `).all(compte);
+
+  const lus = [];
+  const favoris = [];
+  const etiquettes = [];
+  const marques = new Map();
+
+  for (const ligne of lignes) {
+    const decide = verdict(ligne, ligne.feed_id, regles);
+    if (!decide) continue;
+    for (const id of decide.touchees) marques.set(id, (marques.get(id) || 0) + 1);
+    if (decide.lu) lus.push(ligne.id);
+    if (decide.favori && !ligne.starred) favoris.push(ligne.id);
+    if (decide.etiquettes) etiquettes.push([ligne.id, decide.etiquettes]);
+  }
+
+  const stamp = now();
+  db.transaction(() => {
+    for (const id of lus) db.prepare('UPDATE articles SET read_at = ? WHERE id = ?').run(stamp, id);
+    for (const id of favoris) db.prepare('UPDATE articles SET starred = 1 WHERE id = ?').run(id);
+    if (marques.size) crediter([...marques]);
+  })();
+  for (const [id, noms] of etiquettes) tagArticle(id, { add: noms }, compte);
+  if (lus.length) reconcilierDoublons(compte);
+
+  return { examines: lignes.length, lus: lus.length, favoris: favoris.length, etiquetes: etiquettes.length, stamp };
+}
+
+/** Ce qu'une regle attraperait, sans rien changer : on regarde avant d'agir. */
+export function essayerRegle(u, regle, limite = 8) {
+  const compte = exigeCompte(u);
+  const candidate = { ...regle, feed_id: regle.feedId ? Number(regle.feedId) : null };
+  const lignes = db.prepare(`
+    SELECT a.id, a.feed_id, a.title, a.author, a.summary, a.content, a.published_at,
+           COALESCE(NULLIF(f.custom_title, ''), NULLIF(f.title, ''), f.url) AS feed_title
+    FROM articles a JOIN feeds f ON f.id = a.feed_id
+    WHERE f.user_id = ? AND a.read_at IS NULL
+    ORDER BY a.published_at DESC
+  `).all(compte);
+
+  const pris = lignes.filter((l) => (!candidate.feed_id || l.feed_id === candidate.feed_id) && correspond(l, candidate));
+  return {
+    total: pris.length,
+    exemples: pris.slice(0, limite).map((a) => ({ id: a.id, title: a.title, feed_title: a.feed_title }))
+  };
 }
 
 export function counts(u) {

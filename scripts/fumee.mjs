@@ -61,7 +61,10 @@ for (const [titre, dossierSource] of SOURCES) {
       summary: `Un chapô qui parle de ${MOTS[n % MOTS.length]} et annonce ce que l’article raconte ensuite.`,
       content: `<p>Le corps de l’article numéro ${n}, où il est question de ${MOTS[n % MOTS.length]}.</p>`
         + '<p>' + 'Une phrase de plus pour donner du texte à lire. '.repeat(30) + '</p>',
-      image: null,
+      // Une image sur trois : de quoi que la mise en page « une » remonte un
+      // article illustré en tête et réordonne les autres — le cas où le lecteur
+      // doit suivre l'écran et non les données.
+      image: n % 3 === 0 ? `https://exemple.test/img-${n}.jpg` : null,
       published_at: Date.now() - n * 3600_000,
       duration: null,
       word_count: 300
@@ -187,6 +190,33 @@ await verifier('l’édition du jour se compose et s’annonce', async () => {
   if (!/\d+ articles? · \d+ min/.test(await page.$eval('#stageSub', (t) => t.textContent))) {
     throw new Error('le sous-titre n’annonce pas la durée : ' + await page.$eval('#stageSub', (t) => t.textContent));
   }
+});
+
+await verifier('en magazine, le lecteur suit l’ordre affiché, pas celui des données', async () => {
+  // Le lecteur avance vers la carte suivante à l'écran, pas vers celle que
+  // l'ordre des données donnerait : en « une », la mise en page remonte un
+  // article illustré et réordonne le reste. Depuis une une posée tard dans les
+  // données, on butait après deux ou trois articles — c'est ce qu'on garde.
+  await page.click('.view-row[data-view="all"]');
+  await page.waitForTimeout(700);
+  await page.click('.tab[data-layout="magazine"]');
+  await page.waitForTimeout(500);
+  const ordre = await page.$$eval('#flux .art[data-id]', (els) => els.slice(0, 6).map((e) => Number(e.dataset.id)));
+  if (ordre.length < 6) throw new Error(`pas assez de cartes (${ordre.length})`);
+  // On part de la une (1re carte affichée) et on avance : chaque pas doit tomber
+  // sur la carte suivante de l'écran, dans l'ordre exact où elles sont posées.
+  // La carte entière est cliquable ; la « une » n'a pas de lien de titre, on
+  // clique donc le conteneur, en JS (l'image le recouvre pour Playwright).
+  await page.$eval(`#flux .art[data-id="${ordre[0]}"]`, (el) => el.click());
+  await page.waitForSelector('#reader:not([hidden]) .reader-titre', { timeout: 15000 });
+  const idOuvert = () => page.evaluate(() => Number((location.hash.match(/(\d+)(?!.*\d)/) || [])[1]));
+  for (let k = 1; k < ordre.length; k++) {
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(400);
+    doitEtre(await idOuvert(), ordre[k], `${k + 1}e article = ${k + 1}e carte affichée`);
+  }
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
 });
 
 await verifier('les réglages s’ouvrent, piègent le focus, et le rendent', async () => {

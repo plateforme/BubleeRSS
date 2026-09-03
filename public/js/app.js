@@ -1191,15 +1191,28 @@ async function completerArticle(article, force = false) {
   }
 }
 
-function articleSuivant() {
-  const i = state.articles.findIndex((a) => a.id === state.openId);
-  return i >= 0 ? state.articles[i + 1] : null;
+/* L'ordre à l'écran, pas celui des données. En « une », la mise en page remonte
+   le premier article illustré et réordonne le reste en blocs : la carte du haut
+   n'est pas state.articles[0]. Le lecteur doit suivre ce que l'œil suit —
+   « suivant », c'est la carte suivante sur la page. Sinon, depuis une une posée
+   tard dans les données, on butait après deux ou trois articles alors qu'il en
+   restait douze en dessous. Hors liste rendue (lien direct), on retombe sur
+   l'ordre des données. */
+function ordreAffiche() {
+  const ids = $$('#flux .art[data-id]').map((el) => Number(el.dataset.id));
+  return ids.length ? ids : state.articles.map((a) => a.id);
 }
 
-function articlePrecedent() {
-  const i = state.articles.findIndex((a) => a.id === state.openId);
-  return i > 0 ? state.articles[i - 1] : null;
+function voisinAffiche(pas) {
+  const ordre = ordreAffiche();
+  const i = ordre.indexOf(state.openId);
+  if (i < 0) return null;
+  const id = ordre[i + pas];
+  return id == null ? null : state.articles.find((a) => a.id === id) || null;
 }
+
+function articleSuivant() { return voisinAffiche(1); }
+function articlePrecedent() { return voisinAffiche(-1); }
 
 function closeReader() {
   fermerPopTags();

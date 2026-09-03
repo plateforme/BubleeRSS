@@ -1,7 +1,7 @@
 // Recuperation et analyse des flux : RSS 2.0, RSS 1.0 (RDF) et Atom.
 import { XMLParser } from 'fast-xml-parser';
 import { sanitizeHtml, toPlainText, firstImage, decodeEntities, countWords, absolutize } from './html.js';
-import { httpGet, decodeBody, MAX_BYTES } from './http.js';
+import { httpGet, decodeBody, MAX_FLUX } from './http.js';
 import { estYouTube, resoudreFluxYouTube, contenuVideo } from './youtube.js';
 import { estSpotify, resoudreFluxSpotify } from './spotify.js';
 import { fluxDePlateforme } from './plateformes.js';
@@ -20,7 +20,7 @@ const parser = new XMLParser({
     maxEntitySize: 20000,
     maxExpansionDepth: 4,
     maxTotalExpansions: 500000,
-    maxExpandedLength: MAX_BYTES,
+    maxExpandedLength: MAX_FLUX,
     maxEntityCount: 4000
   },
   htmlEntities: true,
@@ -268,7 +268,11 @@ const ACCEPT_FLUX =
   'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8, */*;q=0.5';
 
 const getFlux = (url, headers = {}, timeout) =>
-  httpGet(url, { headers: { accept: ACCEPT_FLUX, ...headers }, ...(timeout ? { timeout } : {}) });
+  httpGet(url, {
+    headers: { accept: ACCEPT_FLUX, ...headers },
+    maxBytes: MAX_FLUX,
+    ...(timeout ? { timeout } : {})
+  });
 
 /**
  * Telecharge un flux en respectant ETag / Last-Modified.

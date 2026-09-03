@@ -15,6 +15,15 @@ export const USER_AGENT_NAVIGATEUR =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
 export const MAX_BYTES = 12 * 1024 * 1024;
+
+// Les flux, eux, ont droit a plus. Un podcast au long cours publie tout son
+// catalogue dans un seul fichier : « Generation Do It Yourself » fait quinze
+// mega-octets une fois decompresse — un mega et demi sur le fil, ce qui passe
+// le controle de taille annoncee et n'echoue qu'a l'arrivee. Douze suffisaient
+// aux sites d'actualite, pas a ces flux-la, et les refuser revenait a refuser
+// les podcasts les plus suivis. Le plafond reste : il protege d'un flux qui
+// n'en finit pas, sans ecarter ceux qui sont simplement gros.
+export const MAX_FLUX = 32 * 1024 * 1024;
 const REDIRECTIONS_MAX = 5;
 
 /* ------------------------------------------------------- adresses privees */

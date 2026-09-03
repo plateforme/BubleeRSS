@@ -6,3 +6,6 @@ Thumbs.db
 
 # Sortie de scripts/tester-flux.mjs : un résultat de session, pas du source.
 candidats-valides.json
+
+# Jeton Jira pour scripts/jira/consigner.mjs
+.env

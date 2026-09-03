@@ -12,6 +12,7 @@ import { identifier, exigeCompte, exigeSuper, cors, cookies, jeton, regenererJet
 import * as comptes from './comptes.js';
 import { adopterOrphelins, orphelinsEnAttente } from './db.js';
 import * as cacheImages from './cache-images.js';
+import { entetes } from './entetes.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const VERSION = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
@@ -20,6 +21,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 const app = express();
 app.disable('x-powered-by');
+app.use(entetes);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.text({ type: ['application/xml', 'text/xml', 'text/plain', 'application/octet-stream'], limit: '32mb' }));
 

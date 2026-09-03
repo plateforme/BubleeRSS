@@ -1,6 +1,6 @@
 // Consigne les tickets de l'audit dans Jira, dans l'ordre des etapes.
 //
-//   JIRA_EMAIL=toi@exemple.com JIRA_TOKEN=xxxx node scripts/jira/consigner.mjs
+//   node scripts/jira/consigner.mjs        (JIRA_EMAIL et JIRA_TOKEN dans .env ou l environnement)
 //
 // Variables :
 //   JIRA_SITE     https://waavoo.atlassian.net (defaut)
@@ -15,6 +15,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
+
+// Le jeton peut aussi vivre dans un fichier .env a la racine (ignore par git) :
+//   JIRA_EMAIL=...
+//   JIRA_TOKEN=...
+{
+  const env = path.join(ici, '..', '..', '.env');
+  if (fs.existsSync(env)) {
+    for (const ligne of fs.readFileSync(env, 'utf8').split(/\r?\n/)) {
+      const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(ligne);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    }
+  }
+}
+
 const SITE = (process.env.JIRA_SITE || 'https://waavoo.atlassian.net').replace(/\/$/, '');
 const PROJET = process.env.JIRA_PROJECT || 'BUB';
 const SEC = process.env.JIRA_DRY === '1';

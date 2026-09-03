@@ -6,22 +6,13 @@
 <title>Bublee</title>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -6 32 32'><defs><clipPath id='l'><circle cx='20.2' cy='10' r='8.2'/></clipPath></defs><circle cx='9.8' cy='10' r='8.2' fill='%2310604a' clip-path='url(%23l)'/><g fill='none' stroke='%2324231f' stroke-width='2'><circle cx='9.8' cy='10' r='8.2'/><circle cx='20.2' cy='10' r='8.2'/></g></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Les polices sont servies d'ici : rien ne part chez Google, et l'app
+     s'ouvre hors ligne. scripts/telecharger-polices.mjs les rapatrie. -->
+<link rel="stylesheet" href="/fonts/polices.css">
 <link rel="stylesheet" href="/styles.css">
-<script>
-  // Thème et accent avant le premier rendu, pour éviter le flash.
-  try {
-    document.documentElement.dataset.theme = localStorage.getItem('bublee.theme') || 'auto';
-    const accent = localStorage.getItem('bublee.accent');
-    if (accent) document.documentElement.style.setProperty('--accent', accent);
-    const largeur = localStorage.getItem('bublee.indexWidth');
-    if (largeur) document.documentElement.style.setProperty('--index-w', largeur + 'px');
-    // Posé sur <html> avant le rendu ; app.js le reporte sur .app au démarrage.
-    if (localStorage.getItem('bublee.indexPlie') === '1') document.documentElement.dataset.plie = '1';
-  } catch (e) {}
-</script>
+<!-- Thème et accent avant le premier rendu, pour éviter le flash. Un fichier
+     plutôt qu'un script inline : la CSP n'a aucun hash à tenir à jour. -->
+<script src="/js/amorce.js"></script>
 </head>
 <body>
 

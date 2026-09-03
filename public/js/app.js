@@ -286,7 +286,7 @@ function renderFeedList() {
   const feedRow = (feed) => {
     const couleur = teinte(feed.title);
     const marque = feed.icon
-      ? `<img class="feed-icon" src="${esc(feed.icon)}" alt="" loading="lazy">`
+      ? `<img class="feed-icon" src="${esc(relais(feed.icon))}" alt="" loading="lazy">`
       : `<span class="feed-icon mono-mark" style="--teinte:${couleur};--teinte-texte:${contraste(couleur)}">${esc(initiale(feed.title))}</span>`;
 
     return `
@@ -916,6 +916,14 @@ function renderReader(a) {
   rattraperImages($('#readerScroll'));
   $('#readerProgress').style.width = '0%';
 
+  // Toute image passe par le relais : la CSP n'en admet pas d'autre origine.
+  // Les <source> d'un <picture> pointent chez l'éditeur : on les retire, l'<img>
+  // en dessous suffit.
+  $$('.reader-body picture source', $('#readerScroll')).forEach((s) => s.remove());
+  $$('.reader-body video[poster]', $('#readerScroll')).forEach((v) => {
+    const poster = v.getAttribute('poster');
+    if (poster && !poster.startsWith('data:') && !poster.startsWith('/api/image')) v.poster = relais(poster);
+  });
   $$('.reader-body img, .reader-hero img').forEach((img) => {
     const src = img.getAttribute('src') || '';
     if (src && !src.startsWith('data:') && !src.startsWith('/api/image')) {

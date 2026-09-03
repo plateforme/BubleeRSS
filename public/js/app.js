@@ -1236,6 +1236,13 @@ function closeReader() {
   ecrireAdresse({ remplacer: true });
   $('#reader').hidden = true;
   $('#readerShade').hidden = true;
+  // Masquer ne suffit pas : une iframe de lecture — YouTube, Vimeo — ou une
+  // <video> continuent de jouer derrière le panneau caché, et le son tourne
+  // alors sans aucune commande pour l'arrêter, puisqu'elles sont hors de vue.
+  // On vide donc le panneau, ce qui les retire et coupe net. Une écoute au
+  // baladeur n'est pas concernée : il vit en pied de page, hors du lecteur, et
+  // survivre à la fermeture est précisément sa raison d'être.
+  $('#readerScroll').innerHTML = '';
   document.body.style.overflow = '';
 }
 

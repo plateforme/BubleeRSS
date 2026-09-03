@@ -255,6 +255,19 @@ await verifier('le clavier pilote la liste', async () => {
   await page.keyboard.press('Escape');
 });
 
+await verifier('fermer le lecteur vide le panneau, et coupe donc la vidéo', async () => {
+  // Masquer ne suffit pas : une iframe de lecture ou une <video> continueraient
+  // de jouer derrière le panneau caché, sans commande pour les arrêter. On
+  // vérifie que la fermeture retire vraiment le contenu.
+  await page.$eval('#flux .art[data-id]', (el) => el.click());
+  await page.waitForSelector('#reader:not([hidden]) .reader-titre', { timeout: 15000 });
+  await page.waitForTimeout(400);
+  if (!(await page.$eval('#readerScroll', (n2) => n2.childElementCount))) throw new Error('le lecteur est vide alors qu’il devrait porter l’article');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  doitEtre(await page.$eval('#readerScroll', (n2) => n2.childElementCount), 0, 'contenu resté vivant après fermeture');
+});
+
 await verifier('le glissé survit à un article qui déborde en largeur', async () => {
   // Déclarer le seul overflow-y fait calculer l'autre axe en « auto » : le
   // panneau passait alors pour une zone à défilement horizontal dès qu'un

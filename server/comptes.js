@@ -210,7 +210,7 @@ export const purgerSessionsExpirees = () =>
 
 export function listerSessions(userId) {
   return db.prepare(
-    'SELECT id, created_at, expires_at, agent, ip FROM sessions WHERE user_id = ? ORDER BY created_at DESC'
+    'SELECT created_at, expires_at, agent, ip FROM sessions WHERE user_id = ? ORDER BY created_at DESC'
   ).all(userId);
 }
 

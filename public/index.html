@@ -585,6 +585,25 @@
   </div>
 </div>
 
+<!-- ====================================================== le baladeur ====
+     Un seul lecteur audio, hors du panneau de lecture : fermer l'article ne
+     coupe plus l'épisode. -->
+<div class="baladeur" id="baladeur" hidden>
+  <button type="button" id="baladeurJouer" aria-label="Lecture ou pause">
+    <span id="baladeurGlyphe">▶</span>
+  </button>
+  <span class="baladeur-quoi">
+    <span class="baladeur-titre" id="baladeurTitre"></span>
+    <span class="baladeur-source" id="baladeurSource"></span>
+  </span>
+  <input type="range" class="baladeur-barre" id="baladeurBarre" min="0" max="1000" value="0"
+         aria-label="Position dans l’épisode">
+  <span class="baladeur-temps" id="baladeurTemps">0:00</span>
+  <button type="button" id="baladeurVitesse" title="Vitesse de lecture">1×</button>
+  <button type="button" id="baladeurFermer" aria-label="Fermer le lecteur audio">✕</button>
+  <audio id="baladeurAudio" preload="metadata"></audio>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script type="module" src="/js/app.js"></script>

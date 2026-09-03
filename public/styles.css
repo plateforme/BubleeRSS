@@ -1273,6 +1273,53 @@ kbd {
 }
 .toast-action:hover { color: var(--accent); }
 
+/* ------------------------------------------------------------ baladeur */
+
+/* Un seul lecteur, en pied de page : fermer l'article ne coupe pas l'écoute. */
+.baladeur {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(90px, 240px) auto auto auto;
+  gap: 14px; align-items: center;
+  padding: 9px 16px;
+  background: var(--ink-deep); color: var(--paper);
+  border-top: 1px solid var(--dark-rule);
+}
+.baladeur button { color: var(--paper); font-family: var(--mono); font-size: 11px; }
+.baladeur button:hover { color: var(--accent); }
+#baladeurJouer { font-size: 14px; text-align: left; }
+.baladeur-quoi { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.baladeur-titre {
+  font-family: var(--body); font-size: 15px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.baladeur-source, .baladeur-temps {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--on-ink-3);
+}
+.baladeur-temps { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* La jauge : un filet, un curseur carré — pas de pilule. */
+.baladeur-barre { -webkit-appearance: none; appearance: none; background: none; height: 14px; }
+.baladeur-barre::-webkit-slider-runnable-track { height: 2px; background: var(--dark-rule); }
+.baladeur-barre::-moz-range-track { height: 2px; background: var(--dark-rule); }
+.baladeur-barre::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 9px; height: 9px; margin-top: -3.5px; background: var(--accent); border: 0;
+}
+.baladeur-barre::-moz-range-thumb { width: 9px; height: 9px; background: var(--accent); border: 0; border-radius: 0; }
+
+/* La scène rend la hauteur du baladeur, pour que rien ne passe dessous. */
+.app.avec-baladeur .scroller { padding-bottom: 58px; }
+
+/* Dans le lecteur, l'épisode s'écoute par un bouton : c'est le baladeur qui joue. */
+.btn.ecouter { margin: 4px 0 18px; }
+
+@media (max-width: 720px) {
+  /* Au doigt, la vitesse et le temps cèdent la place au titre. */
+  .baladeur { grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 10px; padding: 8px 12px; }
+  .baladeur-barre, .baladeur-temps { display: none; }
+}
+
 /* ---------------------------------------------------------------- débit */
 
 .debit { display: flex; flex-direction: column; margin: 10px 0 12px; max-height: 320px; overflow-y: auto; }

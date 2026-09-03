@@ -886,7 +886,10 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
 .reader-bar .original:hover { background: var(--accent); color: #fff; }
 .reader-bar button.on { color: var(--accent); }
 
-.reader-scroll { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
+/* pan-y : le défilement vertical reste au navigateur, la direction horizontale
+   est réservée au glissé (glisse.js). Sans ça, le navigateur dispute le geste
+   au doigt et le glissé se fige à mi-course. */
+.reader-scroll { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; touch-action: pan-y; }
 .reader-scroll::-webkit-scrollbar { width: 10px; }
 .reader-scroll::-webkit-scrollbar-thumb { background: #c6c3b9; }
 
@@ -1103,6 +1106,10 @@ h1, h2, h3, p, dl, dd, figure { margin: 0; }
   margin: 1.6em 0; padding: 16px 18px;
   background: var(--bone-2); border: 1px solid var(--ink);
   overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  /* Un bloc de code garde son propre défilement horizontal, que le pan-y du
+     lecteur lui retirerait sinon ; le glissé du doigt lui cède déjà la
+     priorité (dansUnDefilementHorizontal). */
+  touch-action: pan-x;
 }
 .reader-body code { font-family: var(--mono); font-size: .8em; background: var(--bone-2); padding: 1px 5px; }
 .reader-body pre code { background: none; padding: 0; }

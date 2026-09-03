@@ -204,9 +204,17 @@ export function glisseLecteur(voisins) {
     if (horizontal === null) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       horizontal = Math.abs(dx) > Math.abs(dy) * PENTE_GLISSE;
-      if (!horizontal) { relacher(); return; }
+      if (!horizontal) { relacher(); return; }   // vertical : on rend la main au défilement natif
       $('#readerScroll').style.willChange = 'transform';
     }
+
+    // Une fois le geste reconnu horizontal, Bublee le réclame. Sans ce
+    // preventDefault, le navigateur continue de guetter un défilement vertical
+    // et finit par reprendre la main au milieu du glissé : le contenu se fige,
+    // et le doigt relâché retombe sous le seuil, donc revient en arrière — le
+    // glissé « se bloquait à mi-course ». Le listener est non passif exprès :
+    // c'est ce qui autorise l'appel.
+    e.preventDefault();
 
     // Le contenu suit le doigt au point près, sauf là où le geste ne mène nulle
     // part : vers la gauche sans article suivant, il résiste comme un élastique
@@ -215,7 +223,7 @@ export function glisseLecteur(voisins) {
     const suivi = impasse ? Math.sign(dx) * Math.pow(Math.abs(dx), 0.62) : dx;
     $('#readerScroll').style.transform = `translateX(${suivi}px)`;
     suivreElan(e.touches[0].clientX, e.timeStamp);
-  }, { passive: true });
+  }, { passive: false });
 
   panneau.addEventListener('touchend', async (e) => {
     if (!actif) return;

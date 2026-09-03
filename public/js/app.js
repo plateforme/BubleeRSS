@@ -287,6 +287,13 @@ async function boot() {
   // chargeait les non-lus puis la vraie liste, deux fois.
   const ecran = ECRANS[location.hash];
   const depart = ecran ? null : lireAdresse();
+  // Une ouverture « maison » vise l'édition du jour plutôt que les non-lus :
+  // une pile finie qu'on peut terminer, pas un fond qui se dérobe. Sont
+  // « maison » l'ouverture nue et les deux vues d'accueil — c'est aussi ce
+  // par quoi la version installée démarre. Un lien précis vers une source,
+  // un dossier, une étiquette ou une recherche, lui, est respecté.
+  const accueil = location.hash.replace(/^#\/?/, '');
+  const neutre = Boolean(depart) && (accueil === '' || accueil === 'unread' || accueil === 'edition');
   if (depart) {
     Object.assign(state, {
       view: depart.view, feedId: depart.feedId, folder: depart.folder, tag: depart.tag, q: depart.q
@@ -296,6 +303,9 @@ async function boot() {
 
   try {
     const data = await api.state();
+    // Les jours sans édition — rien de neuf chez les sources suivies — on
+    // retombe sur les non-lus, pour ne pas ouvrir sur un écran vide.
+    if (neutre) state.view = data.counts.edition ? 'edition' : 'unread';
     absorb(data);
     applyAccent(data.settings.accent);
     applyLayout(data.settings.layout || 'magazine');

@@ -4,7 +4,7 @@
   "description": "Un lecteur RSS maison, composé comme une première page de journal.",
   "lang": "fr",
   "dir": "ltr",
-  "start_url": "/#/unread",
+  "start_url": "/#/edition",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

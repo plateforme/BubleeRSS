@@ -1,7 +1,8 @@
 // Les operations metier : flux, articles, texte complet, etiquettes, debit.
 //
 // La deduplication vit dans doublons.js, les regles dans regles.js, l edition
-// dans edition.js ; store reste la porte d entree que les routes appellent.
+// dans edition.js, les dossiers dans dossiers.js ; store reste la porte
+// d entree que les routes appellent.
 import { db, getSetting, setSetting } from './db.js';
 import { fetchFeed, discoverFeeds } from './feed.js';
 import { urlKey, titleKey } from './dedupe.js';
@@ -15,6 +16,9 @@ import {
   trouverOriginal, groupe, autresSources, reconcilierDoublons, dedupeExistants,
   recalculerDoublons, ARTICLES_DU_COMPTE
 } from './doublons.js';
+import { nomDeDossier, retenirDossier } from './dossiers.js';
+
+export { listFolders, creerDossier, renommerDossier, supprimerDossier } from './dossiers.js';
 
 
 /** Le flux, s'il appartient bien a ce compte. */
@@ -67,19 +71,6 @@ export function listFeeds(u) {
     WHERE f.user_id = ?
     ORDER BY f.folder = '' DESC, f.folder COLLATE NOCASE, f.position, title COLLATE NOCASE
   `).all(exigeCompte(u));
-}
-
-/**
- * Renomme un dossier : il n'est qu'une chaine portee par chaque source, si
- * bien qu'il n'y avait aucun moyen de le renommer sans reprendre les sources
- * une a une. Renommer vers un nom existant fusionne les deux, ce qui est la
- * seule chose sensee a faire.
- */
-export function renommerDossier(ancien, nouveau, u) {
-  const compte = exigeCompte(u);
-  const propre = String(nouveau ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
-  return db.prepare('UPDATE feeds SET folder = ? WHERE folder = ? AND user_id = ?')
-    .run(propre, String(ancien ?? ''), compte).changes;
 }
 
 /**
@@ -144,10 +135,12 @@ export async function addFeed(u, input, folder = '', title = '') {
     throw Object.assign(new Error('Ce flux est deja dans ta bibliotheque.'), { status: 409, feedId: existing.id });
   }
 
+  const dossier = nomDeDossier(folder);
   const info = db.prepare(`
     INSERT INTO feeds (url, title, custom_title, folder, created_at, user_id)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(chosen.url, chosen.title || '', title || null, folder || '', now(), compte);
+  `).run(chosen.url, chosen.title || '', title || null, dossier, now(), compte);
+  retenirDossier(dossier, compte);
 
   const feedId = Number(info.lastInsertRowid);
   const result = await refreshFeed(feedId);
@@ -185,7 +178,8 @@ export function updateFeed(id, patch, u) {
   for (const key of ['custom_title', 'folder', 'url']) {
     if (patch[key] !== undefined) {
       fields.push(key + ' = ?');
-      values.push(patch[key] === '' && key === 'custom_title' ? null : patch[key]);
+      if (key === 'folder') values.push(nomDeDossier(patch.folder));
+      else values.push(patch[key] === '' && key === 'custom_title' ? null : patch[key]);
     }
   }
   // Une nouvelle adresse repart de zero : l'ETag de l'ancienne ne vaut rien
@@ -196,6 +190,8 @@ export function updateFeed(id, patch, u) {
   if (!fields.length) return feed;
   values.push(id, feed.user_id);
   db.prepare('UPDATE feeds SET ' + fields.join(', ') + ' WHERE id = ? AND user_id = ?').run(...values);
+  // Ranger une source dans un dossier inscrit ce dossier dans la liste du compte.
+  if (patch.folder !== undefined) retenirDossier(patch.folder, feed.user_id);
   return fluxDuCompte(id, feed.user_id);
 }
 
@@ -456,13 +452,6 @@ export function changerPriorites(ids, priorite, u) {
   return db.prepare(
     `UPDATE feeds SET priority = ? WHERE user_id = ? AND id IN (${liste.map(() => '?').join(',')})`
   ).run(priorite, compte, ...liste).changes;
-}
-
-export function listFolders(u) {
-  return db.prepare(`
-    SELECT folder AS name, COUNT(*) AS feeds
-    FROM feeds WHERE folder <> '' AND user_id = ? GROUP BY folder ORDER BY folder COLLATE NOCASE
-  `).all(exigeCompte(u));
 }
 
 /* -------------------------------------------------------- rafraichissement */

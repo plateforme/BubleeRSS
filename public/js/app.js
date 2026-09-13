@@ -569,6 +569,11 @@ function renderFeedList() {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(feed);
   }
+  // Un dossier vide garde sa place dans l'index : c'est à l'utilisateur de le
+  // supprimer, pas à la dernière source qui en sort.
+  for (const dossier of state.folders) {
+    if (!groups.has(dossier.name)) groups.set(dossier.name, []);
+  }
 
   const initiale = (t) => (String(t).match(/[\p{L}\p{N}]/u)?.[0] || '•').toUpperCase();
 
@@ -759,7 +764,10 @@ function ecrireAdresse({ remplacer = false } = {}) {
 }
 
 /** Les écrans qui ne sont pas des vues : ils gardent leur adresse à eux. */
-const ECRANS = { '#/tags': ouvrirGestionTags, '#/reglages': ouvrirReglages, '#/shortcuts': () => openModal('#shortcutsModal') };
+const ECRANS = {
+  '#/tags': ouvrirGestionTags, '#/dossiers': ouvrirGestionDossiers,
+  '#/reglages': ouvrirReglages, '#/shortcuts': () => openModal('#shortcutsModal')
+};
 
 function lireAdresse(hash = location.hash) {
   const morceaux = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -1556,6 +1564,38 @@ async function majTag(id, patch) {
   }
 }
 
+/* ------------------------------------------------------ gestion dossiers */
+
+/* Un dossier n'existait que par les sources qui le portaient : on ne pouvait
+   ni en créer un d'avance, ni le supprimer. Chaque compte tient maintenant sa
+   liste, et la règle ici. */
+
+function renderFolderManager() {
+  $('#folderManager').innerHTML = state.folders.length
+    ? state.folders.map((d) => `
+      <div class="tag-manage" data-dossier="${esc(d.name)}">
+        <div class="tag-manage-head">
+          <input class="tag-rename" value="${esc(d.name)}" maxlength="80" aria-label="Nom du dossier">
+          <span class="tag-usage">${d.feeds ? pluriel(d.feeds, 'source') : 'vide'}</span>
+          <button class="tag-delete" aria-label="Supprimer le dossier">✕</button>
+        </div>
+      </div>`).join('')
+    : '<p class="field-note">Aucun dossier. Crée le premier ci-dessus.</p>';
+}
+
+async function ouvrirGestionDossiers() {
+  await reloadState();
+  renderFolderManager();
+  openModal('#foldersModal');
+}
+
+/** Toute écriture sur un dossier se termine ainsi : l'index et l'écran à jour. */
+async function apresDossier(message) {
+  await reloadState();
+  renderFolderManager();
+  if (message) toast(message);
+}
+
 /* ------------------------------------------------ réparation des sources */
 
 const LIBELLES = {
@@ -1804,7 +1844,7 @@ async function ajouterSuggestion(index, element) {
   const s = SUGGESTIONS[index];
   element.classList.add('done');
   try {
-    await api.addFeed(s.url, s.folder);
+    await api.addFeed(s.url);
     await reloadState();
     toast(`${s.title} ajouté`);
     loadArticles(true);
@@ -2366,6 +2406,51 @@ Ses sources, ses articles et ses étiquettes seront effacés. C’est définitif
     const ancien = state.tags.find((t) => t.id === id)?.name;
     const nouveau = e.target.value.trim();
     if (nouveau && nouveau !== ancien) majTag(id, { name: nouveau });
+  });
+
+  $('#manageFolders').addEventListener('click', ouvrirGestionDossiers);
+  $('#folderCreateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nom = $('#newFolderName').value.trim();
+    if (!nom) return;
+    try {
+      await api.creerDossier(nom);
+      $('#newFolderName').value = '';
+      await apresDossier();
+    } catch (error) { toast('Dossier : ' + error.message, 'bad'); }
+  });
+  $('#folderManager').addEventListener('click', async (e) => {
+    if (!e.target.closest('.tag-delete')) return;
+    const nom = e.target.closest('[data-dossier]').dataset.dossier;
+    const sources = state.folders.find((d) => d.name === nom)?.feeds || 0;
+    const suite = !sources ? '' : sources > 1
+      ? `\n\nSes ${nombre(sources)} sources restent, sans dossier.`
+      : '\n\nSa source reste, sans dossier.';
+    if (!confirm(`Supprimer le dossier « ${nom} » ?${suite}`)) return;
+    try {
+      await api.supprimerDossier(nom);
+      if (state.folder === nom) setView({ view: 'all' });
+      await apresDossier(`Dossier « ${nom} » supprimé`);
+    } catch (error) { toast('Dossier : ' + error.message, 'bad'); }
+  });
+  $('#folderManager').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('.tag-rename')) { e.preventDefault(); e.target.blur(); }
+  });
+  $('#folderManager').addEventListener('focusout', async (e) => {
+    if (!e.target.matches('.tag-rename')) return;
+    const ancien = e.target.closest('[data-dossier]').dataset.dossier;
+    const nouveau = e.target.value.replace(/\s+/g, ' ').trim();
+    // Vider le nom ne supprime rien par mégarde : la croix est là pour ça.
+    if (!nouveau) { e.target.value = ancien; return; }
+    if (nouveau === ancien) return;
+    try {
+      await api.renommerDossier(ancien, nouveau);
+      if (state.folder === ancien) setView({ view: state.view, folder: nouveau });
+      await apresDossier();
+    } catch (error) {
+      e.target.value = ancien;
+      toast('Dossier : ' + error.message, 'bad');
+    }
   });
 
   $('#repairAll').addEventListener('click', async () => {

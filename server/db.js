@@ -102,6 +102,16 @@ CREATE TABLE IF NOT EXISTS tags (
   created_at INTEGER NOT NULL
 );
 
+-- Les dossiers d'un compte. La source porte le sien en clair (feeds.folder) ;
+-- cette liste en est le registre, et c'est elle qui permet un dossier vide.
+-- Un nouveau compte n'en a aucun.
+CREATE TABLE IF NOT EXISTS folders (
+  id         INTEGER PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Ce qu'on ne veut plus voir arriver, ou qu'on veut retrouver : un motif, un
 -- champ, une action. Un feed_id NUL vaut « partout ».
 CREATE TABLE IF NOT EXISTS rules (
@@ -302,6 +312,7 @@ CREATE INDEX IF NOT EXISTS idx_rules_user         ON rules(user_id, actif);
 -- L'unicite qui compte : une adresse par compte, un nom d'etiquette par compte.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_url_par_compte ON feeds(user_id, url);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_nom_par_compte  ON tags(user_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_nom_par_compte ON folders(user_id, name);
 `);
 
 /* ------------------------------------------------------------- recherche */
@@ -439,7 +450,27 @@ export function adopterOrphelins(userId) {
   const reglages = db.prepare(
     "UPDATE settings SET user_id = ? WHERE user_id = 0 AND key NOT IN ('last_refresh_at')"
   ).run(userId).changes;
-  return { flux, etiquettes, reglages };
+  const dossiers = synchroniserDossiers(userId);
+  return { flux, etiquettes, reglages, dossiers };
+}
+
+/**
+ * Inscrit dans la liste de chaque compte les dossiers que ses sources portent
+ * deja. Une base d'avant la liste retrouve ainsi les siens au demarrage, et la
+ * liste ne peut pas deriver : un nom porte par une source y figure toujours.
+ * L'inverse n'est pas vrai, et c'est voulu — un dossier peut rester vide.
+ */
+export function synchroniserDossiers(userId = null) {
+  return db.prepare(`
+    INSERT OR IGNORE INTO folders (user_id, name, created_at)
+    SELECT DISTINCT user_id, folder, ? FROM feeds
+    WHERE folder <> '' AND user_id IS NOT NULL AND (? IS NULL OR user_id = ?)
+  `).run(Date.now(), userId, userId).changes;
+}
+
+{
+  const n = synchroniserDossiers();
+  if (n) console.log(`[bublee] ${n} dossier(s) inscrit(s) dans la liste de leur compte.`);
 }
 
 export const orphelinsEnAttente = () =>

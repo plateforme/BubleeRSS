@@ -18,7 +18,7 @@
 // fichiers depuis son cache — un correctif poussé n'atteint pas le téléphone,
 // ou seulement « un chargement en retard ». Changer ce numéro force la
 // réinstallation : tout l'habillage est repris du réseau, les vieux caches effacés.
-const VERSION = 'bublee-v9';
+const VERSION = 'bublee-v10';
 const COQUILLE = VERSION + '-coquille';
 const LECTURE = VERSION + '-lecture';
 const IMAGES = VERSION + '-images';

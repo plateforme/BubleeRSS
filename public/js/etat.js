@@ -47,15 +47,17 @@ const TEINTES_SOURCE = [
 /** Les dossiers repliés dans l'index : un réglage d'écran, pas de compte. */
 export const collapsed = new Set(JSON.parse(localStorage.getItem('bublee.collapsed') || '[]'));
 
+/* Les suggestions d'un kiosque vide n'imposent aucun dossier : un compte neuf
+   n'en a pas, et c'est à chacun de ranger comme il l'entend. */
 export const SUGGESTIONS = [
-  { title: 'Le Monde — Une', url: 'https://www.lemonde.fr/rss/une.xml', folder: 'Actualité' },
-  { title: 'France Info', url: 'https://www.francetvinfo.fr/titres.rss', folder: 'Actualité' },
-  { title: 'Le Devoir', url: 'https://www.ledevoir.com/rss/manchettes.xml', folder: 'Actualité' },
-  { title: 'Numerama', url: 'https://www.numerama.com/feed/', folder: 'Tech' },
-  { title: 'Next', url: 'https://next.ink/feed/', folder: 'Tech' },
-  { title: 'Hacker News', url: 'https://hnrss.org/frontpage', folder: 'Tech' },
-  { title: 'Aeon', url: 'https://aeon.co/feed.rss', folder: 'Idées' },
-  { title: 'Kurzgesagt', url: 'https://www.youtube.com/@kurzgesagt', folder: 'Vidéo' }
+  { title: 'Le Monde — Une', url: 'https://www.lemonde.fr/rss/une.xml' },
+  { title: 'France Info', url: 'https://www.francetvinfo.fr/titres.rss' },
+  { title: 'Le Devoir', url: 'https://www.ledevoir.com/rss/manchettes.xml' },
+  { title: 'Numerama', url: 'https://www.numerama.com/feed/' },
+  { title: 'Next', url: 'https://next.ink/feed/' },
+  { title: 'Hacker News', url: 'https://hnrss.org/frontpage' },
+  { title: 'Aeon', url: 'https://aeon.co/feed.rss' },
+  { title: 'Kurzgesagt', url: 'https://www.youtube.com/@kurzgesagt' }
 ];
 
 /* --------------------------------------------------------------- couleurs */

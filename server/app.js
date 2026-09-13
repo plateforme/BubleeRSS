@@ -193,7 +193,10 @@ const ROUTES = [
   ['POST',   '/api/articles/:id/color',  'couleurs de l illustration { color }'],
   ['PATCH',  '/api/tags/:id',            'renommer ou reteindre { name?, color? }'],
   ['DELETE', '/api/tags/:id',            'supprimer une etiquette'],
+  ['GET',    '/api/folders',             'les dossiers du compte, vides compris'],
+  ['POST',   '/api/folders',             'creer un dossier { name }'],
   ['PATCH',  '/api/folders/:nom',        'renommer un dossier (fusionne si le nom existe) { name }'],
+  ['DELETE', '/api/folders/:nom',        'supprimer un dossier ; ses sources restent, sans dossier'],
   ['POST',   '/api/feeds/ordre',         'fixer l ordre des sources { ids }'],
   ['GET',    '/api/feeds/stats',         'ce que chaque source apporte ; parametre jours'],
   ['POST',   '/api/feeds/priorites',     'changer la priorite de plusieurs sources { ids, priority }'],
@@ -470,11 +473,25 @@ const annoncerCompteurs = (userId, extra = {}) => annoncer(userId, 'compteurs', 
 
 /* ------------------------------------------------------------ dossiers */
 
-// Un dossier n'est qu'une chaine sur chaque source : le renommer, c'est les
-// reecrire toutes. Vers un nom existant, les deux fusionnent.
+// Chaque compte tient sa liste de dossiers : il en cree, les renomme, les
+// supprime. Supprimer un dossier ne supprime aucune source — elles en sortent.
+app.get('/api/folders', (req, res) => res.json({ folders: store.listFolders(moi(req)) }));
+
+app.post('/api/folders', (req, res) => {
+  const folder = store.creerDossier(req.body?.name, moi(req));
+  res.status(201).json({ folder, folders: store.listFolders(moi(req)) });
+});
+
+// Le renommer, c'est reecrire toutes ses sources. Vers un nom existant, les
+// deux fusionnent.
 app.patch('/api/folders/:nom', (req, res) => {
   const changed = store.renommerDossier(req.params.nom, req.body?.name, moi(req));
   res.json({ changed, folders: store.listFolders(moi(req)) });
+});
+
+app.delete('/api/folders/:nom', (req, res) => {
+  const { sorties } = store.supprimerDossier(req.params.nom, moi(req));
+  res.json({ ok: true, sorties, folders: store.listFolders(moi(req)) });
 });
 
 // L'ordre voulu dans l'index, dossier par dossier.

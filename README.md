@@ -660,7 +660,10 @@ c'est ce qu'une sonde ou un `HEALTHCHECK` de conteneur peut interroger.
 | `GET`    | `/api/feeds/stats`        | ce que chaque source apporte ; `?jours=90` |
 | `POST`   | `/api/feeds/priorites`    | `{ "ids": [3, 7], "priority": "survol" }` |
 | `POST`   | `/api/feeds/ordre`        | l'ordre voulu dans l'index `{ "ids": [...] }` |
+| `GET`    | `/api/folders`            | les dossiers du compte, vides compris |
+| `POST`   | `/api/folders`            | créer un dossier `{ "name": "…" }` |
 | `PATCH`  | `/api/folders/:nom`       | renommer un dossier (fusionne) `{ "name": "…" }` |
+| `DELETE` | `/api/folders/:nom`       | supprimer un dossier ; ses sources restent, sans dossier |
 | `POST`   | `/api/dedupe`             | rapprocher les doublons (`?rebuild=1`) |
 | `POST`   | `/api/opml/import`        | corps = XML OPML |
 | `GET`    | `/api/opml/export`        | export OPML |

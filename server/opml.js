@@ -2,6 +2,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { db } from './db.js';
 import { listFeeds } from './store.js';
+import { nomDeDossier, retenirDossier } from './dossiers.js';
 import { decodeEntities } from './html.js';
 
 const parser = new XMLParser({
@@ -61,8 +62,9 @@ export function importOpml(xml, { defaultFolder = '' } = {}, userId) {
   const run = db.transaction(() => {
     for (const entry of entries) {
       if (!/^https?:\/\//i.test(entry.url)) { skipped++; continue; }
-      const info = insert.run(entry.url, entry.title || '', entry.folder || defaultFolder, stamp, userId);
-      if (info.changes) added++; else skipped++;
+      const dossier = nomDeDossier(entry.folder || defaultFolder);
+      const info = insert.run(entry.url, entry.title || '', dossier, stamp, userId);
+      if (info.changes) { added++; retenirDossier(dossier, userId); } else skipped++;
     }
   });
   run();

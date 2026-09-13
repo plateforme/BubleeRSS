@@ -170,6 +170,9 @@
     <div class="index-section">
       <span>Le kiosque</span>
       <span class="grow"></span>
+      <button id="manageFolders" title="Gérer les dossiers" aria-label="Gérer les dossiers">
+        <svg class="pencil" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/></svg>
+      </button>
       <button id="addFeedRail" title="Ajouter une source" aria-label="Ajouter une source">+</button>
     </div>
     <div class="index-feeds" id="feedList"></div>
@@ -324,7 +327,7 @@
     </label>
     <label class="field">
       <span>Dossier <small>(optionnel)</small></span>
-      <input type="text" id="feedFolder" list="folderOptions" placeholder="Actualité, Tech, Design…" autocomplete="off">
+      <input type="text" id="feedFolder" list="folderOptions" placeholder="Sans dossier" autocomplete="off">
       <datalist id="folderOptions"></datalist>
     </label>
     <div class="modal-actions">
@@ -600,6 +603,20 @@
     <button type="submit" class="btn solid">Créer</button>
   </form>
   <div class="tag-manager" id="tagManager"></div>
+  <div class="modal-actions">
+    <button type="button" class="btn" data-close>Fermer</button>
+  </div>
+</dialog>
+
+<dialog class="modal" id="foldersModal" aria-labelledby="foldersModalTitle">
+  <h2 id="foldersModalTitle">Dossiers</h2>
+  <p class="modal-hint">Crée, renomme ou supprime tes dossiers. Renommer un dossier avec le nom
+    d’un autre fusionne les deux ; supprimer un dossier garde ses sources, sans dossier.</p>
+  <form id="folderCreateForm" class="tag-create">
+    <input type="text" id="newFolderName" placeholder="Nouveau dossier" maxlength="80" autocomplete="off">
+    <button type="submit" class="btn solid">Créer</button>
+  </form>
+  <div class="tag-manager" id="folderManager"></div>
   <div class="modal-actions">
     <button type="button" class="btn" data-close>Fermer</button>
   </div>

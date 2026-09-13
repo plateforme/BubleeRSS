@@ -465,3 +465,28 @@ test('une image se réduit, et le cache garde chaque taille à part', async () =
   assert.equal((await cache.lire(url)).corps.length, grande.length);
   assert.equal((await cache.lire(url, 'w160')).corps.length, petite.corps.length);
 });
+
+test('chacun gère ses dossiers : créer vide, renommer, supprimer sans perdre ses sources', async () => {
+  const cree = await appel('POST', '/api/folders', { cookie: cookieAlice, corps: { name: 'Lectures du soir' } });
+  assert.equal(cree.statut, 201);
+  assert.deepEqual(cree.json.folder, { name: 'Lectures du soir', feeds: 0 });
+  assert.equal((await appel('POST', '/api/folders', { cookie: cookieAlice, corps: { name: '   ' } })).statut, 400);
+
+  // Un dossier vide existe pour de bon : l'état le rend.
+  const etat = await appel('GET', '/api/state', { cookie: cookieAlice });
+  assert.ok(etat.json.folders.some((d) => d.name === 'Lectures du soir'));
+
+  const renomme = await appel('PATCH', '/api/folders/' + encodeURIComponent('Lectures du soir'), {
+    cookie: cookieAlice, corps: { name: 'Le soir' }
+  });
+  assert.equal(renomme.statut, 200);
+  assert.ok(renomme.json.folders.some((d) => d.name === 'Le soir'));
+  assert.ok(!renomme.json.folders.some((d) => d.name === 'Lectures du soir'));
+
+  const chemin = '/api/folders/' + encodeURIComponent('Le soir');
+  const supprime = await appel('DELETE', chemin, { cookie: cookieAlice });
+  assert.equal(supprime.statut, 200);
+  assert.ok(!supprime.json.folders.some((d) => d.name === 'Le soir'));
+  assert.equal((await appel('DELETE', chemin, { cookie: cookieAlice })).statut, 404);
+  assert.equal((await appel('GET', '/api/folders')).statut, 401);
+});

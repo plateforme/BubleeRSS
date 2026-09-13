@@ -316,6 +316,13 @@ async function boot() {
     $('#stageTitle').textContent = titreVue();
   }
 
+  // La mise en page, gardée sur l'appareil : les cartes peuvent ainsi se
+  // poser avant que l'état n'arrive, et directement dans la bonne.
+  try {
+    const gardee = localStorage.getItem('bublee.layout');
+    if (CLASSE_LAYOUT[gardee]) applyLayout(gardee);
+  } catch { /* stockage indisponible : la une par défaut */ }
+
   // Tout part en même temps : l'identité, l'état de l'index et les articles.
   // Pour un retour — session valide —, les trois arrivent ensemble, en un
   // seul aller-retour au lieu de trois enchaînés. Si on n'est pas connecté,
@@ -343,33 +350,71 @@ async function boot() {
   }
 
   try {
-    const data = await pState;
-    if (data.erreur) throw data.erreur;
-    // Les jours sans édition — rien de neuf chez les sources suivies — on
-    // retombe sur les non-lus, pour ne pas ouvrir sur un écran vide.
-    const videEdition = neutre && !data.counts.edition;
-    if (videEdition) state.view = 'unread';
-    absorb(data);
-    applyAccent(data.settings.accent);
-    applyLayout(data.settings.layout || 'magazine');
+    // Les cartes d'abord, l'index ensuite.
+    //
+    // On attendait l'état — sources, dossiers, compteurs — avant de poser la
+    // moindre carte, et on construisait l'index avant la liste. Mesuré sur un
+    // processeur de téléphone : les quatre-vingt-dix-huit lignes de l'index et
+    // leur mise en page coûtaient plus que les cartes elles-mêmes, pour un
+    // index replié dans son tiroir. La fournée porte de quoi se montrer seule,
+    // y compris de quoi savoir si l'édition est vide.
+    let fournee = await pArticles;
+    if (fournee?.erreur) fournee = await api.articles(params).catch((error) => ({ erreur: error }));   // filet, rare
 
-    if (videEdition) {
-      // L'optimisme était faux : la fournée en vol visait l'édition, on la
-      // laisse tomber et on charge la bonne vue.
-      Promise.resolve(pArticles).catch(() => {});
-      await loadArticles(true);
-    } else {
-      let fournee = await pArticles;
-      if (fournee?.erreur) fournee = await api.articles(params);   // filet, rare
+    // Les jours sans édition — rien de neuf chez les sources suivies, ou tout
+    // y est déjà lu — on retombe sur les non-lus, pour ne pas ouvrir sur un
+    // écran vide.
+    const videEdition = neutre && !fournee.edition?.restants;
+    // Une liste vide attend l'état : lui seul sait dire si le kiosque est vide
+    // ou si tout est lu, et ce ne sont pas les mêmes écrans.
+    const tot = !videEdition && !fournee.erreur && fournee.articles?.length > 0;
+    const poser = () => {
       state.articles = fournee.articles || [];
       state.cursor = fournee.nextCursor;
       state.done = !fournee.nextCursor;
       state.edition = fournee.edition || null;
       state.loading = false;
       renderFlux({ depuis: 0 });
-      $('#stageTitle').textContent = titreVue();
       $('#stageSub').textContent = sousTitre();
       $('#triRecherche').hidden = !state.q;
+    };
+    if (tot) {
+      poser();
+      // Le temps que le navigateur peigne les cartes avant de passer à l'index.
+      // Le second délai borne l'attente dans un onglet caché, où les images
+      // d'animation ne viennent jamais.
+      await new Promise((suite) => {
+        requestAnimationFrame(() => setTimeout(suite, 0));
+        setTimeout(suite, 100);
+      });
+    }
+
+    const data = await pState;
+    if (data.erreur) throw data.erreur;
+    if (videEdition) state.view = 'unread';
+    absorb(data);
+    applyAccent(data.settings.accent);
+    // La mise en page gardée sur l'appareil n'était qu'une avance : le compte
+    // a le dernier mot, et des cartes posées dans une autre sont refaites.
+    const miseEnPage = data.settings.layout || 'magazine';
+    const autreMiseEnPage = miseEnPage !== state.layout;
+    applyLayout(miseEnPage);
+    $('#stageTitle').textContent = titreVue();
+
+    if (videEdition) {
+      // L'optimisme était faux : la fournée visait l'édition, on charge la
+      // bonne vue.
+      await loadArticles(true);
+    } else if (fournee.erreur) {
+      throw fournee.erreur;
+    } else if (!tot) {
+      poser();
+    } else if (autreMiseEnPage) {
+      renderFlux({ depuis: 0 });
+    } else {
+      // Les pastilles d'étiquettes prennent leur couleur dans l'état, arrivé
+      // après elles.
+      state.articles.filter((a) => a.tags?.length).forEach(majPuces);
     }
   } catch (error) {
     toast('Le serveur ne répond pas : ' + error.message, 'bad');
@@ -758,6 +803,7 @@ function applyLayout(layout) {
   state.layout = layout;
   $('#flux').className = 'flux ' + CLASSE_LAYOUT[layout];
   $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+  try { localStorage.setItem('bublee.layout', layout); } catch { /* tant pis */ }
 }
 
 function applyTheme(theme) {

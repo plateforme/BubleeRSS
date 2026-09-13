@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { urlKey, titleKey } from '../server/dedupe.js';
+import { urlKey, titleKey, FENETRE_TITRE_MS } from '../server/dedupe.js';
 
 /* ------------------------------------------------------- cles de comparaison */
 
@@ -137,6 +137,35 @@ test('un titre court ne suffit pas a declarer un doublon', () => {
 
   assert.deepEqual(resultat, { ajoutes: 1, doublons: 0, filtres: 0 });
   assert.equal(db.prepare('SELECT dupe_of FROM articles WHERE guid = ?').get('b-court').dupe_of, null);
+});
+
+test('la fenetre du titre compte ses deux bords, et rien au-dela', () => {
+  const titre = 'Les pecheurs du port reprennent la mer apres la tempete';
+  const quand = Date.parse('2026-05-10T12:00:00Z');
+  store.saveItems(fluxA, [article({ guid: 'a-bord', url: 'https://a.test/bord', title: titre, published_at: quand })], U);
+
+  const auBord = store.saveItems(fluxB, [article({
+    guid: 'b-bord', url: 'https://b.test/bord', title: titre, published_at: quand + FENETRE_TITRE_MS
+  })], U);
+  assert.deepEqual(auBord, { ajoutes: 0, doublons: 1, filtres: 0 });
+
+  const auDela = store.saveItems(fluxB, [article({
+    guid: 'c-bord', url: 'https://c.test/bord', title: titre, published_at: quand - FENETRE_TITRE_MS - 1
+  })], U);
+  assert.deepEqual(auDela, { ajoutes: 1, doublons: 0, filtres: 0 });
+});
+
+const doublons = await import('../server/doublons.js');
+
+test('la recherche par titre passe par l index des titres, pas par toute la table', () => {
+  // Par l'index des doublons, chaque article recu relisait la base entiere et
+  // figeait le serveur pendant les rafraichissements.
+  const plan = db.prepare('EXPLAIN QUERY PLAN ' + doublons._pourLesTests.chercheParTitre.source)
+    .all({ cle: 'x', quand: 0, fenetre: 1, compte: U })
+    .map((ligne) => ligne.detail)
+    .join(' | ');
+  assert.match(plan, /idx_articles_titlekey/);
+  assert.doesNotMatch(plan, /idx_articles_dupe/);
 });
 
 test('un titre identique mais publie bien plus tard reste un article distinct', () => {

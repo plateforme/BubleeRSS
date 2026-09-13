@@ -26,10 +26,21 @@ const chercheParUrl = db.prepare(`
   ORDER BY a.id LIMIT 1
 `);
 
+/* La recherche par titre dit a SQLite par ou passer. Sans statistiques, le
+   planificateur prenait « dupe_of IS NULL » pour un filtre selectif — il vaut
+   presque toute la table — et relisait chaque article stocke pour chaque
+   article recu : 29 ms piece sur quatre mille lignes, et le serveur fige,
+   sourd a toute requete, le temps d'un rafraichissement. On ouvrait alors
+   l'edition sur un squelette.
+   Le « + » devant dupe_of lui retire l'index des doublons, et la fenetre
+   s'ecrit en intervalle plutot qu'en ABS(), que l'index ne sait pas lire : on
+   ne lit plus que les quelques lignes qui portent le meme titre. Mesure sur
+   une copie de la base : 2 452 recherches, memes reponses, 39 s -> 0,2 s. */
 const chercheParTitre = db.prepare(`
   SELECT a.id, a.feed_id, a.read_at, a.starred, a.title_key
   FROM articles a JOIN feeds f ON f.id = a.feed_id
-  WHERE a.title_key = ? AND a.dupe_of IS NULL AND ABS(a.published_at - ?) <= ? AND f.user_id = ?
+  WHERE a.title_key = @cle AND a.published_at BETWEEN @quand - @fenetre AND @quand + @fenetre
+    AND +a.dupe_of IS NULL AND f.user_id = @compte
   ORDER BY a.id LIMIT 1
 `);
 
@@ -44,10 +55,12 @@ export function trouverOriginal(cleUrl, cleTitre, publieLe, compte) {
     if (parUrl) return parUrl;
   }
   if (cleTitre && cleTitre.length >= TITRE_FIABLE) {
-    return chercheParTitre.get(cleTitre, publieLe, FENETRE_TITRE_MS, compte) || null;
+    return chercheParTitre.get({ cle: cleTitre, quand: publieLe, fenetre: FENETRE_TITRE_MS, compte }) || null;
   }
   return null;
 }
+
+export const _pourLesTests = { chercheParTitre };
 
 /**
  * Aligne l'etat « lu » a l'interieur de chaque groupe de doublons, dans les

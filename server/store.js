@@ -37,7 +37,17 @@ function articleDuCompte(id, u) {
    3 012 articles) : 1,8 ms pour les sous-requetes, 4,5 ms pour le
    regroupement. L'index (feed_id, published_at) fait de chaque comptage un
    parcours d'intervalle, la ou le GROUP BY construit un arbre temporaire.
-   On garde donc cette forme-ci ; elle n'est pas naive, elle est mesuree. */
+   On garde donc cette forme-ci ; elle n'est pas naive, elle est mesuree.
+
+   Le « + » devant read_at, lui, est indispensable. Les statistiques de
+   SQLite ne sont refaites qu'a l'arret du serveur ; celles de la base en
+   service dataient d'une bibliotheque presque entierement lue, et le
+   planificateur en concluait que « read_at IS NULL » ne designait qu'une
+   poignee de lignes. Il comptait alors les non-lus de chaque source en
+   parcourant *tous* les non-lus du compte : 102 sources x 18 000 articles,
+   8 s pour ouvrir l'application sur la vraie base (septembre 2026). Le « + »
+   lui retire l'index de lecture et le ramene a celui des sources : 70 ms,
+   memes chiffres. Meme garde dans compteursSources et dans counts(). */
 export function listFeeds(u) {
   return db.prepare(`
     SELECT f.id, f.url, f.site_url, f.folder, f.icon, f.description, f.priority,
@@ -51,7 +61,7 @@ export function listFeeds(u) {
              WHEN EXISTS (SELECT 1 FROM articles a WHERE a.feed_id = f.id AND a.duration IS NOT NULL) THEN 'podcast'
              ELSE 'article'
            END AS kind,
-           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND +a.read_at IS NULL) AS unread,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f
     WHERE f.user_id = ?
@@ -102,7 +112,7 @@ export function getFeed(id, u) {
 export function compteursSources(u) {
   return db.prepare(`
     SELECT f.id,
-           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read_at IS NULL) AS unread,
+           (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND +a.read_at IS NULL) AS unread,
            (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id) AS total
     FROM feeds f WHERE f.user_id = ?
   `).all(exigeCompte(u));
@@ -1352,7 +1362,7 @@ export function counts(u) {
 
   const byFolder = db.prepare(`
     SELECT f.folder AS name, COUNT(a.id) AS unread
-    FROM feeds f LEFT JOIN articles a ON a.feed_id = f.id AND a.read_at IS NULL
+    FROM feeds f LEFT JOIN articles a ON a.feed_id = f.id AND +a.read_at IS NULL
     WHERE f.user_id = ?
     GROUP BY f.folder
   `).all(compte);

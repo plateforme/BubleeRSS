@@ -128,6 +128,74 @@ export function decodeBody(buffer, contentType) {
   }
 }
 
+/* --------------------------------------------------------- erreurs reseau */
+
+/**
+ * fetch range toute panne de transport sous un seul libelle, « fetch failed »,
+ * et cache la vraie raison dans `cause`. Le flux se retrouvait marque d'un
+ * « ! » sans qu'on puisse dire si le nom n'existait plus, si le serveur avait
+ * raccroche ou si la connexion avait seulement rate son tour. On remonte
+ * donc la cause dans le message — et on distingue ce qui merite un second
+ * essai de ce qui n'en merite pas.
+ */
+const CODES_PASSAGERS = new Set([
+  'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'
+]);
+
+const REPRISES_MAX = 2;
+const DELAIS_REPRISE_MS = [1000, 3000];
+
+/** Le code d'une cause, meme enfouie dans un AggregateError (double pile IPv4/IPv6). */
+function codeDe(cause) {
+  if (!cause) return null;
+  if (cause.code) return String(cause.code);
+  if (Array.isArray(cause.errors)) for (const e of cause.errors) { const c = codeDe(e); if (c) return c; }
+  return cause.name && cause.name !== 'Error' && cause.name !== 'TypeError' ? cause.name : null;
+}
+
+/**
+ * Traduit une erreur de fetch en erreur lisible, ou la rend telle quelle si
+ * elle ne vient pas du transport. `passagere` dit si un nouvel essai a un sens.
+ */
+export function erreurReseau(error) {
+  if (error?.name === 'AbortError') {
+    return Object.assign(new Error('Pas de réponse dans le délai imparti.'), { code: 'TIMEOUT', passagere: false, cause: error });
+  }
+  const cause = error?.cause;
+  if (!cause) return error;
+  const code = codeDe(cause) || 'RESEAU';
+  const detail = String(cause.message || '').replace(/s+/g, ' ').trim();
+  const message = 'Réseau : ' + code + (detail && detail !== code ? ' — ' + detail : '');
+  return Object.assign(new Error(message), { code, passagere: CODES_PASSAGERS.has(code), cause });
+}
+
+function pause(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const fin = () => { clearTimeout(t); reject(signal.reason); };
+    const t = setTimeout(() => { signal.removeEventListener('abort', fin); resolve(); }, ms);
+    signal.addEventListener('abort', fin, { once: true });
+  });
+}
+
+/**
+ * Un GET, repris jusqu'a deux fois quand la panne est passagere : socket
+ * fermee par l'autre bout, connexion qui n'aboutit pas, resolveur occupe.
+ * Le delai global de la requete borne le tout, reprises comprises.
+ */
+async function fetchAvecReprise(href, options) {
+  for (let essai = 0; ; essai++) {
+    try {
+      return await fetch(href, options);
+    } catch (brut) {
+      const erreur = erreurReseau(brut);
+      if (!erreur.passagere || essai >= REPRISES_MAX || options.signal.aborted) throw erreur;
+      await pause(DELAIS_REPRISE_MS[essai] ?? DELAIS_REPRISE_MS.at(-1), options.signal);
+    }
+  }
+}
+
 /* ------------------------------------------------------------------ GET */
 
 /**
@@ -163,6 +231,10 @@ async function lireCorps(res, maxBytes) {
  *
  * `verifier` remplace le controle d'adresse : reserve aux tests, qui n'ont
  * qu'un serveur local sous la main pour eprouver les redirections et le plafond.
+ *
+ * Une panne de transport ressort avec sa cause dans le message (« Réseau :
+ * ECONNRESET — … ») et le delai depasse avec le sien, plutot que les
+ * « fetch failed » et « This operation was aborted » de fetch.
  */
 export async function httpGet(url, {
   headers = {}, timeout = 20000, navigateur = false, maxBytes = MAX_BYTES, verifier = adressePublique
@@ -172,7 +244,7 @@ export async function httpGet(url, {
   try {
     let cible = await verifier(url);
     for (let saut = 0; ; saut++) {
-      const res = await fetch(cible.href, {
+      const res = await fetchAvecReprise(cible.href, {
         redirect: 'manual',
         signal: controller.signal,
         headers: {
@@ -195,7 +267,7 @@ export async function httpGet(url, {
         continue;
       }
 
-      const buffer = await lireCorps(res, maxBytes);
+      const buffer = await lireCorps(res, maxBytes).catch((brut) => { throw erreurReseau(brut); });
       // fetch ne renseigne res.url qu'en mode follow : on le pose nous-memes.
       Object.defineProperty(res, 'url', { value: cible.href, configurable: true });
       return { res, buffer };

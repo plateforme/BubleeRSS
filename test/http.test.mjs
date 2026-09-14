@@ -109,3 +109,42 @@ test('les deux /24 réservés de 192.0 sont refusés, le reste du /16 est public
   }
   assert.ok(urlPubliqueOuNull('https://192.0.66.96/feed'), 'une IP publique de WordPress.com passe');
 });
+
+test('httpGet reprend une connexion coupée par l’autre bout, et nomme la cause sinon', async () => {
+  let tentatives = 0;
+  const { serveur, origine, verifier } = await serveurLocal((req, res) => {
+    tentatives++;
+    if (tentatives === 1) return req.socket.destroy();     // « other side closed »
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('deuxième essai');
+  });
+  try {
+    const { buffer } = await httpGet(origine + '/', { verifier });
+    assert.equal(buffer.toString(), 'deuxième essai');
+    assert.equal(tentatives, 2);
+  } finally {
+    serveur.close();
+  }
+
+  // Un port fermé n'est pas une panne passagère : refus immédiat, cause nommée.
+  const ferme = http.createServer();
+  await new Promise((r) => ferme.listen(0, '127.0.0.1', r));
+  const port = ferme.address().port;
+  await new Promise((r) => ferme.close(r));
+  const debut = Date.now();
+  await assert.rejects(
+    httpGet(`http://127.0.0.1:${port}/`, { verifier: (u) => Promise.resolve(new URL(u)) }),
+    (e) => /Réseau : ECONNREFUSED/.test(e.message) && e.code === 'ECONNREFUSED'
+  );
+  assert.ok(Date.now() - debut < 900, 'pas de reprise sur un port fermé');
+});
+
+test('httpGet nomme le délai dépassé plutôt que « This operation was aborted »', async () => {
+  const { serveur, origine, verifier } = await serveurLocal(() => { /* ne répond jamais */ });
+  try {
+    await assert.rejects(httpGet(origine + '/', { verifier, timeout: 300 }), /délai imparti/);
+  } finally {
+    serveur.closeAllConnections?.();
+    serveur.close();
+  }
+});
